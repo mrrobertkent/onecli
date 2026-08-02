@@ -137,6 +137,10 @@ All environment variables are optional for local development:
 | `OIDC_CLIENT_ID`        | Generic OIDC client ID            | —                  |
 | `OIDC_CLIENT_SECRET`    | Generic OIDC client secret        | —                  |
 | `OIDC_PROVIDER_NAME`    | OIDC login button label           | `SSO`              |
+| `OIDC_PROVIDER_LOGO`    | OIDC button logo (URL or `data:`) | —                  |
+| `OIDC_PROVIDER_COLOR`   | OIDC button brand colour (hex)    | —                  |
+| `OIDC_PROVIDER_TEXT_COLOR` | OIDC button foreground         | Derived from colour |
+| `OIDC_PROVIDER_LOGO_ONLY` | Logo is a lockup; hide the label | `false`          |
 | `SECRET_ENCRYPTION_KEY` | AES-256-GCM encryption key        | Auto-generated     |
 
 ## Contributing
