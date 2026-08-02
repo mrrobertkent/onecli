@@ -7,6 +7,8 @@ import {
   OIDC_CLIENT_ID,
   OIDC_CLIENT_SECRET,
   OIDC_PROVIDER_NAME,
+  OIDC_PROVIDER_LOGO,
+  OIDC_PROVIDER_COLOR,
 } from "@/lib/env";
 
 interface RuntimeConfig {
@@ -16,6 +18,10 @@ interface RuntimeConfig {
   // Google and OIDC are set). Empty when no provider is configured.
   authProviderId: string;
   authProviderName: string;
+  // Optional OIDC button branding. Older instances wrote a runtime-config.json
+  // without these keys, so they are optional and read through `?? ""`.
+  authProviderLogo?: string;
+  authProviderColor?: string;
 }
 
 const RUNTIME_CONFIG_PATH = "/app/data/runtime-config.json";
@@ -25,6 +31,8 @@ const CLOUD_CONFIG: RuntimeConfig = {
   oauthConfigured: true,
   authProviderId: "google",
   authProviderName: "Google",
+  authProviderLogo: "",
+  authProviderColor: "",
 };
 
 let cached: RuntimeConfig | null = null;
@@ -63,6 +71,11 @@ export const getRuntimeConfig = (): RuntimeConfig => {
         : oidcConfigured
           ? OIDC_PROVIDER_NAME
           : "",
+      // Branding applies to the generic OIDC button only — Google has its own.
+      authProviderLogo:
+        !GOOGLE_CLIENT_ID && oidcConfigured ? OIDC_PROVIDER_LOGO : "",
+      authProviderColor:
+        !GOOGLE_CLIENT_ID && oidcConfigured ? OIDC_PROVIDER_COLOR : "",
     };
     return cached;
   }

@@ -18,12 +18,17 @@ export const LoginContent = () => {
     signOut,
     authProviderId,
     authProviderName,
+    authProviderLogo,
+    authProviderColor,
   } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
 
   // Google keeps its branded button; any other provider (generic OIDC) gets a
-  // neutral button labelled with the configured provider name.
+  // neutral button labelled with the configured provider name, optionally
+  // branded with the logo and colour the operator configured.
   const isGoogle = authProviderId === "google";
+  const brandColor = isGoogle ? "" : normalizeHex(authProviderColor);
+  const brandLogo = isGoogle ? "" : authProviderLogo;
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
@@ -101,6 +106,19 @@ export const LoginContent = () => {
                   ? "w-full gap-2 text-base bg-white text-black hover:bg-gray-100 dark:bg-white dark:text-black dark:hover:bg-gray-100"
                   : "w-full gap-2 text-base"
               }
+              // Inline rather than a class: the value is operator-supplied at
+              // runtime, so Tailwind cannot have generated a utility for it.
+              // `filter` dims on hover, which works against any hue without
+              // needing a second configured colour.
+              style={
+                brandColor
+                  ? {
+                      backgroundColor: brandColor,
+                      color: readableOn(brandColor),
+                      borderColor: brandColor,
+                    }
+                  : undefined
+              }
               loading={signingIn}
               onClick={() => {
                 setSigningIn(true);
@@ -108,6 +126,12 @@ export const LoginContent = () => {
               }}
             >
               {isGoogle && <GoogleIcon />}
+              {!isGoogle && brandLogo && (
+                // Plain <img>: the source is arbitrary operator input, so it
+                // must not go through next/image's configured-domain allowlist.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={brandLogo} alt="" aria-hidden className="h-4 w-4" />
+              )}
               {signingIn
                 ? "Redirecting..."
                 : isGoogle
@@ -129,6 +153,42 @@ export const LoginContent = () => {
       )}
     </div>
   );
+};
+
+/**
+ * Accept `#rgb`, `#rrggbb`, or the same without the leading `#`, and reject
+ * anything else. The value reaches the DOM as an inline style, so it is
+ * validated rather than interpolated blindly.
+ */
+const normalizeHex = (value: string): string => {
+  const v = value.trim().replace(/^#/, "");
+  if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) return "";
+  const full =
+    v.length === 3
+      ? v
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : v;
+  return `#${full.toLowerCase()}`;
+};
+
+/**
+ * Black or white, whichever is legible on `hex`. Uses the WCAG relative
+ * luminance formula so the operator configures one value and cannot end up with
+ * unreadable text — a light brand colour gets dark text and vice versa.
+ */
+const readableOn = (hex: string): string => {
+  const n = parseInt(hex.slice(1), 16);
+  const channel = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance =
+    0.2126 * channel((n >> 16) & 255) +
+    0.7152 * channel((n >> 8) & 255) +
+    0.0722 * channel(n & 255);
+  return luminance > 0.179 ? "#000000" : "#ffffff";
 };
 
 const GoogleIcon = () => (

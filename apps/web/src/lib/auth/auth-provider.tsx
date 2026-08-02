@@ -27,6 +27,8 @@ const LocalAuthProvider = ({ children }: { children: ReactNode }) => {
       signOut: async () => {},
       authProviderId: "",
       authProviderName: "",
+      authProviderLogo: "",
+      authProviderColor: "",
     }),
     [],
   );
@@ -69,8 +71,19 @@ const OAuthInner = ({
       signOut,
       authProviderId: authProvider.id,
       authProviderName: authProvider.name,
+      authProviderLogo: authProvider.logo,
+      authProviderColor: authProvider.color,
     }),
-    [status, user, signIn, signOut, authProvider.id, authProvider.name],
+    [
+      status,
+      user,
+      signIn,
+      signOut,
+      authProvider.id,
+      authProvider.name,
+      authProvider.logo,
+      authProvider.color,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

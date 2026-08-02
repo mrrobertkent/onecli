@@ -89,6 +89,24 @@ export const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET ?? "";
 /** Label shown on the OIDC login button (e.g. "Okta", "Keycloak"). */
 export const OIDC_PROVIDER_NAME = process.env.OIDC_PROVIDER_NAME ?? "SSO";
 
+/**
+ * Optional branding for the OIDC login button, so a self-hosted instance can
+ * present its identity provider the way Google's button is already presented
+ * rather than as an unlabelled generic control.
+ *
+ * LOGO is any URL the browser can load — an absolute https URL, a path served
+ * by this app, or a `data:` URI (which avoids a third-party request from the
+ * login page). COLOR is the provider's brand colour as hex; the button's
+ * foreground is derived from it for contrast rather than configured separately,
+ * so a single value cannot produce unreadable text.
+ *
+ * Both are optional and independent: with neither set the button keeps the
+ * neutral styling it has today.
+ */
+export const OIDC_PROVIDER_LOGO = process.env.OIDC_PROVIDER_LOGO ?? "";
+
+export const OIDC_PROVIDER_COLOR = process.env.OIDC_PROVIDER_COLOR ?? "";
+
 // ── Cloud: Cognito ──────────────────────────────────────────────────────
 
 export const COGNITO_CLIENT_ID =

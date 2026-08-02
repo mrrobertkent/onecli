@@ -30,6 +30,10 @@ export interface AuthContextValue {
   // "oidc"/"Okta"); empty in local mode. Drives the login button.
   authProviderId: string;
   authProviderName: string;
+  // Optional branding for the login button (generic OIDC only; Google keeps its
+  // own branded treatment). Empty strings mean "no branding configured".
+  authProviderLogo: string;
+  authProviderColor: string;
   // Email OTP flow (cloud-only, undefined in OSS mode)
   signUpWithEmail?: (email: string) => Promise<EmailOtpStep>;
   signInWithEmail?: (email: string) => Promise<EmailOtpStep>;

@@ -52,6 +52,14 @@ export AUTH_MODE
 OAUTH_CONFIGURED="false"
 AUTH_PROVIDER_ID=""
 AUTH_PROVIDER_NAME=""
+AUTH_PROVIDER_LOGO=""
+AUTH_PROVIDER_COLOR=""
+
+# Same escaping the label needs: these land inside JSON string literals below,
+# and a logo may legitimately be a data: URI containing quotes or backslashes.
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
 if [ -n "$GOOGLE_CLIENT_ID" ]; then
   OAUTH_CONFIGURED="true"
   AUTH_PROVIDER_ID="google"
@@ -61,9 +69,11 @@ elif [ -n "$OIDC_ISSUER" ] && [ -n "$OIDC_CLIENT_ID" ] && [ -n "$OIDC_CLIENT_SEC
   AUTH_PROVIDER_ID="oidc"
   # Escape backslashes and double quotes so the value stays valid inside the
   # JSON string below (the label is free-form, e.g. Corp "IT" SSO).
-  AUTH_PROVIDER_NAME=$(printf '%s' "${OIDC_PROVIDER_NAME:-SSO}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+  AUTH_PROVIDER_NAME=$(json_escape "${OIDC_PROVIDER_NAME:-SSO}")
+  AUTH_PROVIDER_LOGO=$(json_escape "${OIDC_PROVIDER_LOGO:-}")
+  AUTH_PROVIDER_COLOR=$(json_escape "${OIDC_PROVIDER_COLOR:-}")
 fi
-printf '{"authMode":"%s","oauthConfigured":%s,"authProviderId":"%s","authProviderName":"%s"}\n' "$AUTH_MODE" "$OAUTH_CONFIGURED" "$AUTH_PROVIDER_ID" "$AUTH_PROVIDER_NAME" > /app/data/runtime-config.json
+printf '{"authMode":"%s","oauthConfigured":%s,"authProviderId":"%s","authProviderName":"%s","authProviderLogo":"%s","authProviderColor":"%s"}\n' "$AUTH_MODE" "$OAUTH_CONFIGURED" "$AUTH_PROVIDER_ID" "$AUTH_PROVIDER_NAME" "$AUTH_PROVIDER_LOGO" "$AUTH_PROVIDER_COLOR" > /app/data/runtime-config.json
 
 # Both services run as background children so this shell stays alive to
 # supervise them. It deliberately does NOT `exec` the web server: doing so
