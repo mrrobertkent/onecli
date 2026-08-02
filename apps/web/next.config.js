@@ -189,8 +189,10 @@ const nextConfig = {
             destination: "/settings/instance",
             permanent: false,
           },
-          // 1.45.0 added two more pages whose whole body is an in-render
-          // redirect(), so they fail the same way as /settings did.
+          // Two more pages have the same shape — their entire body is an
+          // in-render redirect() — and fail identically. Both have existed since
+          // #127 (2026-03-29), so this is a gap in the original scoping rather
+          // than a regression.
           {
             source: "/connections/apps",
             destination: "/connections",
