@@ -9,6 +9,8 @@ export interface AuthProviderInfo {
   logo: string;
   /** Optional brand colour (hex) for the login button. */
   color: string;
+  /** Optional explicit foreground; derived from `color` when empty. */
+  textColor: string;
 }
 
 export const getAuthMode = (): AuthMode => getRuntimeConfig().authMode;
@@ -17,12 +19,18 @@ export const isOAuthConfigured = (): boolean =>
   getRuntimeConfig().oauthConfigured;
 
 export const getAuthProvider = (): AuthProviderInfo => {
-  const { authProviderId, authProviderName, authProviderLogo, authProviderColor } =
-    getRuntimeConfig();
+  const {
+    authProviderId,
+    authProviderName,
+    authProviderLogo,
+    authProviderColor,
+    authProviderTextColor,
+  } = getRuntimeConfig();
   return {
     id: authProviderId,
     name: authProviderName,
     logo: authProviderLogo ?? "",
     color: authProviderColor ?? "",
+    textColor: authProviderTextColor ?? "",
   };
 };

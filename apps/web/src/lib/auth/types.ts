@@ -34,6 +34,7 @@ export interface AuthContextValue {
   // own branded treatment). Empty strings mean "no branding configured".
   authProviderLogo: string;
   authProviderColor: string;
+  authProviderTextColor: string;
   // Email OTP flow (cloud-only, undefined in OSS mode)
   signUpWithEmail?: (email: string) => Promise<EmailOtpStep>;
   signInWithEmail?: (email: string) => Promise<EmailOtpStep>;

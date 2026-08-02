@@ -107,6 +107,15 @@ export const OIDC_PROVIDER_LOGO = process.env.OIDC_PROVIDER_LOGO ?? "";
 
 export const OIDC_PROVIDER_COLOR = process.env.OIDC_PROVIDER_COLOR ?? "";
 
+/**
+ * Optional override for the button's foreground. Left unset, it is derived from
+ * OIDC_PROVIDER_COLOR by relative luminance, which maximises measured contrast.
+ * Brand guidelines often call for white on a mid-luminance brand colour even
+ * where black would score higher, so operators can say so explicitly — at the
+ * cost of the contrast the derived value would have given them.
+ */
+export const OIDC_PROVIDER_TEXT_COLOR = process.env.OIDC_PROVIDER_TEXT_COLOR ?? "";
+
 // ── Cloud: Cognito ──────────────────────────────────────────────────────
 
 export const COGNITO_CLIENT_ID =

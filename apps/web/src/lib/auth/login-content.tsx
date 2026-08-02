@@ -20,6 +20,7 @@ export const LoginContent = () => {
     authProviderName,
     authProviderLogo,
     authProviderColor,
+    authProviderTextColor,
   } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
 
@@ -29,6 +30,15 @@ export const LoginContent = () => {
   const isGoogle = authProviderId === "google";
   const brandColor = isGoogle ? "" : normalizeHex(authProviderColor);
   const brandLogo = isGoogle ? "" : authProviderLogo;
+  // Explicit foreground wins; otherwise derive the more legible of black/white.
+  const brandText =
+    (isGoogle ? "" : normalizeHex(authProviderTextColor)) ||
+    (brandColor ? readableOn(brandColor) : "");
+  // With a logo present the mark already conveys "sign in with", so the label is
+  // just the provider name; without one it needs the verb to make sense.
+  const oidcLabel = brandLogo
+    ? authProviderName
+    : `Continue with ${authProviderName}`;
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
@@ -114,7 +124,7 @@ export const LoginContent = () => {
                 brandColor
                   ? {
                       backgroundColor: brandColor,
-                      color: readableOn(brandColor),
+                      color: brandText,
                       borderColor: brandColor,
                     }
                   : undefined
@@ -136,7 +146,7 @@ export const LoginContent = () => {
                 ? "Redirecting..."
                 : isGoogle
                   ? "Continue with Google"
-                  : `Continue with ${authProviderName}`}
+                  : oidcLabel}
             </Button>
             <p className="text-muted-foreground mt-4 text-center text-xs">
               By continuing, you acknowledge OneCLI&apos;s{" "}

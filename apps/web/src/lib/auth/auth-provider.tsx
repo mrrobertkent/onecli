@@ -29,6 +29,7 @@ const LocalAuthProvider = ({ children }: { children: ReactNode }) => {
       authProviderName: "",
       authProviderLogo: "",
       authProviderColor: "",
+      authProviderTextColor: "",
     }),
     [],
   );
@@ -73,6 +74,7 @@ const OAuthInner = ({
       authProviderName: authProvider.name,
       authProviderLogo: authProvider.logo,
       authProviderColor: authProvider.color,
+      authProviderTextColor: authProvider.textColor,
     }),
     [
       status,
@@ -83,6 +85,7 @@ const OAuthInner = ({
       authProvider.name,
       authProvider.logo,
       authProvider.color,
+      authProvider.textColor,
     ],
   );
 
