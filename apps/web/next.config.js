@@ -42,6 +42,37 @@ const nextConfig = {
             destination: "/settings/instance",
             permanent: false,
           },
+          // Two more pages have the same shape — their entire body is an
+          // in-render redirect() — and fail identically. Both have existed since
+          // #127 (2026-03-29), so this is a gap in the original scoping rather
+          // than a regression.
+          {
+            source: "/connections/apps",
+            destination: "/connections",
+            permanent: false,
+          },
+          // /connections/secrets branches: `?create=anthropic|openai` goes to the
+          // LLM tab, everything else to the custom tab. Expressed as a `has` rule
+          // ahead of the catch-all so the branch survives the move out of the
+          // page. Any other query string is carried over automatically — Next
+          // forwards the original query when the destination declares none.
+          {
+            source: "/connections/secrets",
+            has: [
+              {
+                type: "query",
+                key: "create",
+                value: "(?<create>anthropic|openai)",
+              },
+            ],
+            destination: "/connections/llms?create=:create",
+            permanent: false,
+          },
+          {
+            source: "/connections/secrets",
+            destination: "/connections/custom",
+            permanent: false,
+          },
         ];
   },
   poweredByHeader: false,
