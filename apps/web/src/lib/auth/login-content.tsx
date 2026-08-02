@@ -21,6 +21,7 @@ export const LoginContent = () => {
     authProviderLogo,
     authProviderColor,
     authProviderTextColor,
+    authProviderLogoOnly,
   } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
 
@@ -34,8 +35,11 @@ export const LoginContent = () => {
   const brandText =
     (isGoogle ? "" : normalizeHex(authProviderTextColor)) ||
     (brandColor ? readableOn(brandColor) : "");
-  // With a logo present the mark already conveys "sign in with", so the label is
-  // just the provider name; without one it needs the verb to make sense.
+  // A lockup already contains the provider's wordmark, so repeating the name
+  // beside it would duplicate it and re-set it in this app's typeface. A bare
+  // mark does not, so it keeps the name; with no artwork at all the label needs
+  // the verb to read as an action.
+  const logoOnly = brandLogo !== "" && authProviderLogoOnly;
   const oidcLabel = brandLogo
     ? authProviderName
     : `Continue with ${authProviderName}`;
@@ -139,14 +143,24 @@ export const LoginContent = () => {
               {!isGoogle && brandLogo && (
                 // Plain <img>: the source is arbitrary operator input, so it
                 // must not go through next/image's configured-domain allowlist.
+                // A lockup keeps its own aspect ratio and carries the accessible
+                // name; a bare mark is a fixed square and is decorative, because
+                // the visible label already names the provider.
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={brandLogo} alt="" aria-hidden className="h-4 w-4" />
+                <img
+                  src={brandLogo}
+                  alt={logoOnly ? authProviderName : ""}
+                  aria-hidden={logoOnly ? undefined : true}
+                  className={logoOnly ? "h-5 w-auto" : "h-4 w-4"}
+                />
               )}
               {signingIn
                 ? "Redirecting..."
                 : isGoogle
                   ? "Continue with Google"
-                  : oidcLabel}
+                  : logoOnly
+                    ? null
+                    : oidcLabel}
             </Button>
             <p className="text-muted-foreground mt-4 text-center text-xs">
               By continuing, you acknowledge OneCLI&apos;s{" "}

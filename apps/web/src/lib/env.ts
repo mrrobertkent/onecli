@@ -116,6 +116,16 @@ export const OIDC_PROVIDER_COLOR = process.env.OIDC_PROVIDER_COLOR ?? "";
  */
 export const OIDC_PROVIDER_TEXT_COLOR = process.env.OIDC_PROVIDER_TEXT_COLOR ?? "";
 
+/**
+ * Set when OIDC_PROVIDER_LOGO is a full lockup — a mark plus the provider's
+ * wordmark in its own typeface — rather than a bare icon. The button then shows
+ * the artwork alone, since repeating the name beside it duplicates the wordmark
+ * and re-sets it in the app's font. OIDC_PROVIDER_NAME is still required: it
+ * becomes the button's accessible name.
+ */
+export const OIDC_PROVIDER_LOGO_ONLY =
+  (process.env.OIDC_PROVIDER_LOGO_ONLY ?? "").toLowerCase() === "true";
+
 // ── Cloud: Cognito ──────────────────────────────────────────────────────
 
 export const COGNITO_CLIENT_ID =

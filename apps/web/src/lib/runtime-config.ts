@@ -10,6 +10,7 @@ import {
   OIDC_PROVIDER_LOGO,
   OIDC_PROVIDER_COLOR,
   OIDC_PROVIDER_TEXT_COLOR,
+  OIDC_PROVIDER_LOGO_ONLY,
 } from "@/lib/env";
 
 interface RuntimeConfig {
@@ -24,6 +25,7 @@ interface RuntimeConfig {
   authProviderLogo?: string;
   authProviderColor?: string;
   authProviderTextColor?: string;
+  authProviderLogoOnly?: boolean;
 }
 
 const RUNTIME_CONFIG_PATH = "/app/data/runtime-config.json";
@@ -36,6 +38,7 @@ const CLOUD_CONFIG: RuntimeConfig = {
   authProviderLogo: "",
   authProviderColor: "",
   authProviderTextColor: "",
+  authProviderLogoOnly: false,
 };
 
 let cached: RuntimeConfig | null = null;
@@ -81,6 +84,8 @@ export const getRuntimeConfig = (): RuntimeConfig => {
         !GOOGLE_CLIENT_ID && oidcConfigured ? OIDC_PROVIDER_COLOR : "",
       authProviderTextColor:
         !GOOGLE_CLIENT_ID && oidcConfigured ? OIDC_PROVIDER_TEXT_COLOR : "",
+      authProviderLogoOnly:
+        !GOOGLE_CLIENT_ID && oidcConfigured && OIDC_PROVIDER_LOGO_ONLY,
     };
     return cached;
   }

@@ -11,6 +11,8 @@ export interface AuthProviderInfo {
   color: string;
   /** Optional explicit foreground; derived from `color` when empty. */
   textColor: string;
+  /** True when `logo` is a full lockup and should replace the label. */
+  logoOnly: boolean;
 }
 
 export const getAuthMode = (): AuthMode => getRuntimeConfig().authMode;
@@ -25,6 +27,7 @@ export const getAuthProvider = (): AuthProviderInfo => {
     authProviderLogo,
     authProviderColor,
     authProviderTextColor,
+    authProviderLogoOnly,
   } = getRuntimeConfig();
   return {
     id: authProviderId,
@@ -32,5 +35,6 @@ export const getAuthProvider = (): AuthProviderInfo => {
     logo: authProviderLogo ?? "",
     color: authProviderColor ?? "",
     textColor: authProviderTextColor ?? "",
+    logoOnly: authProviderLogoOnly ?? false,
   };
 };
