@@ -33,7 +33,7 @@ services:
       - "${ONECLI_BIND_HOST:-127.0.0.1}:${ONECLI_GATEWAY_PORT:-10255}:10255"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-onecli}:${POSTGRES_PASSWORD:-onecli}@postgres:5432/${POSTGRES_DB:-onecli}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+      AUTH_SECRET: ${AUTH_SECRET:-}
       # The public URL users reach OneCLI on. The gateway needs it to build the
       # links it puts in agent-facing responses — it answers proxy calls, so it
       # has no browser request to derive an address from.

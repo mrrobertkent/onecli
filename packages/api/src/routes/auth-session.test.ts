@@ -22,6 +22,7 @@ const state = vi.hoisted(() => ({
   upserts: [] as Record<string, unknown>[],
   defaultProject: null as { id: string; organizationId: string } | null,
   bootstraps: 0,
+  joinRoles: [] as string[],
 }));
 
 vi.mock("@onecli/db", () => ({
@@ -53,7 +54,21 @@ vi.mock("../services/organization-service", () => ({
     state.bootstraps += 1;
     return { project: { id: "boot-proj", organizationId: "boot-org" } };
   },
-  joinSharedOrganization: async () => ({ project: null }),
+  // OSS is `single-org-shared` since design D-1, so THIS is the branch the
+  // bootstrap decision now takes. It counts as a bootstrap for these tests —
+  // they are about whether the org side ran, not which shape it took.
+  joinSharedOrganization: async (
+    _userId: string,
+    _userEmail: string,
+    role: string,
+  ) => {
+    state.bootstraps += 1;
+    // Design D-11: this path once hardcoded `owner` for every joiner, which
+    // made every user an owner of the one shared org. Pin it here too — the
+    // service-level test can only see calls the route actually makes.
+    state.joinRoles.push(role);
+    return { project: { id: "boot-proj", organizationId: "boot-org" } };
+  },
   ensureProjectSeeds: async () => {},
 }));
 
@@ -73,6 +88,7 @@ beforeEach(() => {
   state.upserts = [];
   state.defaultProject = { id: "proj-1", organizationId: "org-1" };
   state.bootstraps = 0;
+  state.joinRoles = [];
 });
 
 afterEach(() => {
@@ -218,6 +234,8 @@ describe("GET /auth/session onUserCreated seam", () => {
       { email: "guy@acme.com", bootstrappedOrg: true, hasRequest: true },
     ]);
     expect(state.bootstraps).toBe(1);
+    // D-11: never `owner` for an ordinary joiner.
+    expect(state.joinRoles).toEqual(["member"]);
   });
 
   it("fires without bootstrap when shouldBootstrapOrg declines", async () => {

@@ -218,6 +218,14 @@ model User {
   id                    String    @id @default(uuid())
   email                 String    @unique
   name                  String?
+  // Better Auth core `user` fields (design D-10). Better Auth maps its `user`
+  // model onto THIS table — there is no second user table. `emailVerified`
+  // also finally populates `SessionUser.emailVerified`, which packages/api has
+  // declared and never written. `name` deliberately stays nullable: Better
+  // Auth enforces `required` on create only and filters (not validates) on
+  // read, so an existing null is safe.
+  emailVerified         Boolean   @default(false) @map("email_verified")
+  image                 String?
   // Cloud-only (inert in OSS): the SCIM `name` object (formatted/givenName/
   // familyName/…) stored losslessly so IdP-provisioned attributes round-trip;
   // `name` above stays the display string.
@@ -234,6 +242,8 @@ model User {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
+  authSessions                  AuthSession[]
+  authAccounts                  AuthAccount[]
   organizationMemberships       OrganizationMember[]
   sentInvitations               Invitation[]                  @relation("InvitationCreator")
   apiKeys                       ApiKey[]
@@ -1009,4 +1019,117 @@ model CliAuthSession {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("cli_auth_sessions")
+}
+
+/// Instance-wide settings that an administrator can change at runtime, as
+/// opposed to container configuration that needs a restart (design D-15).
+///
+/// Singleton: exactly one row, pinned by `id = "instance"`. A key/value table
+/// would push type-checking to the call site for no gain at this size.
+///
+/// NOT on `Organization`: these are properties of the deployment, not of a
+/// tenant. Under `single-org-shared` there happens to be one of each, but the
+/// cloud edition has many organizations and one instance.
+model InstanceSetting {
+  id String @id @default("instance")
+
+  /// Who may provision themselves an account. Deliberately three states rather
+  /// than a boolean: "SSO users may join" and "anyone may create a password
+  /// account" are different decisions, and a boolean forces them together.
+  ///
+  ///   "closed"   — (default) no self-provisioning; the bootstrap path or an
+  ///                admin creates accounts.
+  ///   "sso-only" — an identity that authenticates at the IdP AND resolves to a
+  ///                role is provisioned. Password sign-up stays shut.
+  ///   "open"     — password self-registration is permitted too.
+  ///
+  /// Read per-request by the sign-up gate, which DENIES on any unrecognised
+  /// value — so a typo or a future value this build does not know closes the
+  /// door rather than opening it (US-1: misconfiguration denies).
+  signupMode String @default("closed") @map("signup_mode")
+
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  updatedByUserId String?  @map("updated_by_user_id")
+
+  @@map("instance_settings")
+}
+
+// ── Better Auth (design D-9 / D-10) ─────────────────────────────────────
+//
+// Better Auth's `user` model is mapped onto `User` above; these are its three
+// remaining core tables plus its rate-limit store. Prisma FIELD names must
+// match Better Auth's field contract exactly (camelCase) because its Prisma
+// adapter addresses Prisma model fields, not columns — `@map` only renames the
+// physical column, which is how these stay snake_case like the rest of the
+// schema.
+//
+// Models are prefixed `Auth*` because bare `Session`/`Account` are ambiguous in
+// a schema this size; Better Auth is told about the rename with
+// `session.modelName` / `account.modelName` / `verification.modelName` /
+// `rateLimit.modelName`.
+
+model AuthSession {
+  id        String   @id @default(uuid())
+  expiresAt DateTime @map("expires_at")
+  token     String   @unique
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+// Local passwords live HERE, on `password` under `providerId = "credential"` —
+// never on the user row. Federated identities are rows on the same table, which
+// is what makes OIDC↔password account linking Better Auth's job rather than
+// something `resolveIdentityConflict` has to arbitrate.
+model AuthAccount {
+  id                    String    @id @default(uuid())
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model AuthVerification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([identifier])
+  @@map("auth_verifications")
+}
+
+// Database-backed rate limiting (`rateLimit.storage: "database"`). Chosen over
+// the default in-memory store so the limit survives a container restart, which
+// an in-memory counter does not — and because the per-ACCOUNT backoff we add on
+// top of Better Auth's per-IP rule is only meaningful if it persists.
+model AuthRateLimit {
+  id          String @id @default(uuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt @map("last_request")
+
+  @@map("auth_rate_limits")
 }

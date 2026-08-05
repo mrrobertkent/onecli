@@ -4,6 +4,7 @@ import { generateAccessToken } from "./agent-service";
 import { DEFAULT_AGENT_NAME, DEFAULT_AGENT_IDENTIFIER } from "../lib/constants";
 import { generateProjectId, generateOrganizationId } from "../lib/ids";
 import { getNewOrgPolicySeeder } from "../providers";
+import type { OrgRole } from "../providers/types";
 import { logger } from "../lib/logger";
 
 export const slugify = (raw: string) =>
@@ -167,29 +168,33 @@ const findOrCreateSharedOrg = async (): Promise<{ id: string }> => {
 };
 
 /**
- * The ORG-LEVEL part of the onprem bootstrap: ensure the single shared
- * organization exists, the user is a member, and the operator bootstrap org API
- * key is seeded — WITHOUT any project. Idempotent and concurrency-safe. Shared by
- * `joinSharedOrganization` (first login) and the eager boot-time init, which
- * provisions just the org + key so the instance is usable via the org key before
- * anyone opens the web.
+ * Ensure the single shared organization exists and the user is a member of it
+ * with the GIVEN role — WITHOUT any project. Idempotent and concurrency-safe.
+ *
+ * `role` IS DELIBERATELY REQUIRED AND HAS NO DEFAULT (design D-11). This
+ * function previously created every membership with `role: "owner"`
+ * unconditionally, which under `single-org-shared` made every user who ever
+ * logged in an owner of the shared organization. A `RoleResolver` reading
+ * `organization_members.role` then returned `owner` for everyone — a correct
+ * answer to poisoned data, which is worse than an obviously broken one. Callers
+ * must now state the role, so the compiler makes that decision visible.
+ *
+ * The existing role is preserved on re-entry (`update: {}`): membership is
+ * created once, and later role changes belong to the login-time role writer
+ * (D-3) or an admin, not to a bootstrap helper.
  */
-export const ensureSharedOrgWithKey = async (
+export const ensureSharedOrgMembership = async (
   userId: string,
   userEmail: string,
+  role: OrgRole,
 ): Promise<{ id: string }> => {
   const org = await findOrCreateSharedOrg();
 
-  // Add the user to the shared org (idempotent on the composite PK).
   await db.organizationMember.upsert({
     where: { organizationId_userId: { organizationId: org.id, userId } },
-    create: { organizationId: org.id, userId, userEmail, role: "owner" },
+    create: { organizationId: org.id, userId, userEmail, role },
     update: {},
   });
-
-  // Ensure the shared org's bootstrap API key exists (operator-supplied via
-  // ONECLI_ORG_API_KEY / _FILE, else generated). Idempotent — no-ops once seeded.
-  await ensureBootstrapOrgApiKey({ organizationId: org.id, userId, userEmail });
 
   // Seed the shared org's initial published policy (step 9.5 — onprem rides
   // the EE engine, so a fresh instance starts on v2 directly). Best-effort +
@@ -207,17 +212,47 @@ export const ensureSharedOrgWithKey = async (
 };
 
 /**
- * Single-org (onprem) first-login bootstrap: ensure the shared org + operator key
- * (via `ensureSharedOrgWithKey`), then give the user their own default project
- * inside it. Idempotent and concurrency-safe. Mirrors `bootstrapOrganization`'s
- * return shape — the project apiKey + default agent are seeded by the caller's
+ * The ORG-LEVEL part of the instance bootstrap: the shared organization, its
+ * OWNER, and the operator bootstrap org API key — WITHOUT any project. Used by
+ * the eager boot-time init so the instance is usable via the org key before
+ * anyone opens the web.
+ *
+ * Split out from the membership helper above per design D-11. The key seeding
+ * is what makes this owner-shaped: `ApiKey.user` is `ON DELETE RESTRICT`, so
+ * whoever owns the bootstrap key cannot be deleted while it exists. That is
+ * correct for a bootstrap admin and wrong for an ordinary joiner, which is
+ * exactly why the two paths must not share one function.
+ */
+export const ensureSharedOrgBootstrap = async (
+  userId: string,
+  userEmail: string,
+): Promise<{ id: string }> => {
+  const org = await ensureSharedOrgMembership(userId, userEmail, "owner");
+
+  // Operator-supplied via ONECLI_ORG_API_KEY / _FILE, else generated.
+  // Idempotent — no-ops once seeded.
+  await ensureBootstrapOrgApiKey({ organizationId: org.id, userId, userEmail });
+
+  return org;
+};
+
+/**
+ * Single-org first-login join: ensure the shared org + the user's membership at
+ * the GIVEN role, then give the user their own default project inside it.
+ * Idempotent and concurrency-safe. Mirrors `bootstrapOrganization`'s return
+ * shape — the project apiKey + default agent are seeded by the caller's
  * `ensureProjectSeeds`.
+ *
+ * `role` is required with no default (design D-11). It does NOT seed the
+ * bootstrap org API key: that belongs to `ensureSharedOrgBootstrap` and to the
+ * bootstrap admin alone, because owning the key makes a user undeletable.
  */
 export const joinSharedOrganization = async (
   userId: string,
   userEmail: string,
+  role: OrgRole,
 ) => {
-  const org = await ensureSharedOrgWithKey(userId, userEmail);
+  const org = await ensureSharedOrgMembership(userId, userEmail, role);
 
   // Each user gets their own default project in the shared org. The project slug
   // must be unique per org (`@@unique([organizationId, slug])`); since every user

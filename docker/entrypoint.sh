@@ -42,7 +42,7 @@ fi
 
 # Write runtime config for Next.js (auth mode is determined at container start,
 # not at build time, so the same image works for local and OAuth modes).
-if [ -n "$NEXTAUTH_SECRET" ]; then
+if [ -n "$AUTH_SECRET" ]; then
   AUTH_MODE="oauth"
 else
   AUTH_MODE="local"

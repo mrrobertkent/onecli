@@ -50,7 +50,15 @@ export const IS_CLOUD = EDITION_INFO.edition === "cloud";
 
 // ── Auth & Encryption ───────────────────────────────────────────────────
 
-export const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? "";
+/**
+ * Dotted PATH to the IdP claim carrying the user's groups (design D-4).
+ *
+ * A path, not a name, because Authentik and Okta emit a flat `groups` while
+ * Keycloak keeps roles at `realm_access.roles` — a claim NAME cannot express
+ * the second. Default suits Authentik, which is what this instance runs.
+ */
+export const OIDC_GROUPS_CLAIM_PATH =
+  process.env.OIDC_GROUPS_CLAIM_PATH ?? "groups";
 
 export const SECRET_ENCRYPTION_KEY = process.env.SECRET_ENCRYPTION_KEY ?? "";
 

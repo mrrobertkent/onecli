@@ -83,8 +83,11 @@ ENV NO_COLOR=1
 ENV FORCE_COLOR=0
 ENV PORT=10254
 ENV HOSTNAME="0.0.0.0"
-ENV AUTH_TRUST_HOST=true
-ENV NEXTAUTH_URL=http://localhost:10254
+# Better Auth derives its origin from APP_URL (`baseURL`), which also seeds its
+# trusted-origin allowlist. next-auth's AUTH_TRUST_HOST / NEXTAUTH_URL are gone
+# with the library (design D-9). Behind a reverse proxy the operator MUST set
+# APP_URL to the external origin, or callbacks resolve to this default.
+ENV APP_URL=http://localhost:10254
 
 # Build version read by the bundled gateway at runtime (empty → gateway falls back
 # to its compile-time crate version).

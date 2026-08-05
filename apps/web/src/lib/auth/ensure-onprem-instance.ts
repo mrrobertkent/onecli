@@ -1,5 +1,5 @@
 import { db } from "@onecli/db";
-import { ensureSharedOrgWithKey } from "@onecli/api/services/organization-service";
+import { ensureSharedOrgBootstrap } from "@onecli/api/services/organization-service";
 import { LOCAL_AUTH_ID, LOCAL_USER } from "./local-user";
 
 /**
@@ -29,7 +29,9 @@ export const ensureOnpremInstance = async (): Promise<void> => {
     select: { id: true, email: true },
   });
 
-  const org = await ensureSharedOrgWithKey(user.id, user.email);
+  // Owner + bootstrap org API key. This is the ONLY path that should mint an
+  // owner of the shared organization (design D-11).
+  const org = await ensureSharedOrgBootstrap(user.id, user.email);
 
   // Operators need the org id for org-scoped API calls (e.g. the authorize
   // `?org=` override) — surface it once per boot, next to the org API key

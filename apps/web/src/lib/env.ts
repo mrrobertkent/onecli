@@ -68,7 +68,13 @@ export const IS_CLOUD = EDITION_INFO.edition === "cloud";
 
 // ── Auth & Encryption ───────────────────────────────────────────────────
 
-export const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? "";
+/**
+ * Signing key for session cookies and OAuth state. Renamed from
+ * `NEXTAUTH_SECRET` when next-auth was removed (design D-9) — the old name
+ * described a library that is no longer here. DEPLOYMENT-FACING: operators must
+ * set `AUTH_SECRET`.
+ */
+export const AUTH_SECRET = process.env.AUTH_SECRET ?? "";
 
 export const SECRET_ENCRYPTION_KEY = process.env.SECRET_ENCRYPTION_KEY ?? "";
 
@@ -114,7 +120,8 @@ export const OIDC_PROVIDER_COLOR = process.env.OIDC_PROVIDER_COLOR ?? "";
  * where black would score higher, so operators can say so explicitly — at the
  * cost of the contrast the derived value would have given them.
  */
-export const OIDC_PROVIDER_TEXT_COLOR = process.env.OIDC_PROVIDER_TEXT_COLOR ?? "";
+export const OIDC_PROVIDER_TEXT_COLOR =
+  process.env.OIDC_PROVIDER_TEXT_COLOR ?? "";
 
 /**
  * Set when OIDC_PROVIDER_LOGO is a full lockup — a mark plus the provider's

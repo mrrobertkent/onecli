@@ -61,7 +61,7 @@ docker compose -f docker/docker-compose.yml up -d --wait
 
 Open **http://localhost:10254**, create an agent, add your secrets, and point your agent's HTTP gateway to `localhost:10255`.
 
-> The Quick Start runs OneCLI in **local mode** (single-user, no login), so no `.env` or `NEXTAUTH_SECRET` is required. To enable Google OAuth for multiple users, set `NEXTAUTH_SECRET` and the Google credentials (see [Configuration](#configuration)).
+> The Quick Start runs OneCLI in **local mode** (single-user, no login), so no `.env` or `AUTH_SECRET` is required. To enable Google OAuth for multiple users, set `AUTH_SECRET` and the Google credentials (see [Configuration](#configuration)).
 
 ## Features
 
@@ -127,21 +127,21 @@ Dashboard at **http://localhost:10254**, gateway at **http://localhost:10255**.
 
 All environment variables are optional for local development:
 
-| Variable                | Description                       | Default            |
-| ----------------------- | --------------------------------- | ------------------ |
-| `DATABASE_URL`          | PostgreSQL connection string      | See `.env.example` |
-| `NEXTAUTH_SECRET`       | Enables Google OAuth (multi-user) | Single-user mode   |
-| `GOOGLE_CLIENT_ID`      | Google OAuth client ID            | —                  |
-| `GOOGLE_CLIENT_SECRET`  | Google OAuth client secret        | —                  |
-| `OIDC_ISSUER`           | Generic OIDC issuer URL           | —                  |
-| `OIDC_CLIENT_ID`        | Generic OIDC client ID            | —                  |
-| `OIDC_CLIENT_SECRET`    | Generic OIDC client secret        | —                  |
-| `OIDC_PROVIDER_NAME`    | OIDC login button label           | `SSO`              |
-| `OIDC_PROVIDER_LOGO`    | OIDC button logo (URL or `data:`) | —                  |
-| `OIDC_PROVIDER_COLOR`   | OIDC button brand colour (hex)    | —                  |
-| `OIDC_PROVIDER_TEXT_COLOR` | OIDC button foreground         | Derived from colour |
-| `OIDC_PROVIDER_LOGO_ONLY` | Logo is a lockup; hide the label | `false`          |
-| `SECRET_ENCRYPTION_KEY` | AES-256-GCM encryption key        | Auto-generated     |
+| Variable                   | Description                       | Default             |
+| -------------------------- | --------------------------------- | ------------------- |
+| `DATABASE_URL`             | PostgreSQL connection string      | See `.env.example`  |
+| `AUTH_SECRET`              | Enables Google OAuth (multi-user) | Single-user mode    |
+| `GOOGLE_CLIENT_ID`         | Google OAuth client ID            | —                   |
+| `GOOGLE_CLIENT_SECRET`     | Google OAuth client secret        | —                   |
+| `OIDC_ISSUER`              | Generic OIDC issuer URL           | —                   |
+| `OIDC_CLIENT_ID`           | Generic OIDC client ID            | —                   |
+| `OIDC_CLIENT_SECRET`       | Generic OIDC client secret        | —                   |
+| `OIDC_PROVIDER_NAME`       | OIDC login button label           | `SSO`               |
+| `OIDC_PROVIDER_LOGO`       | OIDC button logo (URL or `data:`) | —                   |
+| `OIDC_PROVIDER_COLOR`      | OIDC button brand colour (hex)    | —                   |
+| `OIDC_PROVIDER_TEXT_COLOR` | OIDC button foreground            | Derived from colour |
+| `OIDC_PROVIDER_LOGO_ONLY`  | Logo is a lockup; hide the label  | `false`             |
+| `SECRET_ENCRYPTION_KEY`    | AES-256-GCM encryption key        | Auto-generated      |
 
 ## Contributing
 

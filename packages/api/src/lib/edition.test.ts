@@ -44,11 +44,16 @@ describe("capabilitiesFor", () => {
   it("returns OSS capabilities for the oss edition", () => {
     expect(capabilitiesFor(parseEdition("oss"))).toEqual({
       auth: "local",
-      tenancy: "org-per-user",
+      // Design D-1 / D-2 / D-11: OSS is single-org MULTI-USER, and
+      // `single-org-shared` is only safe as a four-part unit — this value,
+      // `rbac: true`, a registered OSS `RoleResolver`, and role-resolved
+      // membership creation. This assertion is deliberately exact so that
+      // flipping any one of them back fails here rather than in production.
+      tenancy: "single-org-shared",
       billing: false,
       orgScopedUI: false,
       webSurface: "full",
-      rbac: false,
+      rbac: true,
     });
   });
 

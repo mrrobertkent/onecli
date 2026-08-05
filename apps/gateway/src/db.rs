@@ -56,6 +56,9 @@ pub(crate) struct SecretRow {
 }
 
 /// A user row from the `users` table.
+///
+/// Only the external-auth lookup below returns it, so it is gated with that.
+#[cfg(not(edition_oss))]
 #[derive(Debug, FromRow)]
 pub(crate) struct UserRow {
     pub id: String,
@@ -93,7 +96,12 @@ pub(crate) struct VaultConnectionRow {
 
 // ── Queries ─────────────────────────────────────────────────────────────
 
-/// Look up a user by their external auth ID (e.g. OAuth `sub` claim or "local-admin").
+/// Look up a user by their external auth ID (e.g. an IdP `sub` claim).
+///
+/// EE-only since the OSS session path moved to Better Auth: `auth_sessions`
+/// names `users.id` directly, so OSS has nothing left to resolve. The editions
+/// whose browser sessions are still IdP tokens (cloud Cognito) keep needing it.
+#[cfg(not(edition_oss))]
 pub(crate) async fn find_user_by_external_auth_id(
     pool: &PgPool,
     external_auth_id: &str,
@@ -105,10 +113,57 @@ pub(crate) async fn find_user_by_external_auth_id(
         .context("querying user by external_auth_id")
 }
 
+/// Resolve a Better Auth session token to the id of the user it belongs to,
+/// treating an expired session as absent.
+///
+/// Expiry is filtered in SQL, so "unknown token" and "expired token" are one
+/// answer and one round trip. `NOW() AT TIME ZONE 'UTC'`, not bare `NOW()`:
+/// Prisma writes `expires_at` as `timestamp(3)` WITHOUT a zone holding a UTC
+/// instant, and comparing that against `NOW()` (a `timestamptz`) would coerce it
+/// through the connection's `TimeZone` — shifting every expiry by that offset on
+/// any non-UTC session.
+///
+/// Gated with [`find_default_project_id_by_user`] and for the same reason: the
+/// cloud edition's browser sessions are Cognito tokens, so `auth_sessions` rows
+/// never exist there and nothing in that build may reach for one.
+#[cfg(not(edition_cloud))]
+pub(crate) async fn find_auth_session_user_id(
+    pool: &PgPool,
+    token: &str,
+) -> Result<Option<String>> {
+    let row: Option<(String,)> = sqlx::query_as(
+        r#"SELECT user_id
+           FROM auth_sessions
+           WHERE token = $1 AND expires_at > (NOW() AT TIME ZONE 'UTC')
+           LIMIT 1"#,
+    )
+    .bind(token)
+    .fetch_optional(pool)
+    .await
+    .context("querying auth_sessions by token")?;
+
+    Ok(row.map(|(user_id,)| user_id))
+}
+
 /// Find the default project ID for a user (OSS only).
 ///
-/// Resolves user → first organization → first project in that organization.
-/// Mirrors the web's `resolveUser()` (apps/web/src/lib/actions/resolve-user.ts).
+/// Resolves user → active organization membership → the OLDEST project in that
+/// organization THE USER CREATED, matching the web's `findUserDefaultProject()`
+/// (packages/api/src/services/organization-service.ts), which `resolveUser()`
+/// falls back to.
+///
+/// `created_by_user_id` is the whole point of the filter, not a tiebreaker:
+/// without it this returns the oldest project in the org regardless of owner,
+/// which is harmless only while every org has exactly one member. Under shared
+/// tenancy (one org, many users) it hands every gateway session the FIRST user's
+/// project — someone else's secrets, agents and rules.
+///
+/// Divergence to know about: the web picks its oldest active membership and then
+/// looks only in THAT org, whereas this scans every active membership in that
+/// order — so for a multi-org user whose first org holds no project of theirs,
+/// the web resolves nothing and this resolves the next org's. Unreachable in the
+/// editions that compile this (single org), and the ordering is total either way
+/// (`p.id` breaks equal timestamps).
 ///
 /// OSS-only: the cloud edition is multi-project and never falls back to a
 /// default project — it requires an explicit `X-Project-Id` and validates it
@@ -124,7 +179,8 @@ pub(crate) async fn find_default_project_id_by_user(
            FROM organization_members om
            INNER JOIN projects p ON p.organization_id = om.organization_id
            WHERE om.user_id = $1 AND om.status <> 'suspended'
-           ORDER BY om.created_at ASC, p.created_at ASC
+             AND p.created_by_user_id = $1
+           ORDER BY om.created_at ASC, p.created_at ASC, p.id ASC
            LIMIT 1"#,
     )
     .bind(user_id)

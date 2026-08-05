@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import {
   EDITION,
   GOOGLE_CLIENT_ID,
-  NEXTAUTH_SECRET,
+  AUTH_SECRET,
   OIDC_ISSUER,
   OIDC_CLIENT_ID,
   OIDC_CLIENT_SECRET,
@@ -65,7 +65,7 @@ export const getRuntimeConfig = (): RuntimeConfig => {
       OIDC_CLIENT_SECRET
     );
     cached = {
-      authMode: NEXTAUTH_SECRET ? "oauth" : "local",
+      authMode: AUTH_SECRET ? "oauth" : "local",
       oauthConfigured: !!GOOGLE_CLIENT_ID || oidcConfigured,
       authProviderId: GOOGLE_CLIENT_ID
         ? "google"

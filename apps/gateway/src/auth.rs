@@ -4,7 +4,10 @@
 //! - `local`: no session mechanism at all (single-user dev, no login) — the
 //!   only accepted credential is an `Authorization: Bearer oc_...` API key,
 //!   checked by `validate_api_key` before mode-specific logic even runs.
-//! - `oauth` (default): validates a NextAuth session cookie JWT (HS256).
+//! - `oauth` (default): resolves a Better Auth session cookie against the
+//!   `auth_sessions` row it names. The gateway shares the web app's database,
+//!   so it reads the session table Better Auth writes rather than re-deriving
+//!   anything from the cookie — see `validate_oauth`.
 
 use std::sync::OnceLock;
 
@@ -13,8 +16,6 @@ use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use hyper::HeaderMap;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use serde::Deserialize;
 use sqlx::PgPool;
 use tracing::warn;
 
@@ -39,25 +40,11 @@ impl IntoResponse for AuthError {
     }
 }
 
-// ── JWT claims ───────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-struct SessionClaims {
-    sub: String,
-}
-
 // ── Cached env reads ─────────────────────────────────────────────────────
 
 fn auth_mode() -> &'static str {
     static AUTH_MODE: OnceLock<String> = OnceLock::new();
     AUTH_MODE.get_or_init(|| std::env::var("AUTH_MODE").unwrap_or_else(|_| "oauth".to_string()))
-}
-
-fn nextauth_secret() -> Option<&'static str> {
-    static SECRET: OnceLock<Option<String>> = OnceLock::new();
-    SECRET
-        .get_or_init(|| std::env::var("NEXTAUTH_SECRET").ok())
-        .as_deref()
 }
 
 // ── Extractor ────────────────────────────────────────────────────────────
@@ -159,8 +146,17 @@ async fn validate_request(pool: &PgPool, headers: &HeaderMap) -> Result<String, 
 
 // ── OAuth mode ───────────────────────────────────────────────────────────
 
+/// Resolve a Better Auth session cookie to the user it belongs to.
+///
+/// The cookie carries no claims to decode: Better Auth stores the session
+/// server-side and the cookie is only a pointer to that row. So the row IS the
+/// decision — a lookup that finds a live session is proof the session exists and
+/// has not expired or been revoked, which no self-contained token could tell us.
+/// The token is 32 CSPRNG characters, so it cannot be guessed into existence.
+///
+/// The HMAC signature the cookie also carries is deliberately NOT verified —
+/// see [`session_token_value`].
 async fn validate_oauth(pool: &PgPool, headers: &HeaderMap) -> Result<String, AuthError> {
-    // 1. Extract session token from cookies
     let cookie_header = headers
         .get(hyper::header::COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -169,57 +165,37 @@ async fn validate_oauth(pool: &PgPool, headers: &HeaderMap) -> Result<String, Au
             AuthError("missing cookie".to_string())
         })?;
 
-    let token = session_token_from_cookies(cookie_header).ok_or_else(|| {
+    let cookie_value = session_token_from_cookies(cookie_header).ok_or_else(|| {
         warn!("oauth auth: session token cookie not found");
         AuthError("missing session token".to_string())
     })?;
 
-    // 2. Read NEXTAUTH_SECRET
-    let secret = nextauth_secret().ok_or_else(|| {
-        warn!("oauth auth: NEXTAUTH_SECRET not set");
-        AuthError("server misconfigured".to_string())
-    })?;
-
-    // 3. Decode JWT (HS256)
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.required_spec_claims.clear();
-    validation.validate_exp = false;
-
-    let token_data = decode::<SessionClaims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &validation,
-    )
-    .map_err(|e| {
-        warn!(error = %e, "oauth auth: JWT decode failed");
-        AuthError("invalid session token".to_string())
-    })?;
-
-    let sub = &token_data.claims.sub;
-
-    // 4. Look up user by external auth ID
-    let user = db::find_user_by_external_auth_id(pool, sub)
+    // `auth_sessions.user_id` is already `users.id` — Better Auth's user model is
+    // mapped onto the existing table, so there is no external-auth-id hop here.
+    let user_id = db::find_auth_session_user_id(pool, session_token_value(cookie_value))
         .await
         .map_err(|e| {
             warn!(error = %e, "oauth auth: db error");
             AuthError("internal error".to_string())
         })?
         .ok_or_else(|| {
-            warn!(sub = %sub, "oauth auth: user not found");
-            AuthError("user not found".to_string())
+            // Unknown, revoked and expired are one case on purpose: the holder of
+            // a bad cookie learns nothing about which it was.
+            warn!("oauth auth: no live session for token");
+            AuthError("invalid session token".to_string())
         })?;
 
-    Ok(user.id)
+    Ok(user_id)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/// The NextAuth session cookie, under either spelling Auth.js may have used.
+/// The Better Auth session cookie, under either spelling it may have been set with.
 ///
-/// Auth.js prefixes the cookie with `__Secure-` whenever it considers the
+/// Better Auth prefixes the cookie with `__Secure-` whenever it considers the
 /// deployment secure, which it decides from the scheme of the resolved
-/// `AUTH_URL` / `NEXTAUTH_URL`. Every instance reached over https therefore
-/// sends `__Secure-authjs.session-token`, and a self-hosted one cannot opt out:
+/// `baseURL` (our `APP_URL`). Every instance reached over https therefore sends
+/// `__Secure-better-auth.session_token`, and a self-hosted one cannot opt out:
 /// the OAuth spec (and Google's redirect-URI validation) requires an https
 /// callback for anything but localhost, so the single variable that makes login
 /// work also renames this cookie. Matching only the bare name meant session auth
@@ -228,8 +204,36 @@ async fn validate_oauth(pool: &PgPool, headers: &HeaderMap) -> Result<String, Au
 /// Bare name first: it is what an http/localhost install sends, and checking it
 /// first keeps that path a single comparison.
 fn session_token_from_cookies(cookie_header: &str) -> Option<&str> {
-    parse_cookie(cookie_header, "authjs.session-token")
-        .or_else(|| parse_cookie(cookie_header, "__Secure-authjs.session-token"))
+    parse_cookie(cookie_header, "better-auth.session_token")
+        .or_else(|| parse_cookie(cookie_header, "__Secure-better-auth.session_token"))
+}
+
+/// The stored token half of a Better Auth session cookie.
+///
+/// The value is NOT a JWT. Better Auth writes it with `setSignedCookie`, which
+/// emits `encodeURIComponent("<token>.<base64 HMAC-SHA256>")` — only `<token>`
+/// is what `auth_sessions.token` holds. Split on the LAST `.` so a token that
+/// ever gains one of its own still resolves; percent-encoding cannot confuse
+/// that, since it never emits a `.` and never escapes one. The token's own
+/// alphabet is `[a-zA-Z0-9]`, so it survives the encoding unchanged and needs no
+/// decoding before the lookup.
+///
+/// A value with no `.` is passed through whole rather than rejected: it simply
+/// will not match a stored token, and letting the database be the only authority
+/// keeps one place able to say yes.
+///
+/// The signature is not verified. Doing so would buy nothing here — it proves
+/// the cookie was minted by something holding `AUTH_SECRET`, whereas the lookup
+/// already proves the stronger thing, that the session is real and live; and an
+/// attacker who cannot produce a signature cannot produce a valid token either.
+/// It would, however, add a second thing that must match the web app exactly
+/// (secret byte-for-byte, standard-base64 padding, percent-decoding first) whose
+/// failure mode is rejecting every valid session.
+fn session_token_value(cookie_value: &str) -> &str {
+    match cookie_value.rsplit_once('.') {
+        Some((token, _signature)) => token,
+        None => cookie_value,
+    }
 }
 
 /// Parse a specific cookie value from a Cookie header string.
@@ -251,58 +255,85 @@ fn parse_cookie<'a>(cookie_header: &'a str, name: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
 
+    /// A realistic cookie value: the 32-char token, then the percent-encoded
+    /// base64 signature (`/` → `%2F`, `+` → `%2B`, the `=` pad → `%3D`).
+    const SIGNED: &str =
+        "Xk3pQz7RtV1aB2cD4eF5gH6iJ8kL9mN0.9Xq%2Fz1c%2BAbC3dEfGhIjKlMnOpQrStUvWxYz0123%3D";
+
     #[test]
     fn parse_cookie_finds_value() {
-        let header = "other=abc; authjs.session-token=eyJhbGciOiJIUzI1NiJ9.test; path=/";
+        let header = "other=abc; better-auth.session_token=tok.sig; path=/";
         assert_eq!(
-            parse_cookie(header, "authjs.session-token"),
-            Some("eyJhbGciOiJIUzI1NiJ9.test")
+            parse_cookie(header, "better-auth.session_token"),
+            Some("tok.sig")
         );
     }
 
     #[test]
     fn parse_cookie_missing() {
         let header = "other=abc; foo=bar";
-        assert_eq!(parse_cookie(header, "authjs.session-token"), None);
+        assert_eq!(parse_cookie(header, "better-auth.session_token"), None);
     }
 
     #[test]
     fn parse_cookie_empty() {
-        assert_eq!(parse_cookie("", "authjs.session-token"), None);
+        assert_eq!(parse_cookie("", "better-auth.session_token"), None);
     }
 
     #[test]
     fn session_token_accepts_bare_name() {
-        let header = "other=abc; authjs.session-token=eyJhbGciOiJIUzI1NiJ9.test";
-        assert_eq!(
-            session_token_from_cookies(header),
-            Some("eyJhbGciOiJIUzI1NiJ9.test")
-        );
+        let header = format!("other=abc; better-auth.session_token={SIGNED}");
+        assert_eq!(session_token_from_cookies(&header), Some(SIGNED));
     }
 
-    /// What a browser sends to an https deployment: Auth.js switches the session
-    /// cookie to the `__Secure-` prefix and the CSRF cookie to `__Host-`.
+    /// What a browser sends to an https deployment: Better Auth switches the
+    /// session cookie to the `__Secure-` prefix.
     #[test]
     fn session_token_accepts_secure_prefixed_name() {
-        let header = "__Host-authjs.csrf-token=abc; \
-                      __Secure-authjs.session-token=eyJhbGciOiJIUzI1NiJ9.test";
-        assert_eq!(
-            session_token_from_cookies(header),
-            Some("eyJhbGciOiJIUzI1NiJ9.test")
-        );
+        let header = format!("other=abc; __Secure-better-auth.session_token={SIGNED}");
+        assert_eq!(session_token_from_cookies(&header), Some(SIGNED));
     }
 
     /// The bare name wins when both are somehow present, so an http install's
     /// behaviour is unchanged.
     #[test]
     fn session_token_prefers_bare_name() {
-        let header = "__Secure-authjs.session-token=prefixed; authjs.session-token=bare";
-        assert_eq!(session_token_from_cookies(header), Some("bare"));
+        let header = "__Secure-better-auth.session_token=prefixed.sig; \
+                      better-auth.session_token=bare.sig";
+        assert_eq!(session_token_from_cookies(header), Some("bare.sig"));
     }
 
     #[test]
     fn session_token_missing() {
         assert_eq!(session_token_from_cookies("other=abc; foo=bar"), None);
+    }
+
+    /// The signature — percent-encoded base64, which can hold `%2F`/`%2B`/`%3D`
+    /// but never a `.` — is dropped, leaving exactly what `auth_sessions.token`
+    /// stores.
+    #[test]
+    fn session_token_value_strips_signature() {
+        assert_eq!(
+            session_token_value(SIGNED),
+            "Xk3pQz7RtV1aB2cD4eF5gH6iJ8kL9mN0"
+        );
+    }
+
+    /// Splitting on the LAST `.`, not the first: a token carrying dots of its own
+    /// must still come back whole.
+    #[test]
+    fn session_token_value_splits_on_last_dot() {
+        assert_eq!(session_token_value("a.b.c.signature"), "a.b.c");
+    }
+
+    /// An unsigned-looking value is passed through, not truncated to nothing —
+    /// the lookup rejects it.
+    #[test]
+    fn session_token_value_without_signature_passes_through() {
+        assert_eq!(
+            session_token_value("Xk3pQz7RtV1aB2cD4eF5gH6iJ8kL9mN0"),
+            "Xk3pQz7RtV1aB2cD4eF5gH6iJ8kL9mN0"
+        );
     }
 
     /// Regression test for the loopback auth bypass (local gateway API did

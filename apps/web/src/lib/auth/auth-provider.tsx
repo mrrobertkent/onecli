@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, type ReactNode } from "react";
-import {
-  SessionProvider,
-  useSession,
-  signIn as nextAuthSignIn,
-  signOut as nextAuthSignOut,
-} from "next-auth/react";
+import { useSession, signIn, signOut } from "@/lib/auth/auth-client";
 import { AuthContext } from "@/providers/auth-provider";
 import type { AuthUser, AuthContextValue } from "@/lib/auth/types";
 import type { AuthMode, AuthProviderInfo } from "@/lib/auth/auth-mode";
@@ -45,7 +40,9 @@ const OAuthInner = ({
   children: ReactNode;
   authProvider: AuthProviderInfo;
 }) => {
-  const { data: session, status } = useSession();
+  // Better Auth returns `{data, isPending}` rather than next-auth's `status`
+  // string. `data` is the session or null once settled.
+  const { data: session, isPending } = useSession();
 
   const user = useMemo<AuthUser | null>(() => {
     if (!session?.user?.id || !session.user.email) return null;
@@ -53,24 +50,34 @@ const OAuthInner = ({
       id: session.user.id,
       email: session.user.email,
       name: session.user.name ?? undefined,
+      emailVerified: session.user.emailVerified,
     };
   }, [session]);
 
-  const signIn = useCallback(async () => {
-    await nextAuthSignIn(authProvider.id);
+  const handleSignIn = useCallback(async () => {
+    // The generic OIDC provider lives behind `signIn.oauth2`, NOT
+    // `signIn.social` — the latter only addresses Better Auth's closed built-in
+    // registry, which has no generic OIDC entry. Google, being a built-in, is
+    // the one case that goes through `social`.
+    if (authProvider.id === "google") {
+      await signIn.social({ provider: "google", callbackURL: "/" });
+      return;
+    }
+    await signIn.oauth2({ providerId: authProvider.id, callbackURL: "/" });
   }, [authProvider.id]);
 
-  const signOut = useCallback(async () => {
-    await nextAuthSignOut({ callbackUrl: "/auth/login" });
+  const handleSignOut = useCallback(async () => {
+    await signOut();
+    window.location.href = "/auth/login";
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      isAuthenticated: status === "authenticated",
-      isLoading: status === "loading",
+      isAuthenticated: Boolean(session?.user),
+      isLoading: isPending,
       user,
-      signIn,
-      signOut,
+      signIn: handleSignIn,
+      signOut: handleSignOut,
       authProviderId: authProvider.id,
       authProviderName: authProvider.name,
       authProviderLogo: authProvider.logo,
@@ -79,10 +86,11 @@ const OAuthInner = ({
       authProviderLogoOnly: authProvider.logoOnly,
     }),
     [
-      status,
+      session,
+      isPending,
       user,
-      signIn,
-      signOut,
+      handleSignIn,
+      handleSignOut,
       authProvider.id,
       authProvider.name,
       authProvider.logo,
@@ -108,9 +116,8 @@ export const AuthProviderImpl = ({
     return <LocalAuthProvider>{children}</LocalAuthProvider>;
   }
 
-  return (
-    <SessionProvider>
-      <OAuthInner authProvider={authProvider}>{children}</OAuthInner>
-    </SessionProvider>
-  );
+  // No provider wrapper: Better Auth's `useSession` reads from a nanostores
+  // atom held by the client singleton, so there is no React context to mount
+  // (next-auth's `<SessionProvider>` had no equivalent here).
+  return <OAuthInner authProvider={authProvider}>{children}</OAuthInner>;
 };
