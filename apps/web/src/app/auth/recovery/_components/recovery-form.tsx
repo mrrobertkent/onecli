@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ShieldCheck, Loader2 } from "lucide-react";
 import { Button } from "@onecli/ui/components/button";
 import { Input } from "@onecli/ui/components/input";
@@ -13,7 +12,6 @@ export interface RecoveryFormProps {
 }
 
 export const RecoveryForm = ({ recoveryKey }: RecoveryFormProps) => {
-  const router = useRouter();
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +34,10 @@ export const RecoveryForm = ({ recoveryKey }: RecoveryFormProps) => {
       return;
     }
 
-    router.replace("/overview");
+    // A full load, not router.replace: the session was created server-side, so
+    // the client's session state still says signed-out and a client-side
+    // navigation would carry that to the dashboard, which bounces it to login.
+    window.location.assign("/overview");
   };
 
   if (!recoveryKey) {

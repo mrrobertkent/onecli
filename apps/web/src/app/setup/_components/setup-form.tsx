@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@onecli/ui/components/button";
 import { Input } from "@onecli/ui/components/input";
@@ -9,7 +8,6 @@ import { Label } from "@onecli/ui/components/label";
 import { claimBootstrapAdmin } from "@/lib/actions/bootstrap-admin";
 
 export const SetupForm = () => {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -34,7 +32,10 @@ export const SetupForm = () => {
       return;
     }
 
-    router.replace("/overview");
+    // A full load, not router.replace: the session was created server-side, so
+    // the client's session state still says signed-out and a client-side
+    // navigation would carry that to the dashboard, which bounces it to login.
+    window.location.assign("/overview");
   };
 
   return (
