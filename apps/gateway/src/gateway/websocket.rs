@@ -94,8 +94,7 @@ pub(super) async fn handle_websocket(
     cache: &dyn CacheStore,
     engine: &crate::connect::PolicyEngine,
     proxy_ctx: &ProxyContext,
-    // Resolved at CONNECT time against the operator's skip-verify configuration,
-    // so this leg trusts exactly what the HTTP leg trusts.
+    // Resolved at CONNECT time, so this leg trusts what the HTTP leg trusts.
     connector: &TlsConnector,
 ) -> Result<Response<Either<Full<Bytes>, http_body_util::StreamBody<hooks::BodyStream>>>> {
     let start = std::time::Instant::now();
@@ -107,17 +106,15 @@ pub(super) async fn handle_websocket(
 
     let has_injections = rules.injects();
 
-    // An empty resource scope reaches nothing — refuse the upgrade outright
-    // (the HTTP path does the same in forward.rs).
+    // An empty resource scope reaches nothing — refuse the upgrade outright.
     if let Some(resp) = hooks::refuse_empty_scope(rules, proxy_ctx, policy_host, "GET", &path) {
         warn!(host = %policy_host, path = %path, "empty resource scope — WebSocket upgrade denied");
         return Ok(resp);
     }
 
-    // Step-7 app-availability pre-check (DB-free — resolved at connect; see
-    // forward.rs). Governs only identifiable app providers, so raw/LLM hosts are
-    // never blocked. WebSocket upgrades are GET. Matches on `policy_host`
-    // (pre-rewrite + port-stripped), NOT the port-bearing/rewritten `host`.
+    // App-availability pre-check. Governs only identifiable app providers, so
+    // raw/LLM hosts are never blocked. Matches on `policy_host` (pre-rewrite and
+    // port-stripped), not the rewritten `host`.
     if let Some(provider) =
         crate::apps::app_availability_block(policy_host, &path, &rules.available_apps)
     {
@@ -130,9 +127,8 @@ pub(super) async fn handle_websocket(
         ));
     }
 
-    // The first-match engine over `policy_rules_v2` is authoritative. WebSocket
-    // blocks emit no telemetry today, so the matched rule is not attributed here
-    // (allow-attribution for ws is out of scope) — only the decision is consumed.
+    // WebSocket blocks emit no telemetry, so the matched rule is dropped here —
+    // only the decision is consumed.
     let (decision, _matched) = crate::policy_engine::evaluate(
         proxy_ctx,
         policy_host,
@@ -187,10 +183,9 @@ pub(super) async fn handle_websocket(
         PolicyDecision::Allow => {}
     }
 
-    // Claim mode: block non-LLM WebSocket upgrades until the project is claimed
-    // (cloud-only; no-op in OSS). injection_count is 0 here, so quota is skipped.
-    // WebSocket upgrades are GET with no inspectable body (the resource guard
-    // is a no-op here; Dropbox/folder traffic never arrives over WebSocket).
+    // Claim mode: block non-LLM upgrades until the project is claimed (cloud
+    // only). injection_count is 0 here, so quota is skipped; upgrades carry no
+    // inspectable body, so the resource guard is a no-op.
     if let Some(resp) = hooks::pre_forward(
         rules,
         proxy_ctx,
@@ -218,10 +213,8 @@ pub(super) async fn handle_websocket(
         }
     }
 
-    // The upgrade is allowed: mint any deferred credential now, exactly as the
-    // HTTP path does. Without this a deferred connection would upgrade with no
-    // credential at all and fail upstream — latent today (no token-scoped
-    // provider serves WebSocket), load-bearing the moment one does.
+    // The upgrade is allowed: mint any deferred credential now, as the HTTP path
+    // does — otherwise a deferred connection upgrades with no credential at all.
     let injection_rules =
         match crate::gateway::forward::materialize_injections(rules, engine, cache, "GET", &path)
             .await
@@ -345,10 +338,8 @@ pub(super) async fn handle_websocket(
 
 /// Dial the upstream over TLS with the connection's resolved configuration.
 ///
-/// The config is built once at startup and handed down, so this neither
-/// rebuilds a root store per upgrade nor decides for itself what to trust —
-/// deciding for itself is how this leg came to ignore the operator's
-/// skip-verify settings while the HTTP leg honored them.
+/// The connector is built once at startup and handed down; this leg must not
+/// decide for itself what to trust.
 async fn connect_upstream_tls(
     hostname: &str,
     port: u16,

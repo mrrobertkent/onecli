@@ -545,7 +545,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
       expect(JSON.parse(JSON.stringify(row.conditions))).toEqual(SORTED);
     }
 
-    // NULL clears — every row, and the read path agrees.
+    // An explicit null clears every row, and the read path agrees.
     await grants.setConnectionGrant(
       SCOPE,
       AGENT,
@@ -563,8 +563,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
   });
 
   it("the org boundary bounds what a project may select — and narrowing within it saves", async () => {
-    // A published ORG rule naming NO identity: the "applies to every agent"
-    // shape, which bounds every agent's reach for this connection.
+    // A published org rule naming no identity applies to every agent, so it
+    // bounds every agent's reach for this connection.
     const orgBase = { scope: "organization", organizationId: ORG };
     const orgRule = async (repositories: string[]) => {
       await db.policyRuleV2.deleteMany({ where: { organizationId: ORG } });
@@ -622,8 +622,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
       repositories: ["org/allowed"],
     });
 
-    // An org edit that narrows below an existing grant leaves the stack alone —
-    // runtime composition, not a rewrite, is what enforces the new boundary.
+    // An org edit that narrows below an existing grant leaves the stack alone;
+    // runtime composition enforces the new boundary.
     await orgRule(["org/also-allowed"]);
     const after = await grantRows({ status: "draft" });
     expect(JSON.parse(JSON.stringify(after[0]?.conditions))).toEqual({
@@ -671,8 +671,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
         provider: "gmail",
         policy: { repositories: ["owner/a"] },
       });
-      // A FULL grant's single allow row carries the set policy too — access
-      // stays "full" (conditions don't affect the shape detection).
+      // A full grant's single allow row carries the policy too; conditions
+      // don't affect shape detection.
       const fullRows = await grantRows({ status: "draft" });
       expect(fullRows).toHaveLength(1);
       expect(JSON.parse(JSON.stringify(fullRows[0]?.conditions))).toEqual({
@@ -703,8 +703,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
       );
       expect(calls).toHaveLength(1);
 
-      // A rejecting validator (the OSS 422 lock / EE plan gate) blocks the
-      // write before anything lands.
+      // A rejecting validator blocks the write before anything lands.
       providers.initPolicyValidator({
         validate: async () => {
           throw new Error("locked");
@@ -722,7 +721,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
       const rows = await grantRows({ status: "draft" });
       expect(rows.every((r) => r.conditions === null)).toBe(true);
     } finally {
-      // The permissive default — leave the registry as the suite found it.
+      // Leave the registry as the suite found it.
       providers.initPolicyValidator({ validate: async () => {} });
     }
   });

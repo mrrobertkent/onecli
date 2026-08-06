@@ -26,32 +26,26 @@ import {
 } from "./effective-tools";
 import { injectionIdentityMatches } from "./injection";
 
-// The "Credential access" dialog's reflection (step 9.7b),
-// framed around EFFECTIVE ACCESS (the user decision — reflections lead with what
-// the rules ALLOW, never the raw injection view): the credentials an agent can
-// inject, each tagged with what it can actually DO under the enforced rules
-// (Usable / Limited / Blocked). An attached-but-blocked credential reads
-// "Blocked", not "available".
+// The "Credential access" dialog's reflection: the credentials an agent can
+// inject, each tagged with what it can actually do under the enforced rules
+// (usable / limited / blocked), so an attached-but-blocked credential reads
+// "blocked" rather than "available".
 //
-// The injectable SET mirrors `inject_select.rs` / `connect.rs` (step 7: every
-// agent is rule-selected): the published v2 RULE GRANTS and nothing else —
-// enabled allow rules whose identity EXPLICITLY names the agent (an EMPTY
-// identity never injects; the four target arms: `secretId`, `secretScope`
-// level pool, `connectionId`, `app` WITH `connectionScope`). The rule set is
-// the INJECTION one, which keeps `source="equipment"` rows — the retired
-// per-agent assignments live on as those, and `inject_select` walks them like
-// any other grant. Pool grants EXPAND to their concrete credentials so each
-// shows its own status. Rule-named ids resolve through the same org+project
-// fence the gateway uses — a foreign/deleted id resolves to nothing
-// (fail-closed).
+// The injectable set mirrors `inject_select.rs` / `connect.rs`: published allow
+// rules whose identity explicitly names the agent (an empty identity never
+// injects), across the four target arms — `secretId`, `secretScope` level pool,
+// `connectionId`, and `app` with a `connectionScope`. It reads the injection
+// rule set, which keeps `source="equipment"` rows. Pool grants expand to their
+// concrete credentials so each shows its own status, and rule-named ids resolve
+// through the gateway's org+project fence, so a foreign or deleted id resolves
+// to nothing.
 //
-// Each credential's STATUS is the same engine the App Permissions reflection
-// uses: a connection's = its provider's per-tool decision rollup; a secret's =
-// its host decision (with the secret assumed attached).
+// Each credential's status uses the same engine as the App Permissions
+// reflection: a connection's is its provider's per-tool decision rollup, a
+// secret's is its host decision with the secret assumed attached.
 //
-// REDACTION (the simulate contract): org rule NAMES are org-admin-only; multiple
-// granting org rules COLLAPSE to one redacted marker (their count isn't
-// disclosed either).
+// Redaction: org rule names are org-admin-only, and multiple granting org rules
+// collapse to one redacted marker so their count is not disclosed either.
 
 export type CredentialAccessStatus =
   /** Requests through this credential are allowed. */

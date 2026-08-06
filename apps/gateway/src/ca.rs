@@ -39,9 +39,8 @@ struct CachedCert {
 }
 
 pub struct CertificateAuthority {
-    /// The CA certificate produced by rcgen. Used as the issuer in `signed_by()`
-    /// when generating leaf certs. When loaded from disk, this is re-created
-    /// with the same key+params so `signed_by` can reference it.
+    /// Issuer for `signed_by()` when generating leaf certs. Re-created from the
+    /// same key+params when the CA is loaded from disk.
     ca_cert: rcgen::Certificate,
     /// CA private key.
     ca_key: KeyPair,
@@ -213,12 +212,9 @@ impl CertificateAuthority {
 
     /// Load an existing CA from PEM files on disk.
     ///
-    /// rcgen's `signed_by()` requires a `Certificate` reference as the issuer.
-    /// Since `Certificate` can only be created via `self_signed()` / `signed_by()`,
-    /// we re-create it by self-signing with the same key and params. The issuer DN
-    /// in leaf certs will match the original CA cert because the params are identical.
-    /// The original CA cert DER (from disk) is used in leaf cert chains and for
-    /// the public PEM download.
+    /// The issuer `Certificate` is re-created by self-signing with the same key
+    /// and params, so leaf certs still chain to the original CA cert on disk,
+    /// which is what goes into cert chains and the public PEM download.
     async fn load_from_disk(key_path: &Path, cert_path: &Path) -> Result<Self> {
         // Load private key
         let key_pem = fs::read_to_string(key_path)
@@ -236,8 +232,7 @@ impl CertificateAuthority {
             .context("no certificate found in PEM file")?
             .context("parsing CA certificate PEM")?;
 
-        // Re-create a Certificate for use as issuer in signed_by().
-        // Same key + same DN = leaf certs will chain correctly to the original CA.
+        // Same key + same DN = leaf certs chain correctly to the original CA.
         let ca_cert = Self::build_ca_params()
             .self_signed(&ca_key)
             .context("re-creating CA certificate for signing")?;

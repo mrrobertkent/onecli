@@ -1,12 +1,10 @@
 import { asciiLower, pathMatches } from "../../lib/path-match";
 import type { OldCondition, PolicyRequest } from "./types";
 
-// The request-level matcher shared by the oracle (per old rule) and the new
-// evaluator (per translated target). Keeping ONE matcher means the golden
-// corpus tests the TRANSLATION, not the matcher — the matcher's fidelity to the
-// gateway is proven separately in path-match.test.ts. Host matching is done by
-// the caller (hostMatches); this covers path + method + conditions + the git
-// discovery bridge, exactly as policy.rs::matches_request does.
+// The request-level matcher shared by the oracle and the new evaluator, so the
+// golden corpus tests the translation rather than the matcher (whose fidelity to
+// the gateway is proven in path-match.test.ts). Host matching is the caller's
+// job (hostMatches); this covers path, method, conditions and git discovery.
 
 /**
  * Port of `apps/gateway/src/ee/condition_match.rs::matches`. Absent/empty

@@ -87,8 +87,7 @@ impl ApprovalSummary {
         for d in &self.details {
             out.push('\n');
             out.push_str(&d.label);
-            // Multi-line values (e.g. an email body) render block-style under the
-            // label so the card mirrors how the message will actually be sent.
+            // Multi-line values (e.g. an email body) render block-style under the label.
             if d.value.contains('\n') {
                 out.push_str(":\n");
             } else {
@@ -125,9 +124,8 @@ impl SummaryRequest<'_> {
     }
 }
 
-/// A per-app summarizer. Implement on a zero-sized struct and register it in
-/// [`summarizer`]. Return `None` to defer to the generic fallback (e.g. for an
-/// endpoint this app doesn't recognize).
+/// A per-app summarizer. Return `None` to defer to the generic fallback, e.g.
+/// for an endpoint this app doesn't recognize.
 pub(crate) trait RequestSummarizer: Sync {
     fn summarize(&self, req: &SummaryRequest<'_>) -> Option<ApprovalSummary>;
 }
@@ -135,9 +133,8 @@ pub(crate) trait RequestSummarizer: Sync {
 static GMAIL: gmail::Gmail = gmail::Gmail;
 static GOOGLE_CALENDAR: google_calendar::GoogleCalendar = google_calendar::GoogleCalendar;
 
-/// Resolve the summarizer for a OneCLI provider id. OSS providers match here;
-/// unknown ids fall through to the cloud registry (an empty stub in OSS builds),
-/// mirroring `apps::all_providers` chaining `ee_apps::providers`.
+/// Resolve the summarizer for a provider id; unknown ids fall through to the
+/// cloud registry (an empty stub in OSS builds).
 fn summarizer(provider: &str) -> Option<&'static dyn RequestSummarizer> {
     match provider {
         "gmail" => Some(&GMAIL),
@@ -148,10 +145,8 @@ fn summarizer(provider: &str) -> Option<&'static dyn RequestSummarizer> {
 
 /// Build a human-readable summary for a held request.
 ///
-/// `provider` is the OneCLI provider id (from `apps::provider_for_host_and_path`);
-/// `body` is the peeked prefix of the request body (may be truncated). Always
-/// returns a summary — unknown providers/endpoints fall back to a safe generic
-/// rendering that redacts secrets and bounds length.
+/// `body` is the peeked prefix of the request body and may be truncated. Always
+/// returns a summary — unknown providers fall back to a safe generic rendering.
 #[must_use]
 pub(crate) fn summarize_request(
     provider: &str,

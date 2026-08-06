@@ -28,10 +28,8 @@ pub(crate) struct AwsCredentials {
     pub region: String,
 }
 
-/// Extract and remove AWS credentials from internal headers.
-/// Returns `None` if any credential header is missing or invalid UTF-8.
-/// Validates all headers before removing any, preventing partial removal
-/// on malformed requests.
+/// Extract and remove AWS credentials from internal headers, returning `None`
+/// if any is missing or invalid UTF-8. Validates all before removing any.
 pub(crate) fn extract_credentials(headers: &mut hyper::HeaderMap) -> Option<AwsCredentials> {
     let access_key_id = headers
         .get(AWS_ACCESS_KEY_HEADER)?
@@ -117,9 +115,7 @@ fn global_service_region<'a>(service: &str, default_region: &'a str) -> &'a str 
 
 /// Sign an HTTP request with AWS SigV4.
 ///
-/// Strips any existing `authorization`, `x-amz-date`, and
-/// `x-amz-content-sha256` headers, then computes a fresh signature
-/// and applies the signing output headers.
+/// Strips any existing signature headers before computing a fresh one.
 pub(crate) fn sign_request(
     method: &str,
     url: &str,
@@ -201,9 +197,8 @@ pub(crate) fn sign_request(
 
 /// Sign an outgoing AWS request.
 ///
-/// Extracts credentials from internal headers, buffers the body, signs
-/// with SigV4, and returns the signed body. Returns the body unchanged
-/// if no AWS credential headers are present.
+/// Buffers the body to compute the signature. Returns the body unchanged when
+/// no AWS credential headers are present.
 pub(crate) async fn finalize_request(
     host: &str,
     method: &str,

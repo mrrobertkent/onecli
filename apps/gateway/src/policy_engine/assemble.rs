@@ -1,6 +1,5 @@
-//! Decode the loaded published project rows into the evaluator's `Rule` list.
-//! The rows are already new-model; this maps shapes and resolves
-//! connection/secret targets through the fenced connect-time maps.
+//! Decode the loaded published project rows into the evaluator's `Rule` list,
+//! resolving connection/secret targets through the fenced connect-time maps.
 
 use crate::db::{
     ConnectionProviders, PolicyIdentityRow, PolicyRuleV2Row, PolicyTargetRow, SecretHosts,
@@ -8,9 +7,9 @@ use crate::db::{
 
 use super::types::{Action, Identity, RateWindow, Rule, Target};
 
-/// Agent identities match by id; every other principal kind is a OneCLI Cloud
-/// capability and decodes to `Other`, which never matches — a stored directory
-/// identity narrows its rule to nothing rather than widening it (fail-closed).
+/// Agent identities match by id; every other principal kind decodes to `Other`,
+/// which never matches, so a stored directory identity narrows its rule to
+/// nothing rather than widening it.
 fn decode_identities(rows: &[PolicyIdentityRow]) -> Vec<Identity> {
     rows.iter()
         .map(|r| match &r.agent_id {
@@ -21,9 +20,8 @@ fn decode_identities(rows: &[PolicyIdentityRow]) -> Vec<Identity> {
 }
 
 /// Resolve a `secret` target to the host pattern(s) it gates: a specific
-/// `secret_id` via the fenced by-id map (absent/deleted → none → never
-/// matches), or a `secret_scope` level union. The maps are project-fenced at
-/// load, so a forged/foreign id resolves to nothing.
+/// `secret_id` via the by-id map, or a `secret_scope` level union. The maps are
+/// project-fenced at load, so a forged or foreign id resolves to nothing.
 fn secret_target_hosts(r: &PolicyTargetRow, secret_hosts: &SecretHosts) -> Vec<String> {
     if let Some(id) = &r.secret_id {
         secret_hosts.by_id.get(id).cloned().unwrap_or_default()
@@ -57,11 +55,8 @@ fn decode_targets(
                 },
                 None => Target::Unresolved,
             },
-            // A connection target binds the decision to that specific
-            // connection — it matches only when it wins injection (the target's
-            // own tools narrow which endpoints; empty = the whole app). A
-            // missing/deleted/foreign id is not in the fenced map →
-            // `Unresolved` (never matches — fail-closed).
+            // A missing, deleted or foreign id is not in the fenced map, so it
+            // decodes to `Unresolved` and never matches.
             "connection" => match r
                 .app_connection_id
                 .as_ref()
@@ -111,7 +106,7 @@ fn decode_row(
         },
         require_approval: row.require_approval,
         // A malformed rate limit (≤ 0 or an unknown window) drops to a plain
-        // allow, matching the legacy loader.
+        // allow.
         rate_limit: row
             .rate_limit
             .and_then(|v| u64::try_from(v).ok())
@@ -122,10 +117,9 @@ fn decode_row(
 }
 
 /// Assemble the loaded project rows for the evaluator. `source="equipment"`
-/// rows are injection-only — their connection/secret target names a credential
-/// to inject at connect, not a policy grant — and are DROPPED here. That drop
-/// is load-bearing: a `secret` target PERMITS its host, so an undropped
-/// equipment rule would silently grant network access alongside its injection.
+/// rows are injection-only and dropped here. That drop is load-bearing: a
+/// `secret` target permits its host, so an undropped equipment rule would
+/// silently grant network access alongside its injection.
 pub(super) fn assemble(
     project_rows: &[PolicyRuleV2Row],
     secret_hosts: &SecretHosts,
@@ -247,10 +241,9 @@ mod tests {
 
     #[test]
     fn openai_secret_target_resolves_every_injected_host() {
-        // `find_secret_hosts` expands an OpenAI secret to its full injection
-        // surface (`secret_host_patterns`); a specific-secret rule then enforces
-        // on ALL of them — so a block/approval rule can't be dodged via ChatGPT /
-        // the other OpenAI hosts the one credential is injected on.
+        // A secret expands to its full injection surface, so a specific-secret
+        // block or approval rule can't be dodged via one of the other hosts the
+        // same credential is injected on.
         let mut hosts = SecretHosts::default();
         hosts.by_id.insert(
             "s1".to_string(),

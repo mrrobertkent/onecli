@@ -386,7 +386,7 @@ describe("whole-app targets permit their provider's hosts", () => {
 
   it("named tools keep the exact fan-out (the whole-app branch applies only to empty tools)", () => {
     // create_issue = POST api.github.com /repos/*/*/issues — a GET to another
-    // path on the same host must NOT match a tools-named target.
+    // path on the same host must not match a tools-named target.
     const target: NewTarget = {
       kind: "app",
       provider: "github",

@@ -1,12 +1,8 @@
 //! Gmail — manual-approval summaries.
 //!
 //! Send / draft-create carry a base64url RFC822 message in the JSON `raw` field;
-//! we decode the peeked prefix and lift fields onto the card (never echoing the
-//! base64): a thread indicator first when the send targets an existing thread,
-//! then To/Cc/Bcc/Subject, attachments, and the body. Other actions (trash,
-//! label edits, delete) summarize from the path and a small JSON body.
-//!
-//! Registered as the `"gmail"` summarizer in [`super::summarizer`].
+//! the peeked prefix is decoded and its fields lifted onto the card, never the
+//! base64 itself. Other actions summarize from the path and a small JSON body.
 
 use super::{
     last_segment, mime, parse_json, path_segment_before, ApprovalSummary, RequestSummarizer,
@@ -116,10 +112,8 @@ impl RequestSummarizer for Gmail {
 /// is true when the send/draft request carried a Gmail `threadId`.
 fn populate_from_mime(s: &mut ApprovalSummary, decoded: &[u8], has_thread_id: bool) {
     let msg = mime::parse(decoded);
-    // Thread context leads — it frames the recipients and body that follow. A
-    // send is threaded when Gmail's `threadId` is set or the message carries a
-    // reply header. The original thread title comes from the Subject line — the
-    // summarizer does no I/O, so Gmail's stored subject isn't reachable.
+    // Threaded when `threadId` is set or a reply header is present; the thread
+    // title can only come from the Subject line (the summarizer does no I/O).
     if has_thread_id || msg.is_reply {
         match msg
             .subject
@@ -364,8 +358,7 @@ Content-Type: text/plain\r\n\r\nthanks";
 
     #[test]
     fn thread_row_leads_when_threaded() {
-        // When threaded, the Thread row sits first — directly under the action —
-        // so the approver sees the thread context before To/Cc/Bcc/Subject.
+        // When threaded, the Thread row sits first, before To/Cc/Bcc/Subject.
         let mime = "To: a@b.com\r\nCc: c@b.com\r\nBcc: hidden@x.com\r\n\
 Subject: Re: Q3 report\r\nIn-Reply-To: <prev@mail>\r\n\
 Content-Type: text/plain\r\n\r\nthanks";
@@ -425,9 +418,8 @@ Content-Type: text/plain\r\n\r\nreply body";
 
     #[test]
     fn draft_create_finds_nested_thread_id() {
-        // Draft-create nests the message under `message`; the flat substring scan
-        // still finds both `raw` and `threadId`. The Subject has no "Re:" marker,
-        // so only the threadId proves the draft targets an existing thread.
+        // Draft-create nests the message under `message`; the flat substring
+        // scan still finds both `raw` and `threadId`.
         let mime =
             "To: a@b.com\r\nSubject: Q3 report\r\nContent-Type: text/plain\r\n\r\ndraft body";
         let body = format!(

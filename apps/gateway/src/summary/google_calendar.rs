@@ -1,9 +1,8 @@
 //! Google Calendar — manual-approval summaries.
 //!
-//! Covers the major Calendar API v3 resources (events, calendars, calendarList,
-//! acl, freeBusy, settings, colors, channels) with a friendly action title and
-//! a few useful details lifted from the path / JSON body. Registered as the
-//! `"google-calendar"` summarizer in [`super::summarizer`].
+//! Covers the Calendar API v3 resources (events, calendars, calendarList, acl,
+//! freeBusy, settings, colors, channels) with an action title and details
+//! lifted from the path / JSON body.
 
 use serde_json::Value;
 

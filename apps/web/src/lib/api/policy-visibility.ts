@@ -4,14 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, queryKeys } from "@/lib/api";
 import type { GrantResources } from "@/lib/api";
 
-// The policy-visibility client: effective-access reflections read by the agent
-// page (Manage-permissions dialog, grant rows) and the connection/credential
-// dialogs. The reflect endpoints mount in the shared app for every edition.
-// Query keys are built by SPREADING the shared namespaces
-// (`queryKeys.agents.all()` etc.), so the arrays are byte-identical to nested
-// entries and every broad shared invalidation
-// (`invalidateQueries({ queryKey: queryKeys.agents.all() })`) still covers
-// these caches.
+// Effective-access reflections read by the agent page and the
+// connection/credential dialogs. Query keys spread the shared namespaces
+// (`queryKeys.agents.all()` etc.) so broad invalidations still cover them.
 
 export type EffectiveToolVerdict =
   | "allow"
@@ -36,8 +31,8 @@ export type EffectiveProvenance =
   | { kind: "rule"; scope: "organization" | "project"; rule: ProvenanceRuleRef }
   | { kind: "default"; scope: "organization" | "project" };
 
-/** What the org level ALONE says about the tool — the ceiling the project can
- * tighten under but never loosen past. Null = the org is silent. */
+/** The ceiling a project can tighten under but never loosen past. Null = the
+ * org is silent. */
 export type OrgCeilingVerdict = "allow" | "approval" | "block";
 
 export interface EffectiveToolResult {
@@ -65,27 +60,19 @@ export interface EffectiveAppPermissionsResult {
   /** Identity-scoped provider-relevant rules the agent-less baseline can't
    * show (viewer-scoped). */
   variesByIdentity: number;
-  /** The ORG's resource boundary ("Resources") for the explicit
-   * (agent, connection) basis — how far the organization allows the credential
-   * to reach. Values only (never the rule); null = the org is silent or no
-   * explicit basis was given. */
+  /** How far the org allows the credential to reach. Null = the org is silent
+   * or no explicit (agent, connection) basis was given. */
   orgResources: GrantResources | null;
-  /** What the credential actually reaches: the org boundary composed with the
-   * project's selection. An empty list = the two don't overlap, so it reaches
-   * nothing and every request is refused. */
+  /** The org boundary composed with the project's selection. An empty list =
+   * the two don't overlap, so every request is refused. */
   effectiveResources: GrantResources | null;
   groups: EffectiveToolGroupResult[];
 }
 
 /**
- * Per-tool effective verdicts from the ENFORCED (published) rules — read by
- * the agent page's Manage-permissions dialog and grant rows (org ceiling, org
- * resources, rate limits). Also the shape behind the public CLI/SDK
- * effective-permissions surface. Takes an optional agent (omitted = the
- * agent-less baseline). Org-rule provenance arrives redacted for
- * non-org-admins. Project scope only — the org-scoped twin
- * (`/v1/org/policy/effective-app-permissions`) serves the CLI/SDK and has no
- * web caller.
+ * Per-tool effective verdicts from the published rules. Omitting `agentId`
+ * gives the agent-less baseline. Org-rule provenance arrives redacted for
+ * non-org-admins. Project scope only.
  */
 export const effectiveAppPermissions = (
   provider: string,
@@ -93,16 +80,14 @@ export const effectiveAppPermissions = (
 ) => {
   const params = new URLSearchParams({ provider });
   if (opts.agentId) params.set("agentId", opts.agentId);
-  // Reflect one specific account as the winning injected connection
-  // (per-account rules bind exactly as the gateway would).
+  // Reflects one account as the winning injected connection.
   if (opts.connectionId) params.set("connectionId", opts.connectionId);
   return apiGet<EffectiveAppPermissionsResult>(
     `/v1/policy/effective-app-permissions?${params}`,
   );
 };
 
-/** Per-tool effective verdicts from the ENFORCED rules. `agentId` null = the
- * agent-less baseline. */
+/** Per-tool effective verdicts. `agentId` null = the agent-less baseline. */
 export const useEffectiveAppPermissions = (
   provider: string,
   agentId: string | null,
@@ -134,7 +119,7 @@ export type CredentialProvenance =
       rule: { logicalId: string; name: string };
     };
 
-/** What a credential can actually DO under the rules (the effective view). */
+/** What a credential can actually do under the rules. */
 export type CredentialAccessStatus =
   | "usable"
   | "limited"
@@ -156,8 +141,8 @@ export type EffectiveCredentialEntry =
       label: string | null;
       provider: string;
       status: CredentialAccessStatus;
-      /** The organization blocks every tool of this connection for this agent
-       * — a project admin cannot lift it, only the org can. */
+      /** The org blocks every tool of this connection for this agent; a project
+       * admin cannot lift it. */
       orgBlocked: boolean;
       provenance: CredentialProvenance[];
     };
@@ -170,16 +155,14 @@ export interface EffectiveCredentialsResult {
   connections: EffectiveCredentialEntry[];
 }
 
-/** The Credential-access dialog's read-only reflection: which
- * credentials can inject for this agent (its published rule grants). Project
- * members; org-rule provenance arrives redacted for non-org-admins. */
+/** Which credentials can inject for this agent, under its published rule
+ * grants. Org-rule provenance arrives redacted for non-org-admins. */
 export const effectiveCredentials = (agentId: string) =>
   apiGet<EffectiveCredentialsResult>(
     `/v1/agents/${agentId}/effective-credentials`,
   );
 
-/** The Credential-access dialog's read-only reflection (step 9.7b):
- * which credentials can inject for this agent (its published rule grants). */
+/** Which credentials can inject for this agent. */
 export const useEffectiveCredentials = (agentId: string, enabled = true) =>
   useQuery({
     queryKey: [...queryKeys.agents.all(), agentId, "effective-credentials"],
@@ -221,16 +204,14 @@ export interface EffectiveAgentsResult {
   agents: EffectiveAgentEntry[];
 }
 
-/** The "agent access" dialog's read-only reflection: per-agent
- * credential status + the per-tool decisions rollup, from the ENFORCED rules.
- * Project members; org-rule provenance arrives redacted for non-org-admins. */
+/** Per-agent credential status plus the per-tool decisions rollup, from the
+ * published rules. Org-rule provenance arrives redacted for non-org-admins. */
 export const effectiveAgents = (connectionId: string) =>
   apiGet<EffectiveAgentsResult>(
     `/v1/connections/${connectionId}/effective-agents`,
   );
 
-/** The "agent access" dialog's read-only reflection (step 9.7b):
- * per-agent credential status + the decisions rollup from the ENFORCED rules. */
+/** Per-agent credential status plus the decisions rollup. */
 export const useConnectionEffectiveAgents = (
   connectionId: string,
   enabled = true,

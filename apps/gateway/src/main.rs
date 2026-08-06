@@ -210,11 +210,9 @@ async fn main() -> Result<()> {
         "starting onecli-gateway"
     );
 
-    // The gateway puts absolute links into the responses agents relay to humans
-    // ("open this URL to connect the app"). It answers proxy traffic, so unlike
-    // the web app it has no incoming browser request to derive its own address
-    // from — APP_URL is the only thing that can tell it. Say so once, loudly,
-    // rather than emitting links that look real and go nowhere.
+    // The gateway puts absolute links into agent-facing responses and, serving
+    // proxy traffic, has no incoming browser request to derive its own address
+    // from — APP_URL is the only thing that can tell it.
     if !gateway::response::app_url_is_configured() {
         warn!(
             fallback = gateway::response::DASHBOARD_URL_FALLBACK,
@@ -255,9 +253,8 @@ async fn main() -> Result<()> {
     let crypto = Arc::new(crypto::CryptoService::from_env().await?);
     info!("crypto service initialized");
 
-    // Build the 1Password provider once and share the Arc: the PolicyEngine
-    // resolves `op://` secret values through it, and the VaultService registers
-    // it as a provider (connection holder for pair/status/picker).
+    // Built once and shared: the PolicyEngine resolves `op://` secret values
+    // through it, and the VaultService registers it as a provider.
     let onepassword = Arc::new(OnePasswordVaultProvider::new(
         pool.clone(),
         Arc::clone(&crypto),
@@ -309,19 +306,17 @@ async fn main() -> Result<()> {
     );
     let result = server.run().await;
 
-    // The drain, in the one order that does not lose data: connections first
-    // (they are still emitting telemetry as they finish), then the telemetry
-    // flush that persists what they emitted, then the database it wrote to.
-    // Every phase draws from one budget, so the total cannot outrun the
-    // orchestrator's patience however it is configured.
+    // The one order that does not lose data: connections first (they are still
+    // emitting telemetry as they finish), then the flush that persists what
+    // they emitted, then the database it wrote to. Every phase draws from one
+    // budget, so the total cannot outrun the orchestrator's patience.
     let budget = shutdown::Budget::start();
     let drained = shutdown::drain_connections(budget.drain_share()).await;
     if !drained {
         warn!("drain deadline reached — remaining connections will be cut");
     }
     telemetry_core::shutdown(budget.allow(TELEMETRY_FLUSH_TIMEOUT)).await;
-    // Bounded: a detached approval-cleanup task can briefly hold a connection,
-    // and no amount of tidiness is worth missing the SIGKILL deadline.
+    // Bounded: a detached approval-cleanup task can briefly hold a connection.
     let _ = tokio::time::timeout(budget.allow(POOL_CLOSE_TIMEOUT), shutdown_pool.close()).await;
 
     info!(drained, "drain complete");

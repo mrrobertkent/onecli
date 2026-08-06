@@ -1,12 +1,8 @@
 //! Inject agent identity into GitHub commit bodies.
 //!
-//! When the gateway creates commits on behalf of an agent using a GitHub App
-//! installation token, the commit has no natural author identity. This module
-//! prefixes the agent name onto the commit message and appends an
-//! `On-Behalf-Of` trailer for traceability.
-//!
-//! Invoked via the `BodyTransform::GitHubCommitTrailer` dispatch in `forward.rs`.
-//! All GitHub-specific logic (host, method, path checks) is encapsulated here.
+//! A commit made with a GitHub App installation token has no author identity,
+//! so the agent name is prefixed onto the message and an `On-Behalf-Of` trailer
+//! appended.
 
 use hyper::Method;
 use tracing::debug;
@@ -94,12 +90,9 @@ fn inject_commit_trailer(body: &[u8], identity: &AgentCommitIdentity) -> Option<
     serde_json::to_vec(&json).ok()
 }
 
-/// Returns true if the path matches a GitHub commit-creating endpoint
-/// that uses a `message` field for the commit message.
-///
-/// Note: merge endpoints (POST /merges, PUT /pulls/:number/merge) are
-/// excluded because they use `commit_message`/`commit_title` with
-/// different semantics (appended to auto-generated messages).
+/// Returns true if the path matches a GitHub commit-creating endpoint that uses
+/// a `message` field. Merge endpoints are excluded: they use
+/// `commit_message`/`commit_title`, with different semantics.
 fn is_commit_endpoint(method: &Method, path: &str) -> bool {
     let path = path.split('?').next().unwrap_or(path);
 

@@ -5,9 +5,8 @@ import {
   type OverlapTarget,
 } from "./policy-overlap";
 
-// The zero-false-positive contract: every WARN case here is provably dead;
-// every MUST-NOT-WARN case is an undecidable (or simply non-dead) shape the
-// analysis must stay silent on — precision over recall, always.
+// Every warn case here is provably dead; every no-warn case is a shape the
+// analysis cannot decide, and so must stay silent on.
 
 let seq = 0;
 const rule = (over: Partial<OverlapRule>): OverlapRule => ({
@@ -89,8 +88,8 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a universal earlier target covers app targets (secret rules are injection-exempt)", () => {
-    // The secret-target sibling is NOT flagged: it still injects at connect
-    // even when its decision surface is covered (the truthfulness fence).
+    // The secret-target sibling is not flagged: it still injects at connect
+    // even when its decision surface is covered.
     const all = rule({ logicalId: "all", priority: 1, targets: [net("*")] });
     const appR = rule({
       logicalId: "app",
@@ -106,8 +105,8 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a universal earlier target covers a bare whole-app rule", () => {
-    // Empty tools + no connectionScope = a pure whole-app match rule (no
-    // injection) — coverable like any match-only target.
+    // Empty tools and no connectionScope is a match-only whole-app rule, so it
+    // is coverable like any other match-only target.
     const all = rule({ logicalId: "all", priority: 1, targets: [net("*")] });
     const whole = rule({
       logicalId: "w",
@@ -118,7 +117,7 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a whole-app earlier target covers any same-provider app target", () => {
-    // No tools = host-only on EVERY catalog host of the provider — a superset
+    // No tools means host-only on every catalog host of the provider, a superset
     // of each tool's (host, path, method) surface.
     const whole = rule({
       logicalId: "w",
@@ -134,8 +133,7 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a connection-scoped earlier app target still covers (scope never affects matching)", () => {
-    // The COVERER may carry a connectionScope — its match surface is the same;
-    // only VICTIMS are injection-exempt.
+    // A coverer may carry a connectionScope; only victims are injection-exempt.
     const scoped = rule({
       logicalId: "s",
       priority: 1,
@@ -150,9 +148,8 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a conditioned universal still covers a TOOLS-app victim (conditions honored there)", () => {
-    // Positive control for the conditions-asymmetry guard: a tools-named app
-    // target HONORS its rule's conditions, so the subset test is sound and the
-    // conditioned catch-all provably covers it.
+    // A tools-named app target honors its rule's conditions, so the subset test
+    // is sound and the conditioned catch-all provably covers it.
     const cond = [{ target: "body", operator: "contains", value: "x" }];
     const all = rule({
       logicalId: "all",
@@ -170,9 +167,8 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a BLOCK rule with a secret target is warnable (blocks never inject)", () => {
-    // The injection fence is action-refined: inject-select collects ALLOW
-    // rules only, so a block-action secret rule under an unconditioned
-    // catch-all is provably dead with zero injection — recall reclaimed.
+    // Only allow rules inject, so a block-action secret rule under an
+    // unconditioned catch-all is provably dead.
     const all = rule({ logicalId: "all", priority: 1, targets: [net("*")] });
     const blockSec = rule({
       logicalId: "bs",
@@ -184,8 +180,8 @@ describe("findPolicyOverlaps — warns (provably dead)", () => {
   });
 
   it("a same-action modifier conflict on an injection-bearing twin still warns", () => {
-    // Both twins are ALLOW → identical injection contribution (idempotent
-    // union) — the conflict (differing rate modifier) stays truthful.
+    // Both twins are allow, so their injection contribution is identical and the
+    // modifier-only conflict stays truthful.
     const a = rule({
       logicalId: "a",
       priority: 1,
@@ -363,9 +359,8 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("a connection-scoped app rule is never a shadow victim (it injects)", () => {
-    // Its decision surface IS covered here, but the rule still drives
-    // credential injection at connect — flagging it "unreachable" would invite
-    // deleting a rule with live effect (the truthfulness fence).
+    // Its decision surface is covered here, but the rule still drives credential
+    // injection at connect, so flagging it unreachable would be misleading.
     const broad = rule({
       logicalId: "b",
       priority: 1,
@@ -380,9 +375,8 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("injection-bearing rules are never shadowed, even under a universal rule", () => {
-    // All three shapes that inject at connect — an app-scoped, a connection,
-    // and a secret target — stay unflagged below a catch-all (the fence; for
-    // secrets this also pins the fix of the pre-existing mislead).
+    // All three shapes that inject at connect — an app-scoped, a connection and
+    // a secret target — stay unflagged below a catch-all.
     const all = rule({ logicalId: "all", priority: 1, targets: [net("*")] });
     const appScoped = rule({
       logicalId: "as",
@@ -403,10 +397,9 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("a conditioned universal never claims a whole-app victim (conditions ignored there)", () => {
-    // THE conditions-asymmetry counterexample (review-proven live): the
-    // catch-all matches only its conditioned slice, while the bare whole-app
-    // victim matches host-only with conditions IGNORED — a body without "x"
-    // fires the "shadowed" rule. Both action variants must stay silent.
+    // The catch-all matches only its conditioned slice, while the bare whole-app
+    // victim matches host-only with conditions ignored, so a body without "x"
+    // fires the supposedly shadowed rule. Both action variants stay silent.
     const cond = [{ target: "body", operator: "contains", value: "x" }];
     for (const action of ["allow", "block"] as const) {
       const all = rule({
@@ -427,11 +420,9 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("a conditioned universal never claims a BLOCK connection-target victim", () => {
-    // Fix-attacker counterexample: the block rule bears no injection (blocks
-    // never inject) so the injection fence doesn't cover it, but its
-    // connection target resolves at connect to a whole-app match that IGNORES
-    // conditions — the conditioned catch-all covers only its conditioned
-    // slice, so the victim fires live. Must stay silent.
+    // The block rule injects nothing, but its connection target resolves at
+    // connect to a whole-app match that ignores conditions, so the conditioned
+    // catch-all does not cover it and the victim still fires.
     const cond = [{ target: "body", operator: "contains", value: "x" }];
     const all = rule({
       logicalId: "all",
@@ -450,9 +441,8 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("an opposite-action conflict on an injection-bearing allow twin is fenced", () => {
-    // A Block head contributes no injection; the Allow twin keeps injecting
-    // (position-independent union) even though its verdict never applies —
-    // flagging it would invite deleting live injection.
+    // A block head injects nothing while the allow twin keeps injecting, even
+    // though its verdict never applies.
     const blockHead = rule({
       logicalId: "bh",
       priority: 1,
@@ -469,8 +459,8 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("two rules on the same connection with DIFFERENT tools are not duplicates", () => {
-    // Connection targets now carry tools (the narrowing shape); `targetEntry`
-    // folds them into the sig, so different tool sets on the same connection are
+    // `targetEntry` folds a connection's tools into the signature, so different
+    // tool sets on the same connection are
     // distinct rules, never flagged duplicate.
     const a = rule({
       logicalId: "a",
@@ -486,10 +476,9 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("a conditioned universal never claims a BLOCK connection-with-tools victim", () => {
-    // The block connection rule bears no injection (blocks don't inject) but is
-    // still fenced from shadow because it names a connection target; and even so,
-    // a tool-narrowed connection HONORS conditions (the fan-out), so a
-    // conditioned catch-all could never cover it. Must stay silent either way.
+    // The block connection rule injects nothing but is still fenced from shadow
+    // because it names a connection target, and a tool-narrowed connection
+    // honors conditions, so a conditioned catch-all could never cover it.
     const cond = [{ target: "body", operator: "contains", value: "x" }];
     const all = rule({
       logicalId: "all",
@@ -510,8 +499,7 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("two whole-app rules differing only in connectionScope are not duplicates", () => {
-    // Same match surface, but DIFFERENT injection pools (org vs project
-    // connections) — deleting one would lose its injection level, so the
+    // Same match surface but different injection pools (org vs project), so the
     // signature keeps the scope and stays silent.
     const org = rule({
       logicalId: "o",

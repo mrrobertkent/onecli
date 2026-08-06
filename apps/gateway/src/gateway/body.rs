@@ -6,10 +6,8 @@ use hyper::body::Bytes;
 
 const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 
-/// Buffer a streaming `reqwest::Body` into bytes, enforcing size during read.
-///
-/// Rejects the body as soon as accumulated bytes exceed `MAX_BODY_SIZE`,
-/// preventing OOM on large uploads without buffering the entire payload first.
+/// Buffer a streaming `reqwest::Body` into bytes, rejecting it as soon as the
+/// accumulated size exceeds `MAX_BODY_SIZE`.
 pub(crate) async fn buffer_body(mut body: reqwest::Body) -> anyhow::Result<Bytes> {
     let mut buf = Vec::with_capacity(4096);
 

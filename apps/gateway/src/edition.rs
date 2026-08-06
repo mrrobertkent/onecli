@@ -1,12 +1,12 @@
 //! Build edition identity for the gateway.
 //!
-//! The active edition is selected at build time via Cargo features and surfaced
-//! as positive `edition_*` cfgs by `build.rs` (OSS is implicit — no edition
-//! feature). This module exposes them as a runtime value so code can branch on
-//! `edition()` / `capabilities()` instead of scattering `#[cfg(...)]`.
+//! The edition is selected at build time via Cargo features and surfaced as
+//! `edition_*` cfgs by `build.rs` (OSS is implicit). This module exposes them as
+//! a runtime value so code can branch on `edition()` / `capabilities()` instead
+//! of scattering `#[cfg(...)]`.
 
 // `build.rs` sets `edition_conflict` when more than one edition feature is
-// enabled at once. Fail loudly here rather than silently picking one.
+// enabled at once.
 #[cfg(edition_conflict)]
 compile_error!("at most one OneCLI edition feature may be enabled at a time (e.g. `cloud`)");
 

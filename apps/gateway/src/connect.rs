@@ -1163,13 +1163,10 @@ impl PolicyEngine {
                 .as_secs() as i64;
 
             if effective_expires_at.is_some_and(|exp| exp < now) || needs_scoped_token {
-                // Try cloud-specific refresh first, then shared credential types.
-                // WHICH one answered matters: only the cloud path consults the
-                // scoper, so only it can have produced a SCOPED credential. The
-                // shared fallback mints the ordinary broad one — treating that
-                // as scoped would let a policy the scoper declined (an axis it
-                // does not recognize, say) pass the fail-closed check below
-                // while nothing enforces it.
+                // Which path answered matters: only the cloud one consults the
+                // scoper, so only it can have produced a scoped credential.
+                // Treating the shared broad mint as scoped would pass the
+                // fail-closed check below with nothing enforcing the policy.
                 let scoped =
                     crate::ee_apps::try_refresh_credentials(&cred_type, &creds, session_policy)
                         .await;
@@ -1243,23 +1240,13 @@ impl PolicyEngine {
             }
         }
 
-        // A restrictive session policy must NEVER be satisfied with the stored,
-        // unscoped credential — but only where the credential itself is how the
-        // scope is enforced. For a TOKEN-SCOPED provider every failure above
-        // merely logs and falls through (a refusal to mint, an errored refresh,
-        // credentials with no `expires_at` so no mint was attempted), and
-        // returning the broad token would hand the agent exactly the access the
-        // policy exists to withhold — so inject nothing instead.
-        //
-        // Providers enforced at REQUEST level (Dropbox's folder guard) are the
-        // opposite case: the plain stored token IS the correct credential and
-        // the guard restricts each call. Withholding it there would not tighten
-        // anything, it would break granular access altogether.
-        //
-        // So the question is not "is this provider token-scoped?" but "is there
-        // ANY path that will enforce this scope?" — a provider with neither a
-        // scoped mint nor a request guard can enforce nothing, and handing it
-        // the broad credential would leave the restriction silently dead.
+        // A restrictive session policy must never be satisfied with the stored,
+        // unscoped credential where the credential itself is how the scope is
+        // enforced — every mint failure above merely logs and falls through.
+        // Providers enforced by a request guard are the opposite case: the plain
+        // stored token is the correct credential, and withholding it would break
+        // granular access rather than tighten anything. So the test is whether
+        // any path will enforce this scope, not whether the provider is scoped.
         if needs_scoped_token
             && !scoped_token_minted
             && !crate::ee_apps::has_request_guard(provider)
@@ -1309,19 +1296,10 @@ impl PolicyEngine {
 
     /// Resolve BYOC client credentials for refreshing a connection.
     ///
-    /// Prefers the config that *minted* the connection (the provenance link):
-    /// its refresh token is bound to that OAuth client, so refresh must reuse it
-    /// even when the tier order below would now pick a different row (e.g. an
-    /// org-minted connection whose project later added its own config). Falls
-    /// back to the project's own AppConfig row, then the organization-level row
-    /// (EE editions only), for connections with no link (env-minted, no-config
-    /// methods, or pre-dating the link) *and* for a link that resolves but
-    /// yields no usable pair (config disabled, wrong provider, or missing
-    /// clientId/clientSecret). The org tier is consulted whenever the project
-    /// tier yields no usable pair — row absent OR present but missing
-    /// clientId/clientSecret — the same completeness semantics as the Node
-    /// resolver's project → org chain. Returns
-    /// `Some((client_id, client_secret))` when a usable pair exists.
+    /// Prefers the config that *minted* the connection: its refresh token is
+    /// bound to that OAuth client. Falls back to the project's own AppConfig row,
+    /// then the organization-level row (EE only). A tier is skipped whenever it
+    /// yields no usable pair, not merely when its row is absent.
     async fn resolve_byoc_credentials(
         &self,
         project_id: &str,
@@ -1427,9 +1405,7 @@ fn db_err(e: anyhow::Error) -> ConnectError {
 
 // ── Cached resolution ───────────────────────────────────────────────────
 
-/// Resolve with caching. Checks the generic `CacheStore` first, then
-/// queries the DB if needed. The cache key is namespaced as
-/// `connect:{project_id}:{agent_token}:{hostname}` so that cache
+/// Resolve with caching. The cache key is namespaced by project so that
 /// invalidation can target all entries for a project by prefix.
 pub(crate) async fn resolve(
     agent_token: &str,
@@ -1445,7 +1421,6 @@ pub(crate) async fn resolve(
         agent.organization_id, agent.project_id
     );
 
-    // Check cache
     if let Some(response) = cache.get::<ConnectResponse>(&cache_key).await {
         debug!(host = %hostname, intercept = response.intercept, "resolve: cache hit");
         return Ok(response);
@@ -1453,21 +1428,16 @@ pub(crate) async fn resolve(
 
     debug!(host = %hostname, "resolve: cache miss, querying DB");
 
-    // Query the database (agent already resolved, avoids re-querying)
     let response = policy_engine.resolve_uncached(&agent, hostname).await?;
 
-    // Cache the response
     cache.set(&cache_key, &response, CACHE_TTL_SECS).await;
 
     Ok(response)
 }
 
-/// Resolve with caching, using a known `project_id` to skip the agent DB
-/// query on cache hits. Designed for per-request resolution inside MITM
-/// tunnels where the agent identity is already known from CONNECT time.
-///
-/// On cache hit: zero DB queries (just a cache lookup).
-/// On cache miss: falls back to full resolution (agent query + DB).
+/// Resolve with caching, using a known `project_id` to skip the agent DB query
+/// on cache hits — for per-request resolution inside MITM tunnels, where the
+/// agent identity is already known from CONNECT time.
 pub(crate) async fn resolve_from_cache(
     organization_id: &str,
     project_id: &str,
@@ -1493,26 +1463,19 @@ pub(crate) async fn resolve_from_cache(
 
 // ── Connection narrowing ─────────────────────────────────────────────────
 
-/// Narrow app connections to those whose provider serves THIS request path,
-/// but only on shared, path-scoped hosts (e.g. `www.googleapis.com`, where
-/// Gmail, Calendar and Drive coexist by path prefix).
+/// Narrow app connections to those whose provider serves this request path, on
+/// shared path-scoped hosts (e.g. `www.googleapis.com`) only.
 ///
-/// Without this, two connections of a single provider (e.g. two Gmail accounts)
-/// make *every* path on the shared host ambiguous — including Calendar/Drive
-/// requests that are unambiguous by path — forcing an `x-onecli-connection-id`
-/// header on requests that need none. Dedicated hosts (`gmail.googleapis.com`,
-/// no path prefix) are not path-scoped, so the full set is returned unchanged.
-///
-/// Returns the full set (borrowed) when there is no request path, the host is
-/// not path-scoped, or no connection serves the path — preserving prior
-/// behavior in every case except the shared-host mismatch this fixes.
+/// Without this, two connections of a single provider make *every* path on the
+/// shared host ambiguous, forcing an `x-onecli-connection-id` header on requests
+/// that need none. Returns the full set (borrowed) when there is no request
+/// path, the host is not path-scoped, or no connection serves the path.
 fn narrow_connections_by_path<'a>(
     connections: &'a [db::AppConnectionRow],
     hostname: &str,
     request_path: Option<&str>,
 ) -> Cow<'a, [db::AppConnectionRow]> {
-    // Narrowing can only change the outcome with at least two connections to
-    // disambiguate; skip the work — and the clone — for the common 0/1 case.
+    // Narrowing can only matter with two or more connections; skip the clone.
     if connections.len() <= 1 {
         return Cow::Borrowed(connections);
     }
@@ -1534,11 +1497,9 @@ fn narrow_connections_by_path<'a>(
     }
 }
 
-/// True when `provider` serves this request's host+path. Winner metadata
-/// (granular policy, finalizer, body transform, host rewrite, label) is
-/// adopted only from a serving connection; injection rules need no such
-/// gate — they self-select via `path_pattern` at apply time. A missing
-/// request path is conservatively non-serving.
+/// True when `provider` serves this request's host+path. Winner metadata is
+/// adopted only from a serving connection; injection rules need no such gate,
+/// they self-select via `path_pattern`. A missing request path is non-serving.
 fn provider_serves_request(provider: &str, hostname: &str, request_path: Option<&str>) -> bool {
     request_path
         .map(|p| apps::provider_matches_host_and_path(provider, hostname, p))
@@ -1570,8 +1531,7 @@ impl PolicyEngine {
 }
 
 /// Test-only: seed the `app_injection:` cache entry exactly the way
-/// `resolve_connection_injections` writes it (struct-typed, so shape drift
-/// breaks tests loudly instead of deserializing via defaults).
+/// `resolve_connection_injections` writes it.
 #[cfg(test)]
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn seed_app_injection_cache(

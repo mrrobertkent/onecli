@@ -1,9 +1,8 @@
 //! Generic fallback summary for providers/endpoints without a dedicated
 //! summarizer.
 //!
-//! Renders a safe, bounded view of an arbitrary request body: redacts
-//! secret-named JSON keys, elides base64 blobs, summarizes binary, and hard-caps
-//! length so an approval card can never leak a secret or overflow a chat client.
+//! Redacts secret-named JSON keys, elides base64 blobs, summarizes binary, and
+//! caps length so a card can't leak a secret or overflow a chat client.
 
 use serde_json::Value;
 
@@ -22,9 +21,8 @@ pub(super) fn summarize(req: &SummaryRequest<'_>) -> ApprovalSummary {
     s
 }
 
-/// Render an arbitrary body to a safe, bounded string: redact JSON (secret-named
-/// keys → `***`, long/base64 strings → elided), summarize binary, or redact long
-/// base64 runs in plain text.
+/// Render an arbitrary body to a safe, bounded string: secret-named keys →
+/// `***`, long/base64 strings elided, binary summarized.
 fn render_body(content_type: Option<&str>, body: &[u8]) -> String {
     if body.is_empty() {
         return String::new();

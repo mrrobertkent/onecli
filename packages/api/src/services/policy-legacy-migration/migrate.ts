@@ -1,22 +1,14 @@
 /**
  * The one-shot legacy → v2 policy migration — see ./README.md.
  *
- * Runs on every OSS web-server boot (after the entrypoint's `prisma migrate
- * deploy`) and converts any project that still carries old-model policy but
- * never materialized v2: its custom rules, app-permission rows, enabled
- * blocklist, per-agent credential grants, and the org row's `policyMode`
- * become ONE published `policy_rules_v2` generation. The published generation
- * is the gateway's per-project enforce signal, so convert → verify → enforce is
- * structural.
+ * Runs on every OSS web-server boot and converts any project that still carries
+ * old-model policy but never materialized v2: its custom rules, app-permission
+ * rows, enabled blocklist, per-agent credential grants and the org's
+ * `policyMode` become one published `policy_rules_v2` generation.
  *
- * Idempotent: a project that already has a published generation is skipped, so
- * this is a no-op on every boot after the first. Best-effort: a failure is
- * logged and never crashes the web server, and the old rows are retained, so a
- * failed run is fully recoverable by fixing the cause and rebooting.
- *
- * OSS ONLY. Cloud was converted in 2026-07 and its seam
- * (`apps/web/src/ee/policy-migrate.ts`) never imports this; onprem is covered
- * by the boot guard, which reports rather than converts.
+ * Idempotent — a project with a published generation is skipped — and
+ * best-effort: a failure is logged rather than crashing the web server, and the
+ * old rows are retained so a failed run is recoverable by rebooting.
  */
 import { db } from "@onecli/db";
 import {
@@ -38,17 +30,14 @@ import {
 } from "./read-legacy";
 
 export interface OssCutoverResult {
-  /** `diverged` still leaves a generation published and enforcing — see the
-   * divergence branch. A thrown error is counted by the caller, not returned. */
+  /** `diverged` still leaves a generation published and enforcing. A thrown
+   * error is counted by the caller, not returned. */
   status: "cut" | "skipped" | "diverged";
   ruleCount: number;
-  /** Set on a skip when a USER publish pre-empted the conversion: the project
-   * has legacy rules but its active generation was not written here (its
-   * Default Rule lacks the migration marker), so those rules were never
-   * translated and the skip-if-published idempotency will never retry.
-   * Loudly logged. The remedy is to re-author the policy in the console —
-   * NOT to delete the project's v2 rows, which since step 10 would leave it
-   * enforcing nothing until the next boot completes. */
+  /** Set on a skip where a user publish pre-empted the conversion: the project
+   * has legacy rules but its active generation was not written here, so those
+   * rules were never translated and the skip-if-published idempotency will
+   * never retry. The remedy is to re-author the policy in the console. */
   preempted?: boolean;
 }
 
@@ -90,9 +79,9 @@ const verifyProject = async (
   generation: number,
   written: BackfillRuleInput[],
 ): Promise<boolean> => {
-  // Pinned to the generation THIS run wrote: a concurrent replica can
-  // legitimately publish a newer one in the commit→verify window, and an
-  // unpinned read would false-diverge a perfectly healthy project.
+  // Pinned to the generation this run wrote: a concurrent replica can publish a
+  // newer one in the commit-to-verify window, and an unpinned read would report
+  // a false divergence.
   const stored = await db.policyRuleV2.findMany({
     where: { scope: "project", projectId, status: "published", generation },
     include: { identities: true, targets: true },
@@ -107,11 +96,10 @@ const verifyProject = async (
   );
 };
 
-/** A project that already has a published generation needs no conversion — but
- * it may have been published by a USER before the migration ran (a raced boot
- * walk), in which case its legacy rules were never translated and the plain
- * idempotency skip would hide that forever. Detected via the migration marker on
- * the active generation's Default Rule. Two cheap counts, no translation. */
+/** A project with a published generation needs no conversion — unless a user
+ * published it before the migration ran, in which case its legacy rules were
+ * never translated and a plain idempotency skip would hide that forever.
+ * Detected via the migration marker on the active generation's Default Rule. */
 const skipAlreadyPublished = async (
   projectId: string,
 ): Promise<OssCutoverResult> => {
@@ -130,9 +118,9 @@ const skipAlreadyPublished = async (
   if (activeDefault?.description === OSS_MIGRATED_DEFAULT_DESCRIPTION) {
     return { status: "skipped", ruleCount: 0 };
   }
-  // Do NOT advise deleting the v2 rows to force a re-run: since step 10 there is
-  // no legacy engine behind them, so a project with no published generation
-  // enforces NOTHING until the next boot completes.
+  // Deleting the v2 rows to force a re-run is not a remedy: there is no legacy
+  // engine behind them, so a project with no published generation enforces
+  // nothing until the next boot completes.
   console.error(
     `[policy-legacy-migration] PREEMPTED project=${projectId}: this project's v2 policy was published before the migration ran, so ${legacyCount} legacy rule(s) were NOT carried over. They are still readable in \`policy_rules\` — re-author them in the Policy console. Do not delete the project's policy_rules_v2 rows: nothing would be enforced until it is republished.`,
   );
@@ -144,11 +132,9 @@ export const cutoverOssProject = async (
   projectId: string,
   policyMode: string,
 ): Promise<OssCutoverResult> => {
-  // FAST PATH. This walks every project on EVERY boot, forever — long after the
-  // last instance has converted — so decide from one count before translating
-  // anything. Without it a converted instance re-reads `policy_rules` and every
-  // agent's grants for each project on each boot, purely to throw the result
-  // away at `backfillPublishScope`'s idempotency check.
+  // Fast path: this walks every project on every boot, long after the last
+  // instance has converted, so decide from one count before translating
+  // anything.
   const published = await db.policyRuleV2.count({
     where: { scope: "project", projectId, status: "published" },
   });
@@ -170,19 +156,10 @@ export const cutoverOssProject = async (
   if (await verifyProject(projectId, result.generation ?? 1, rules)) {
     return { status: "cut", ruleCount: rules.length };
   }
-  // Divergence — a translator-bug-only condition, fenced by the parity proofs.
-  //
-  // This used to compensate by DELETING the project's v2 rows, because before
-  // step 10 "no published generation" meant the gateway fell back to the legacy
-  // engine and the project kept enforcing its old rules. That fallback is gone:
-  // an empty rule set now decides Allow, so deleting would turn a policy that
-  // merely failed to round-trip into no policy at all — allow-everything, for a
-  // security product, on a translator nit.
-  //
-  // The written generation is KEPT. It enforces the translation we produced,
-  // which is the closest thing to the operator's intent that exists, and the
-  // legacy rows are retained so the divergence can be diagnosed and the policy
-  // republished by hand.
+  // Divergence can only mean a translator bug. The written generation is kept
+  // rather than deleted: an empty rule set decides Allow, so deleting would
+  // turn a policy that merely failed to round-trip into no policy at all. The
+  // legacy rows are retained so it can be diagnosed and republished by hand.
   console.error(
     `[policy-legacy-migration] DIVERGENCE project=${projectId} — the published v2 generation does not match the translation. It is being KEPT and IS enforcing (deleting it would enforce nothing at all). Compare it against the project's \`policy_rules\` rows and republish from the Policy console if it is wrong.`,
   );
@@ -190,10 +167,8 @@ export const cutoverOssProject = async (
 };
 
 /**
- * The full boot pass: every org (createdAt asc) → every project (createdAt asc)
- * → convert, with per-project failure isolation so one bad project cannot stop
- * the rest. There is no follow-up sweep: the old model is frozen (step 10
- * deleted every writer), so a converted project cannot drift back out of date.
+ * The full boot pass: every org, then every project, in createdAt order, with
+ * per-project failure isolation so one bad project cannot stop the rest.
  */
 export const runLegacyPolicyMigration = async (): Promise<void> => {
   const orgs = await db.organization.findMany({
@@ -207,9 +182,8 @@ export const runLegacyPolicyMigration = async (): Promise<void> => {
   let cut = 0;
   let skipped = 0;
   let failed = 0;
-  // Counted separately: a preempted project is neither converted nor broken —
-  // it needs a human. Folding it into `skipped` would let the summary read
-  // clean while the error above says otherwise.
+  // Counted separately: a preempted project is neither converted nor broken,
+  // and folding it into `skipped` would let the summary read clean.
   let preempted = 0;
   for (const org of orgs) {
     for (const project of org.projects) {
@@ -235,9 +209,6 @@ export const runLegacyPolicyMigration = async (): Promise<void> => {
       }
     }
   }
-  // No steady-state sweep: the old model is frozen (step 10 deleted every
-  // writer), so a converted project can never drift back out of date. This is a
-  // one-shot conversion, not a running bridge.
   const summary = `[policy-legacy-migration] done: ${cut} converted, ${skipped} already converted, ${failed} failed${preempted > 0 ? `, ${preempted} PREEMPTED (see the errors above — their legacy rules were not carried over)` : ""}`;
   if (failed > 0 || preempted > 0) console.error(summary);
   else console.log(summary);

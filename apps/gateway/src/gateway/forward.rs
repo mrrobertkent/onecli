@@ -400,11 +400,9 @@ pub(crate) async fn forward_request(
     }
 
     // ── ManualApproval: prepare body, store, wait for decision ─────
-    // Approval log_id + metadata are stored as locals so they can be
-    // threaded to the telemetry section for the approved UPDATE.
 
-    // The deciding user (for the approved-path telemetry below) is captured
-    // here because the approve arm returns the body tuple, not the identity.
+    // The deciding user is captured here because the approve arm returns the
+    // body tuple, not the identity.
     let mut approval_approved_by: Option<String> = None;
     let (forward_body, approval_log_id, approval_id_for_telemetry, approval_triggered_at) =
         if let PolicyDecision::ManualApproval { rule_id } = &decision {
@@ -422,13 +420,12 @@ pub(crate) async fn forward_request(
             let agent_name = proxy_ctx.agent_name.as_deref().unwrap_or("Unknown Agent");
 
             // Peek a bounded prefix of the body for the summary + preview, then
-            // build the forwarding body. If condition buffering already captured
-            // the body, reuse that buffer instead of peeking the stream again.
+            // build the forwarding body.
             let (summary_bytes, fwd_body): (Cow<'_, [u8]>, reqwest::Body) = if let Some(ref buf) =
                 condition_buffer
             {
-                // Body already buffered for condition matching — borrow its prefix
-                // for the summary instead of copying it again.
+                // Already buffered for condition matching — borrow its prefix
+                // instead of peeking the stream again.
                 let take = buf.len().min(APPROVAL_BODY_PEEK);
                 (Cow::Borrowed(&buf[..take]), body)
             } else {
@@ -469,8 +466,7 @@ pub(crate) async fn forward_request(
 
             // Resolve provider + content-type for the summarizer. Both degrade
             // gracefully: unknown provider → generic summary, no content-type →
-            // best-effort sniffing. The summary/preview never embed raw base64 or
-            // oversized JSON, so the approval card can't overflow a chat client.
+            // best-effort sniffing.
             let (summary_provider, _) =
                 crate::apps::provider_for_host_and_path(super::strip_port(host), &path)
                     .unwrap_or((host, host));
@@ -486,10 +482,9 @@ pub(crate) async fn forward_request(
                 content_type,
                 summary_body,
             );
-            // `body_preview` carries the rendered summary so consumers that only
-            // read the legacy field still get a clean, bounded, human-readable
-            // card instead of raw JSON/base64. The structured `summary` is sent
-            // alongside for richer rendering.
+            // `body_preview` carries the rendered summary so consumers of the
+            // legacy field get a bounded, readable card instead of raw
+            // JSON/base64; the structured `summary` is sent alongside.
             let body_preview = Some(approval_summary.render_text());
 
             let now = std::time::SystemTime::now()
@@ -520,8 +515,8 @@ pub(crate) async fn forward_request(
                 .prepare_wait(org_id, project_id, &approval_id)
                 .await;
 
-            // Guard cleans up the approval if the agent disconnects (future cancelled).
-            // Created BEFORE store() so there's no window where cancellation misses cleanup.
+            // Guard cleans up the approval if the agent disconnects. Created
+            // before `store()` so cancellation cannot miss cleanup.
             let mut guard = ApprovalGuard::new(
                 approval_id.clone(),
                 org_id.to_string(),
@@ -558,8 +553,8 @@ pub(crate) async fn forward_request(
                 },
                 Some(log_id.clone()),
                 None,
-                // The pending INSERT is what persists the column (approval
-                // resolution is an UPDATE that never writes it).
+                // The pending insert persists the column; approval resolution
+                // is an update that never writes it.
                 matched_rule.clone(),
             );
 
@@ -576,11 +571,9 @@ pub(crate) async fn forward_request(
                 outcome = decision_rx.wait(Duration::from_secs(APPROVAL_TIMEOUT_SECS)) => {
                     Some(outcome)
                 }
-                // Shutting down with nobody having decided. Left alone this
-                // request would be cut without an answer while its approval
-                // card lingered in the dashboard for another three minutes —
-                // reviewable, and approvable into a process that no longer
-                // exists. Release it explicitly instead.
+                // Shutting down with nobody having decided: release explicitly,
+                // or the card lingers in the dashboard as approvable into a
+                // process that no longer exists.
                 _ = shutdown_signal.wait() => None,
             };
 
@@ -705,8 +698,8 @@ pub(crate) async fn forward_request(
     };
 
     // ── Claim-mode request-body note (cloud) ──────────────────────
-    // For an unclaimed partner-created org, the cloud build injects a calm
-    // claim note into LLM requests; OSS is a passthrough no-op.
+    // Cloud injects a claim note into LLM requests for an unclaimed org; OSS is
+    // a passthrough no-op.
     let forward_body = hooks::prepare_request_body(rules, host, forward_body).await;
 
     // ── Provider-specific request signing ─────────────────────────
@@ -779,7 +772,7 @@ pub(crate) async fn forward_request(
         let hostname = super::strip_port(host);
 
         // 1. Access restricted — agent in selective mode, credentials exist but not assigned.
-        //    Applies to ANY host (known apps AND manual secrets).
+        //    Applies to any host: known apps and manual secrets alike.
         if rules.access_restricted {
             let (provider, display_name) =
                 apps::provider_for_host_and_path(hostname, &path).unwrap_or((hostname, hostname));

@@ -1146,14 +1146,11 @@ export const publishPolicy = async (
   });
 };
 
-// ── Step-5 cutover backfill ──────────────────────────────────────────────────
+// ── Cutover backfill ─────────────────────────────────────────────────────────
 
-/** A target to materialize. Unlike `PolicyTargetInput` (the API's strict method
- * enum), `method` is the verbatim old-column free string the translator carries,
- * so a legacy row's method is preserved exactly (the DB column is a free string
- * too). Structurally the translator's `NewTarget` for network/app/connection; the
- * `secret` arm keeps the stored `secretId` (the evaluator's `NewTarget` secret arm
- * instead carries the gateway-resolved host patterns). */
+/** A target to materialize. Unlike `PolicyTargetInput`'s strict enum, `method`
+ * is the verbatim free string the translator carries, so a legacy row's method
+ * survives exactly. The `secret` arm keeps the stored `secretId`. */
 export type BackfillTargetInput =
   | {
       kind: "network";
@@ -1170,13 +1167,11 @@ export type BackfillTargetInput =
   | { kind: "connection"; connectionId: string; tools: string[] }
   | { kind: "secret"; secretId: string };
 
-/** One translated rule to materialize (the translator's `NewRule`, structurally
- * — agent identities + network/app/connection/secret targets). */
+/** One translated rule to materialize. */
 export interface BackfillRuleInput {
   priority: number;
   isDefault: boolean;
-  /** Rule origin — the DERIVED sources
-   * (app_permission / blocklist / equipment); custom/default are kept. */
+  /** Rule origin: custom/default, or one of the derived sources. */
   source: "custom" | "app_permission" | "blocklist" | "default" | "equipment";
   name: string;
   action: "allow" | "block";
@@ -1186,17 +1181,16 @@ export interface BackfillRuleInput {
   conditions: unknown;
   identities: PolicyIdentityInput[];
   targets: BackfillTargetInput[];
-  /** Omitted = true. The OSS cutover (step 9.5) carries disabled legacy rows
-   * with `false` so user data survives into the editor; decision-neutral (the
-   * gateway loads `enabled = true` only). */
+  /** Omitted = true. Disabled legacy rows are carried with `false` so the data
+   * survives into the editor; the gateway loads `enabled = true` rows only. */
   enabled?: boolean;
-  /** Omitted = null. The OSS cutover stamps its migrated Default Rules so a
-   * user publish that pre-empted migration is detectable (decision-neutral). */
+  /** Omitted = null. The cutover stamps its migrated Default Rules so a user
+   * publish that pre-empted it is detectable. */
   description?: string | null;
 }
 
-// Method stays a verbatim string (not the API enum) — see BackfillTargetInput.
-// connection/secret (step 8) connect by id, mirroring `targetCreate`.
+// Method stays a verbatim string — see BackfillTargetInput. connection/secret
+// connect by id, mirroring `targetCreate`.
 const backfillTargetCreate = (
   t: BackfillTargetInput,
 ): Prisma.PolicyRuleTargetCreateWithoutRuleInput => {
@@ -1233,12 +1227,11 @@ export interface BackfillResult {
 }
 
 /**
- * Materialize a scope's translated rules as the draft working copy + published
- * generation 1 (the gateway reads published). **Idempotent** — skips a scope that
- * already has a published generation, so it's safe to re-run. **Gate-less**: it
- * materializes EXISTING, already-entitled policy (not a new user edit), so it
- * bypasses the `RuleActionGate`. Not for user writes — those go through
- * create/update/publish. Callers preserve the translator's `priority` order.
+ * Materialize a scope's translated rules as the draft working copy plus
+ * published generation 1. Idempotent: a scope that already has a published
+ * generation is skipped. Bypasses the `RuleActionGate` because it materializes
+ * existing, already-entitled policy — not for user writes, which go through
+ * create/update/publish.
  */
 export const backfillPublishScope = async (
   scope: ResourceScope,
@@ -1269,10 +1262,9 @@ export const backfillPublishScope = async (
           requireApproval: r.requireApproval,
           conditions: jsonInput(r.conditions),
         };
-        // Draft working copy (gen 0) + the published snapshot (gen 1) the gateway
-        // reads — identical at cutover. Fresh nested-create per row. The published
-        // row copies the draft's logicalId so the rate counter stays stable across
-        // future republishes.
+        // Draft (gen 0) plus the published snapshot (gen 1), identical at
+        // cutover. The published row copies the draft's logicalId so the rate
+        // counter stays stable across future republishes.
         const draft = await tx.policyRuleV2.create({
           data: {
             ...common,
@@ -1294,19 +1286,15 @@ export const backfillPublishScope = async (
           },
         });
       }
-      // An empty scope (e.g. a ruleless project — the common case) publishes
-      // nothing; report generation null so the verifier treats it as vacuously OK
-      // rather than "not backfilled".
+      // An empty scope publishes nothing; generation null reads to the verifier
+      // as vacuously OK rather than "not backfilled".
       return {
         skipped: false,
         generation: rules.length > 0 ? 1 : null,
         ruleCount: rules.length,
       };
-      // A large scope (hundreds of per-tool legacy rows → 2 sequential creates
-      // each) can exceed Prisma's default 5s interactive-tx timeout — which
-      // would fail the SAME way every boot and strand the scope on legacy
-      // permanently. Generous ceiling; the per-scope advisory lock already
-      // serializes writers.
+      // A large scope can exceed the default interactive-tx timeout, and would
+      // then fail identically on every boot, stranding the scope on legacy.
     },
     { timeout: 60_000, maxWait: 10_000 },
   );
@@ -1322,9 +1310,7 @@ export interface LastPublishDto {
 }
 
 /** The scope's most recent publish — who applied it and when. Null = never
- * published. A zero-schema read: the newest generation's rows already carry the
- * author (`createdByUserId` → the `createdByUser` relation) and the publish
- * instant (`createdAt`). */
+ * published. */
 export const getLastPublish = async (
   scope: ResourceScope,
 ): Promise<LastPublishDto | null> => {

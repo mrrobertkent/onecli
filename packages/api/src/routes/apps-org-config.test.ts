@@ -1,14 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Route-level tests for the org tier of the configured-ness signals: with the
-// `orgAppConfig` seam registered (EE editions), org-level app configs surface
-// on the project endpoints — the grid union (GET /apps/configured) and the
-// config status (GET /apps/:provider/config) — per the pinned fallback rule:
-// the org tier substitutes only when the project tier has no ENABLED row.
-// Without the seam (OSS), both endpoints behave exactly as before.
+// With the `orgAppConfig` seam registered, org-level app configs surface on the
+// project endpoints: the org tier substitutes only when the project tier has no
+// enabled row.
 
 // Hermetic to the ambient edition (CI runs with NEXT_PUBLIC_EDITION=cloud):
-// pin everything before any import evaluates (vi.hoisted runs first).
+// pin it before any import evaluates.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "onprem-slim";
 });

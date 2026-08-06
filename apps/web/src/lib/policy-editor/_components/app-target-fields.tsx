@@ -14,32 +14,27 @@ import { getApp } from "@onecli/api/apps/registry";
 import { AppSelect } from "./app-select";
 import { AppToolsPicker } from "./app-tools-picker";
 import { TeamBadge } from "@/lib/components/team-badge";
-// Edition seam: EE aliases to the real granular resource editor; the OSS
-// module is a locked "available on OneCLI Cloud" hint. Alias key on purpose —
-// a relative import would bypass turbopack resolveAlias in EE builds.
+// Edition seam — imported by alias key on purpose; a relative import would
+// bypass turbopack resolveAlias in EE builds.
 import { ResourceScopeFields } from "@/lib/policy-editor/resource-scope";
 import type { Connection } from "@/lib/api";
 
 /** Display name for the locked callout; falls back to the raw id. */
 const providerName = (id: string): string => getApp(id)?.name ?? id;
 
-/** The App target's editable state. A rule's App target is authored one of two
- * ways: `specific` connections (→ `connection` targets) or `all` connections at a
- * level (→ an `app` target with a `connectionScope`). */
+/** The App target's editable state. `specific` becomes `connection` targets;
+ * `all` becomes one `app` target carrying a `connectionScope`. */
 export interface AppTargetState {
   provider: string;
   mode: "specific" | "all";
   connectionIds: string[];
   /** Only meaningful for `mode === "all"`; the org/project level to inject. */
   level: "organization" | "project";
-  /** The catalog tool ids the rule is narrowed to ([] = the whole app), in
-   * BOTH modes — "all connections" and specific connection(s). Tools narrow
-   * which endpoints the rule matches; injection is unaffected. */
+  /** Catalog tool ids the rule is narrowed to; [] = the whole app. Narrows
+   * which endpoints match, never injection. */
   tools: string[];
-  /** Granular per-resource scoping (repos/folders) for a SINGLE specific
-   * connection — the rule's session-policy `conditions`. null = the whole
-   * connection (all resources). Only meaningful when exactly one connection is
-   * selected and its provider supports granular scoping. */
+  /** Per-resource scoping for a single specific connection, stored as the
+   * rule's session-policy `conditions`. null = the whole connection. */
   sessionPolicy: Record<string, unknown> | null;
 }
 

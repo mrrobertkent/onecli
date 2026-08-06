@@ -38,12 +38,11 @@ pub(crate) struct PolicyRule {
     pub conditions_raw: Option<serde_json::Value>,
 }
 
-/// The v2 rule that decided a request — recorded into telemetry so Activity
-/// can say "decided by rule X". `logical_id` is the generation-stable identity
-/// (row ids regenerate on every publish); the name is a display snapshot;
-/// `scope` ("organization" | "project") lets the read side apply per-viewer
-/// visibility to org rule names. Legacy decisions carry `None` (old-model
-/// rules have no logical id).
+/// The rule that decided a request, recorded into telemetry.
+///
+/// `logical_id` stays stable across publishes (row ids do not); `name` is a
+/// display snapshot; `scope` is "organization" or "project", which the read
+/// side uses to apply per-viewer visibility to org rule names.
 #[derive(Debug, Clone)]
 pub(crate) struct MatchedRule {
     pub(crate) logical_id: String,
@@ -75,15 +74,11 @@ pub(crate) enum PolicyDecision {
 
 // ── Evaluation ──────────────────────────────────────────────────────────
 
-/// Increment the sliding-window rate counter for a matched rate-limit rule and
-/// return a `RateLimited` decision if the request is now over the limit (else
-/// `None` = under limit → allow through). Shared by `evaluate` (Pass 3) and the
-/// step-5 first-match engine so the key STRUCTURE and window math are identical.
-/// The `rule_id` component is the caller's rule identity — a stable
-/// `policy_rules_v2.logical_id` for the v2 engine and `policy_rules.id` for
-/// legacy — so a v2 rule's counter survives republishes; the one-time cutover
-/// flip (legacy id → logical id) resets it. Only one path decides per request, so
-/// there is never a live double-count.
+/// Increment the rate counter for a matched rate-limit rule and return a
+/// `RateLimited` decision once the request is over the limit (`None` while it
+/// is under). Shared by every caller so the key structure and window math stay
+/// identical; `rule_id` is the caller's rule identity, so passing a stable
+/// logical id keeps a rule's counter across republishes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn check_rate_limit(
     org_id: &str,
@@ -131,10 +126,8 @@ fn rate_window_name(window_secs: u64) -> &'static str {
 
 /// Check if a rule matches the request method, path, and conditions.
 ///
-/// `pub(crate)` so the policy engine can reuse the exact same request matcher
-/// — path glob, method, conditions, and the git-receive-pack discovery bridge —
-/// rather than duplicating it and risking drift from the live decision.
-/// Behavior is unchanged.
+/// Shared with the policy engine so the live decision uses this matcher rather
+/// than a copy of it.
 pub(crate) fn matches_request(
     rule: &PolicyRule,
     method: &str,
@@ -152,7 +145,7 @@ pub(crate) fn matches_request(
     }
     // Git push is two-phase: a GET info/refs?service=git-receive-pack discovery
     // followed by POST git-receive-pack. A rule blocking the POST should also
-    // block the discovery so the push fails with a clear policy error.
+    // block the discovery.
     if rule.path_pattern.ends_with("/git-receive-pack")
         && method.eq_ignore_ascii_case("GET")
         && is_git_push_discovery(path)
@@ -184,9 +177,7 @@ pub(crate) fn is_llm_host(host: &str) -> bool {
 }
 
 /// Check if a request should be blocked by any policy rule (sync, block-only).
-/// A test-only helper asserting the shared `matches_request` block-matching (path
-/// glob, method, git-receive-pack bridge); the live decision path is the v2
-/// engine (`policy_engine::evaluate`).
+/// A test-only helper; the live decision path is `policy_engine::evaluate`.
 #[allow(dead_code)]
 pub(crate) fn is_blocked(
     request_method: &str,
@@ -216,7 +207,7 @@ mod tests {
         }
     }
 
-    // ── Block tests (existing behavior) ──────────────────────────────────
+    // ── Block tests ──────────────────────────────────────────────────────
 
     #[test]
     fn blocks_exact_path_and_method() {

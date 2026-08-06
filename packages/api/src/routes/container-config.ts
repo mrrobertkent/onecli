@@ -19,17 +19,13 @@ import { logger } from "../lib/logger";
 
 /**
  * A `where` selecting exactly the secrets this agent can be handed: the
- * org+project fenced pool NARROWED to what its published rules grant —
- * specific secret ids plus any whole-level grants. An agent with no grants
- * selects NOTHING, the same fail-closed answer the gateway gives (step 7:
- * every agent is rule-selected; there is no all-mode whole-pool arm).
+ * org+project fenced pool narrowed to what its published rules grant — specific
+ * secret ids plus any whole-level grants. An agent with no grants selects
+ * nothing, matching the gateway.
  *
- * The pool is ANDed in rather than trusted away: the gateway selects by fetching
- * the org/project-fenced pool and RETAINING the named ids (`connect.rs`), so a
- * rule naming a foreign secret contributes nothing. Fencing only the RULES would
- * not fence their target ids — write-time validation is a write-path invariant,
- * not a query fence, and these rows were materialized by the retired bridge
- * rather than through it.
+ * The pool is ANDed in rather than trusted away: fencing the rules does not
+ * fence the ids they name, so a rule naming a foreign secret must contribute
+ * nothing.
  */
 export const injectableSecretWhere = async (
   agent: { id: string },
@@ -63,18 +59,14 @@ export const injectableSecretWhere = async (
 
 /**
  * Which secret wins when several of a type are reachable. The gateway merges
- * partner → org → project with later injections overriding earlier
- * (`connect.rs`), so the PROJECT one is what actually gets injected. Descending
- * `scope` orders "project" > "partner" > "organization", reproducing that — an
- * unordered `findFirst` returns whichever row Postgres reaches first, which can
- * hand the container an org secret's auth mode while the gateway injects the
- * project's.
+ * partner → org → project with later injections overriding, so the project one
+ * is what gets injected; descending `scope` orders "project" > "partner" >
+ * "organization", reproducing that.
  */
 const SCOPE_PRECEDENCE = { scope: "desc" } as const;
 
 /** Pick the secret of `type` this agent would actually be handed: the injectable
- * set, narrowed to the type, resolved in the gateway's precedence order. Both
- * LLM lookups go through here so the ordering can't drift between them. */
+ * set, narrowed to the type, resolved in the gateway's precedence order. */
 export const findInjectableSecretOfType = async <S extends Prisma.SecretSelect>(
   where: Prisma.SecretWhereInput,
   type: string,
@@ -148,11 +140,9 @@ export const containerConfigRoutes = () => {
           });
 
       if (!agent && agentIdentifier) {
-        // Fail loud: a container was started for an agent that isn't
-        // registered (its POST /api/agents create was rejected or never ran).
-        // Without this it manifests as a silent hang -- the container boots,
-        // never wires credentials, and never replies. Log it server-side and
-        // return an actionable, machine-detectable error so it's traceable.
+        // Fail loud: a container started for an unregistered agent otherwise
+        // manifests as a silent hang — it boots, never wires credentials, and
+        // never replies.
         logger.warn(
           { projectId, agentIdentifier, route: "GET /v1/container-config" },
           "container config requested for unregistered agent identifier",
@@ -174,9 +164,8 @@ export const containerConfigRoutes = () => {
             identifier: DEFAULT_AGENT_IDENTIFIER,
             accessToken: generateAccessToken(),
             isDefault: true,
-            // Step 5: a self-healed container agent starts selective too — it
-            // has zero credentials until someone attaches them (the recorded
-            // product change; the attach surfaces are the flow).
+            // A self-healed container agent starts with zero credentials until
+            // someone attaches them.
             secretMode: "selective",
             projectId,
           },
@@ -198,12 +187,7 @@ export const containerConfigRoutes = () => {
       }
 
       // Which credentials this agent can actually be handed — the same answer
-      // the gateway reaches at connect. An "all"-mode agent draws the whole
-      // fenced pool; a "selective" one draws exactly what its published rules
-      // grant, which since step 10 is the ONLY source (the legacy per-agent
-      // grant tables are frozen and unread, so reading them here would miss
-      // every credential granted the normal way — and hand the container an API
-      // key for what is actually an OAuth token).
+      // the gateway reaches at connect.
       const injectableSecrets = await injectableSecretWhere(
         agent,
         projectId,

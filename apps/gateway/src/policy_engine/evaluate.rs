@@ -213,13 +213,12 @@ mod tests {
             evaluate_outcome(&rules, &req_via(Some("c1")), None),
             Outcome::Rule(r) if r.action == Action::Block
         ));
-        // A same-provider sibling account → no match (the deliberate change
-        // from the provider-wide decode).
+        // A same-provider sibling account → no match.
         assert!(matches!(
             evaluate_outcome(&rules, &req_via(Some("c2")), None),
             Outcome::Allow
         ));
-        // No winner (secret-served / uncredentialed) → no match (fail-closed).
+        // No winner (secret-served / uncredentialed) → no match.
         assert!(matches!(
             evaluate_outcome(&rules, &req_via(None), None),
             Outcome::Allow
@@ -272,7 +271,7 @@ mod tests {
         let mut foreign = request();
         foreign.agent_id = "agent-2".to_string();
         match evaluate_outcome(&rules, &foreign, None) {
-            // The directory identity must NOT match — the any-agent allow wins.
+            // The directory identity must not match — the any-agent allow wins.
             Outcome::Rule(r) => assert_eq!(r.id, "any"),
             _ => panic!("expected the any-agent match"),
         }
@@ -331,10 +330,8 @@ mod tests {
 
     #[test]
     fn conditioned_rule_matches_with_no_body_in_oss() {
-        // OSS's condition arm is the no-op (vacuously true) — a conditioned
-        // block matches exactly like the legacy OSS gateway treated it. This
-        // pins the posture; if OSS ever ships real condition matching, this
-        // test must flip with it.
+        // OSS's condition arm is the no-op, so a conditioned block matches
+        // vacuously. If OSS ever ships real condition matching, this test flips.
         let mut conditioned = rule("cond", 0, Action::Block);
         conditioned.conditions = serde_json::from_str(
             r#"[{"target":"body","operator":"contains","value":"never-present"}]"#,

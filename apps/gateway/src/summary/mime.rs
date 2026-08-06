@@ -2,13 +2,8 @@
 //!
 //! Reads only what an approver needs — To/Cc/Bcc/Subject, reply/thread headers,
 //! attachment names, and a `text/plain` body snippet — from a (possibly
-//! truncated) decoded message.
-//! Assumes UTF-8 (decoded lossily); HTML-only bodies and non-UTF-8 charsets are
-//! intentionally not handled. Never allocates beyond the input prefix.
-//!
-//! Shared by raw-MIME providers (Gmail's base64url `raw` today). Robust
-//! charset/HTML/nested handling is out of scope — swap in a parser crate if that
-//! becomes a need.
+//! truncated) decoded message. Assumes UTF-8; HTML-only bodies and non-UTF-8
+//! charsets are not handled.
 
 use base64::Engine;
 
@@ -53,8 +48,7 @@ pub(crate) fn parse(decoded: &[u8]) -> ParsedMessage {
 }
 
 /// Decode a base64 (url-safe or standard) prefix, tolerating truncation,
-/// whitespace, and padding. Returns whatever decodes from the largest 4-byte
-/// aligned prefix. Used to turn a Gmail `raw` value into message bytes.
+/// whitespace, and padding. Decodes the largest 4-byte aligned prefix.
 pub(crate) fn decode_b64_prefix(raw: &[u8]) -> Vec<u8> {
     let cleaned: Vec<u8> = raw
         .iter()
@@ -120,9 +114,8 @@ pub(crate) fn original_subject(subject: &str) -> &str {
     s
 }
 
-/// Collect attachment filenames, scanning **only** `Content-Disposition` /
-/// `Content-Type` header lines (and their folded continuations). This avoids
-/// false positives from a body that happens to contain `filename=…`.
+/// Collect attachment filenames from `Content-Disposition` / `Content-Type`
+/// header lines only, so a body containing `filename=…` isn't a false positive.
 fn attachments(text: &str) -> Vec<String> {
     let normalized = text.replace("\r\n", "\n");
     let mut names: Vec<String> = Vec::new();
@@ -190,9 +183,8 @@ fn text_snippet(text: &str, content_type: &str) -> Option<String> {
         let tp = text.to_ascii_lowercase().find("text/plain")?;
         let after = &text[tp..];
         let body_start = after.find("\n\n").or_else(|| after.find("\r\n\r\n"))?;
-        // Detect the transfer-encoding from *this* part's own headers only —
-        // scanning further would pick up a later part's (e.g. a base64 image
-        // attachment) and wrongly try to base64-decode the plaintext snippet.
+        // Detect the transfer-encoding from this part's headers only — a later
+        // part's (e.g. a base64 image) would corrupt the plaintext snippet.
         let cte = detect_cte(&after[..body_start]);
         let body = &after[body_start..];
         let end = body.find("\n--").unwrap_or(body.len());
@@ -249,7 +241,7 @@ fn detect_cte(headers: &str) -> String {
 
 /// Normalize a body for display: trim trailing whitespace per line, collapse runs
 /// of blank lines to a single blank line, and neutralize ``` so it can't break a
-/// downstream code fence. Preserves paragraph structure (newlines).
+/// downstream code fence.
 fn normalize_body(s: &str) -> String {
     let unix = s.replace("\r\n", "\n").replace('\r', "\n");
     let mut lines: Vec<String> = Vec::new();

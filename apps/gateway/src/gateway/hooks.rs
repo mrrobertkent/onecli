@@ -38,8 +38,7 @@ pub(crate) struct RequestMeta {
     pub connection_label: Option<String>,
     pub existing_log_id: Option<String>,
     pub decision: Option<crate::telemetry_core::RequestDecision>,
-    /// The v2 rule that decided this (allowed) request, when the new engine is
-    /// authoritative — threaded to telemetry for "decided by rule X".
+    /// The rule that decided this allowed request, threaded to telemetry.
     pub matched_rule: Option<crate::policy::MatchedRule>,
 }
 
