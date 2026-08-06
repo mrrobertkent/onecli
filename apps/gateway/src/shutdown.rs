@@ -4,13 +4,10 @@
 //! disposition is discarded — without the handler installed here, SIGTERM does
 //! nothing and every deploy ends in a SIGKILL.
 //!
-//! Three pieces:
-//!
-//! - a **signal**, broadcast to every connection so it can stop taking new work
-//!   while finishing what it has;
-//! - a **guard**, held by each task the drain must wait for;
-//! - a **deadline**, because some of what this proxy carries is an indefinite
-//!   byte pipe that can never "finish" on its own.
+//! Three pieces: a signal broadcast to every connection so it stops taking new
+//! work, a guard held by each task the drain must wait for, and a deadline,
+//! because some of what this proxy carries is an indefinite byte pipe that can
+//! never "finish" on its own.
 
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;

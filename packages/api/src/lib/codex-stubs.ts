@@ -4,12 +4,10 @@ const CODEX_ID_TOKEN = [
   "b25lY2xpLW1hbmFnZWQtc2lnbmF0dXJl",
 ].join(".");
 
-// Codex treats ~/.codex/auth.json as stale and tries to self-refresh when
-// last_refresh is older than its refresh window — which fails against the
-// onecli-managed placeholder tokens. Build the stub on demand and stamp
-// last_refresh with the current time so it always looks freshly refreshed and
-// the gateway retains refresh control. Generated per call so a long-running
-// API process never serves a stale timestamp.
+// Codex self-refreshes when ~/.codex/auth.json's last_refresh is older than its
+// refresh window, which fails against the placeholder tokens. Stamping
+// last_refresh per call keeps refresh control with the gateway and stops a
+// long-running process serving a stale timestamp.
 export const buildCodexOAuthStub = () =>
   JSON.stringify(
     {

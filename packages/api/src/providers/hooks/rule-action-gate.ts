@@ -5,12 +5,9 @@ export interface RuleWriteScope {
 }
 
 /**
- * Authorizes which policy-rule actions an org may write. The OSS default allows
- * everything; the cloud edition injects a plan-based implementation via `createApiApp`.
- *
- * Called by the policy-rule service itself, so every write path — HTTP routes,
- * server actions, project scope and org scope — is gated in one place and no
- * caller can bypass it.
+ * Authorizes which policy-rule actions an org may write. The default allows
+ * everything; editions inject their own implementation via `createApiApp`.
+ * Called by the policy-rule service, so every write path is gated in one place.
  */
 export interface RuleActionGate {
   assertAllowed(scope: RuleWriteScope, actions: string[]): Promise<void>;

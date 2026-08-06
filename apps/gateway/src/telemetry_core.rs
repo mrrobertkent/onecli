@@ -1,8 +1,8 @@
 //! Shared telemetry types and utilities.
 //!
-//! Both OSS and cloud telemetry implementations import from this module.
-//! The swapped `telemetry` module re-exports [`RequestEvent`] and [`on_request`]
-//! so consumer code uses `crate::telemetry::*` without change.
+//! Both OSS and cloud telemetry implementations import from this module, and the
+//! swapped `telemetry` module re-exports [`RequestEvent`] and [`on_request`] so
+//! consumer code uses `crate::telemetry::*` in either build.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -45,9 +45,8 @@ pub(crate) enum RequestDecision {
 }
 
 /// A metered spend charge attached to a request event (cloud budget feature).
-/// Plain data so this shared core stays independent of the swapped `budget`
-/// module; the cloud telemetry flush reads it to accumulate spend. `cost_nanos`
-/// is already priced by the meter — the flush stays provider-agnostic.
+/// Plain data, so this shared core stays independent of the swapped `budget`
+/// module. `cost_nanos` is already priced by the meter.
 #[allow(dead_code)] // read by cloud telemetry (budget flush), unused in OSS
 pub(crate) struct BudgetCharge {
     pub secret_id: String,
@@ -85,8 +84,7 @@ pub(crate) struct RequestEvent {
     /// `None` for non-budgeted requests; always `None` in OSS.
     #[allow(dead_code)] // read by cloud telemetry (budget flush), unused in OSS
     pub budget_charge: Option<BudgetCharge>,
-    /// The v2 policy rule that decided this request (rule- or default-decided).
-    /// `None` for plain allows and whenever the legacy path decided.
+    /// The policy rule that decided this request; `None` for plain allows.
     pub matched_rule: Option<crate::policy::MatchedRule>,
 }
 

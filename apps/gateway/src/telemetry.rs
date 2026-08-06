@@ -1,10 +1,8 @@
 //! Request telemetry: Postgres request logging.
 //!
 //! Logs every credential-injected request to the `request_logs` table via a
-//! background batch INSERT. Zero latency impact on the request path.
-//!
-//! OSS: Postgres only. Cloud swaps this module via `#[cfg(edition_cloud)]`
-//! to add PostHog analytics + Redis credit counters.
+//! background batch INSERT, off the request path. Cloud swaps this module to add
+//! PostHog analytics and Redis credit counters.
 
 use std::sync::Arc;
 
@@ -18,11 +16,9 @@ use crate::telemetry_core::{
     collect_batch, extract_columns, RequestDecision, CHANNEL_CAPACITY, FLUSH_BATCH_SIZE, SENDER,
 };
 
-// Re-export shared types for consumer code
 pub(crate) use crate::telemetry_core::{on_request, RequestEvent};
 
-/// Initialize the telemetry background flush task.
-/// Must be called once at startup from `main()`.
+/// Initialize the telemetry background flush task. Call once at startup.
 pub(crate) fn init(pool: PgPool, _cache: Arc<dyn CacheStore>) {
     let (tx, rx) = mpsc::channel::<RequestEvent>(CHANNEL_CAPACITY);
     SENDER.set(tx).ok();

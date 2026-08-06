@@ -20,8 +20,7 @@ import {
   type PolicyRuleRow,
   type PolicyScopeBase,
 } from "./policy-service";
-// The pure compiler half lives in grants-compile so the step-5 converter
-// (`policy-grant-conversion/`) writes byte-identical stacks; see its header.
+// The pure compiler half lives in grants-compile; see its header.
 import {
   compileConnectionStack,
   compileSecretGrant,
@@ -35,30 +34,21 @@ import {
 import type { ConnectionGrantInput } from "../validations/grants";
 
 /**
- * The attach-model grants surface (plans/project-attach-model.md, step 2).
+ * The grants surface. A grant is intent stored as a canonical `source:"grant"`
+ * policy-rule stack, so the engine, org floor and reflections keep operating on
+ * ordinary rules. Per (agent, connection): an uncustomized attach is one
+ * whole-app allow rule, a customized one is the first-match stack allow(A) →
+ * allow+approval(K) → block(catalog − A∪K) → terminal block, and a secret grant
+ * is a single allow rule. Every rule carries exactly one agent identity — empty
+ * identities never inject, so the identity is the attachment.
  *
- * A grant is INTENT stored as a canonical, `source:"grant"` policy-rule stack —
- * the engine, org floor, and reflections keep operating on ordinary rules. Per
- * (agent, connection): the uncustomized attach is ONE whole-app allow rule
- * (empty tools — future catalog tools included); a customized attach is a fixed
- * first-match stack allow(A) → allow+approval(K) → block(D = catalog − A∪K) →
- * terminal block (empty tools — new catalog tools arrive as Never). A secret
- * grant is a single allow rule. Every rule carries exactly one agent identity;
- * empty identities never inject (the inject_select law), so the identity IS the
- * attachment.
+ * A write is one transaction under the per-scope advisory lock: delete the old
+ * stack, append the new one at the tail priority band, then publish, so a grant
+ * is enforced by the time the request returns. Idempotent, and the
+ * delete-then-recompile repairs hand-edit drift on the next write.
  *
- * Writes follow the blocklist-service precedent: one transaction under the
- * per-scope advisory lock — delete the old stack, append the new one at the
- * tail priority band (custom rules keep first-match precedence until step 6),
- * then publish atomically (`ensureDefault` + `snapshotDraftRules`), so a grant
- * is enforced the moment the request returns. The compiler is idempotent (an
- * identical desired state writes nothing) and repairs any hand-edit drift on
- * the next write by construction (delete-then-recompile).
- *
- * Fencing deliberately DIFFERS from `assertTargetsValid` (which forbids a
- * project rule naming org resources): the attach list spans the project's own
- * connections/secrets AND org-shared ones — exactly the union the gateway's
- * fenced connect-time maps load — never foreign or partner rows.
+ * The attach pool spans the project's own connections/secrets and org-shared
+ * ones — wider than `assertTargetsValid` allows a hand-authored rule.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -91,8 +81,7 @@ export interface AgentGrantSecret {
 
 export interface AgentGrants {
   agentId: string;
-  /** Always `"grants"` since step 7 (the gateway is grants-only); the `"all"`
-   * arm stays for wire compat and narrows away with the column in step 8. */
+  /** Always `"grants"`; the `"all"` arm stays for wire compatibility. */
   mode: "all" | "grants";
   connections: AgentGrantConnection[];
   secrets: AgentGrantSecret[];
@@ -166,14 +155,10 @@ const grantResources = (rows: PolicyRuleRow[]): SessionPolicyInput | null => {
 };
 
 /**
- * Refuse a resource selection that reaches outside the organization's boundary
- * for this (agent, connection). The project narrows within what the org allows;
- * picking beyond it would compose to a smaller scope than asked for — or to
- * nothing — so say so at write time instead of letting it fail silently later.
- *
- * The runtime composition in the gateway remains the enforcement truth: an org
- * rule can change after a grant is written, and the stack must keep working
- * (narrowed) rather than needing a rewrite.
+ * Refuse a resource selection reaching outside the org's boundary for this
+ * (agent, connection) — it would compose to a smaller scope than asked for, or
+ * to nothing, so say so at write time. The gateway's runtime composition stays
+ * the enforcement truth, since an org rule can change after a grant is written.
  */
 const assertWithinOrgBoundary = async (
   scope: GrantScope,
@@ -205,18 +190,11 @@ const assertWithinOrgBoundary = async (
   }
 };
 
-/** Server-side mirror of the picker's empty≡all law, plus byte-stable storage.
- *
- * Not a contradiction of `sessionPolicySchema`, which now REJECTS an empty list
- * (validations/policy.ts): the wire can no longer carry one, so this arm exists
- * for direct service callers (the converter, tests) and turns their empty
- * selection into "unrestricted" BEFORE it could ever be stored as the deny-all
- * sentinel the gateway would enforce.
- *
- * an all-empty selection clears to null (a non-null empty list is ambiguous at
- * the gateway), and list values sort — `conditionsEqual`/`stackEquals` sort
- * keys but never array elements, so an unsorted same-set re-pick would defeat
- * write idempotence. */
+/** An empty selection clears to null: stored as a non-null empty list it would
+ * be the deny-all sentinel the gateway enforces. `sessionPolicySchema` already
+ * rejects one on the wire, so this arm covers direct service callers. Values
+ * sort because `conditionsEqual`/`stackEquals` sort keys but never array
+ * elements, and an unsorted same-set re-pick would defeat write idempotence. */
 const normalizeResources = (
   resources: SessionPolicyInput | null,
 ): SessionPolicyInput | null => {
@@ -386,8 +364,6 @@ export const getAgentGrants = async (
 
   return {
     agentId: agent.id,
-    // Constant since step 7 — the union's "all" arm stays for wire compat and
-    // narrows away with the column in step 8.
     mode: "grants",
     connections: connections.map((c) => {
       const stack = byConnection.get(c.id) ?? [];

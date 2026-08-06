@@ -8,10 +8,8 @@ import {
 } from "./resolve";
 
 /**
- * Session auth outcome: an AuthContext, `null` (no/unusable session — falls
- * through to the generic 401), or `{ denied }` when the edition's session
- * enforcer rejected an otherwise-valid session (mapped to an explicit 401 by
- * the auth middleware — mirrors authenticateApiKey's sentinel returns).
+ * Session auth outcome: an AuthContext, `null` for no usable session, or
+ * `{ denied }` when the session enforcer rejected an otherwise-valid session.
  */
 export type SessionAuthResult = AuthContext | { denied: SessionDenial } | null;
 

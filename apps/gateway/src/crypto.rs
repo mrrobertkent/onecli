@@ -103,7 +103,7 @@ impl CryptoService {
             .seal_in_place_append_tag(nonce, aead::Aad::empty(), &mut in_out)
             .map_err(|_| anyhow::anyhow!("encryption failed"))?;
 
-        // ring appends the 16-byte auth tag after the ciphertext
+        // The 16-byte auth tag is appended after the ciphertext.
         let ciphertext = &in_out[..plaintext.len()];
         let auth_tag = &in_out[plaintext.len()..];
 
@@ -132,8 +132,8 @@ mod tests {
         base64::engine::general_purpose::STANDARD.encode(key)
     }
 
-    /// Encrypt a plaintext using the same format as Node.js `lib/crypto.ts`.
-    /// Returns `{iv_b64}:{authTag_b64}:{ciphertext_b64}`.
+    /// Encrypt a plaintext the way the Node.js side does, returning
+    /// `{iv_b64}:{authTag_b64}:{ciphertext_b64}`.
     fn encrypt_like_nodejs(key_b64: &str, plaintext: &str) -> String {
         let key_bytes = base64::engine::general_purpose::STANDARD
             .decode(key_b64)
@@ -149,11 +149,9 @@ mod tests {
         let nonce = aead::Nonce::try_assume_unique_for_key(&iv).expect("create nonce");
 
         let mut in_out = plaintext.as_bytes().to_vec();
-        // ring appends the tag to in_out
         key.seal_in_place_append_tag(nonce, aead::Aad::empty(), &mut in_out)
             .expect("encrypt");
 
-        // Split: ciphertext is first (plaintext.len() bytes), tag is last TAG_LEN bytes
         let ciphertext = &in_out[..plaintext.len()];
         let auth_tag = &in_out[plaintext.len()..];
 
@@ -175,7 +173,6 @@ mod tests {
             r#"{"access_token":"ya29.new","refresh_token":"1//0e","expires_at":1700000000}"#;
         let encrypted = service.encrypt(plaintext).await.expect("encrypt");
 
-        // Verify format: 3 base64 parts separated by colons
         assert_eq!(encrypted.split(':').count(), 3);
 
         let decrypted = service.decrypt(&encrypted).await.expect("decrypt");

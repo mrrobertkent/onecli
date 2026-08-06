@@ -176,10 +176,9 @@ export const stackToGrant = (
 };
 
 /**
- * The session policy a stack carries, read back off its rows: the first
- * allow-action row's conditions (every allow row carries the same value by
- * construction — see `CompiledRule.conditions`). Pre-step-5 stacks never
- * carried one, so `null` is the common case.
+ * The session policy a stack carries: the first allow-action row's conditions
+ * (every allow row carries the same value — see `CompiledRule.conditions`).
+ * `null` is the common case.
  */
 export const stackConditions = (
   rows: PolicyRuleRow[],

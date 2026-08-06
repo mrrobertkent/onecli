@@ -8,10 +8,9 @@ export interface PolicyValidator {
     policy: Record<string, unknown>,
   ): Promise<void>;
   /**
-   * Edition gate over a rule's targets, run on create/update (never publish —
-   * a pre-existing row must not brick a whole-scope publish). Absent =
-   * permissive (the default); the OSS edition wires an implementation that
-   * rejects app targets for cloud-only providers its gateway can't enforce.
+   * Edition gate over a rule's targets, run on create/update but never on
+   * publish, so a pre-existing row cannot brick a whole-scope publish. Absent is
+   * permissive.
    */
   validateTargets?(targets: PolicyTargetInput[]): Promise<void>;
 }

@@ -207,13 +207,10 @@ fn session_token_from_cookies(cookie_header: &str) -> Option<&str> {
 /// The stored token half of a Better Auth session cookie.
 ///
 /// The cookie value is `encodeURIComponent("<token>.<base64 HMAC-SHA256>")` and
-/// only `<token>` is what `auth_sessions.token` holds. Split on the last `.` so
-/// a token carrying one of its own still resolves; percent-encoding never emits
-/// or escapes a `.`, and the token alphabet survives it unchanged. A value with
-/// no `.` is passed through whole and simply fails the lookup.
-///
-/// The signature is not verified: the lookup already proves the stronger thing,
-/// that the session is real and live.
+/// only `<token>` matches `auth_sessions.token`. Split on the last `.` so a
+/// token carrying one of its own still resolves; a value with no `.` is passed
+/// through whole and simply fails the lookup. The signature is not verified —
+/// the lookup already proves the session is real and live.
 fn session_token_value(cookie_value: &str) -> &str {
     match cookie_value.rsplit_once('.') {
         Some((token, _signature)) => token,
