@@ -5,21 +5,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "@onecli/api/testing/pg-proof";
 
 /**
- * The Better Auth instance on REAL PostgreSQL — the suite that would have
- * caught F2, F3 and F4 before they were committed.
+ * The Better Auth instance against real PostgreSQL, using the real
+ * `betterAuth()` object, Prisma client and schema.
  *
- * The rest of the auth tests mock `@onecli/db`, so not one of them has ever
- * executed an insert. Three HIGH blockers passed a green 1,384-test suite for
- * exactly that reason: two of them are `NOT NULL` and routing facts that a mock
- * cannot have an opinion about. Everything here therefore runs the real
- * `betterAuth()` object, the real Prisma client, and the real schema.
+ * The other auth tests mock `@onecli/db`, so none of them executes an insert —
+ * which cannot settle NOT NULL constraints or which routes create a user.
  *
- * Laws proven:
- *  - a sign-up actually INSERTS, and lands `external_auth_id` equal to the row's
- *    own id, in the same statement (F2);
- *  - `signupMode: "closed"` stops NEW accounts and does not touch sign-IN or
- *    OAuth initiation, on any path (F3);
- *  - the gate is fail-closed for an unrecognised mode, against the real column.
+ * Proven here:
+ *  - a sign-up inserts, landing `external_auth_id` equal to the row's own id;
+ *  - `signupMode: "closed"` stops new accounts without touching sign-in or
+ *    OAuth initiation;
+ *  - an unrecognised mode fails closed.
  *
  * Env-gated like the other proof suites; see pg-proof.ts.
  */
@@ -121,7 +117,7 @@ beforeEach(async () => {
 });
 
 describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
-  it("F2: a sign-up inserts, with external_auth_id equal to the row's id", async () => {
+  it("a sign-up inserts, with external_auth_id equal to the row's id", async () => {
     await reset();
 
     const result = await auth.api.signUpEmail({
@@ -130,8 +126,8 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
 
     expect(result.user.id).toBeTruthy();
 
-    // Read the raw row, not the library's view of it: `external_auth_id` is
-    // `returned: false`, and the whole point is what reached the column.
+    // Read the raw row: `external_auth_id` is `returned: false`, and what
+    // reached the column is the point.
     const row = await db.user.findUnique({
       where: { email: EXISTING },
       select: { id: true, externalAuthId: true, emailVerified: true },
@@ -139,13 +135,11 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
 
     expect(row).not.toBeNull();
     expect(row?.id).toBe(result.user.id);
-    // The invariant every session lookup depends on — `middleware/auth/
-    // session.ts`, `resolve-user.ts`, `actions/user.ts` and the Rust gateway
-    // all resolve a session through this column.
+    // The invariant every session lookup depends on.
     expect(row?.externalAuthId).toBe(row?.id);
   });
 
-  it("F2: the id is a real UUID, so the 22 relations keyed on it keep their shape", async () => {
+  it("mints a UUID id, matching what every relation on users.id holds", async () => {
     await reset();
     const result = await auth.api.signUpEmail({
       body: { email: EXISTING, password: PASSWORD, name: "Existing User" },
@@ -156,7 +150,7 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
     );
   });
 
-  it("F3: signupMode 'closed' does NOT block an existing user signing in", async () => {
+  it("signupMode 'closed' does not block an existing user signing in", async () => {
     await reset();
     await auth.api.signUpEmail({
       body: { email: EXISTING, password: PASSWORD, name: "Existing User" },
@@ -164,9 +158,8 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
 
     await setSignupMode("closed");
 
-    // The regression. The gate used to sit on `hooks.before` over the sign-IN
-    // routes, so this threw FORBIDDEN/SIGNUP_CLOSED for every provisioned user
-    // on every login — a permanent, total lockout of the instance.
+    // A gate on the sign-in routes throws SIGNUP_CLOSED here, locking out
+    // every provisioned user on every login.
     const session = await auth.api.signInEmail({
       body: { email: EXISTING, password: PASSWORD },
     });
@@ -174,13 +167,12 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
     expect(session.user.email).toBe(EXISTING);
   });
 
-  it("F3: signupMode 'closed' does NOT block OIDC initiation", async () => {
+  it("signupMode 'closed' does not block OIDC initiation", async () => {
     await setSignupMode("closed");
 
-    // `/sign-in/oauth2` is an INITIATION endpoint: every already-provisioned
-    // user hits it on every login, and it cannot yet know whether the identity
-    // behind it is new. Gating it was the lockout. It must hand back an
-    // authorize URL regardless of the sign-up mode.
+    // An initiation endpoint cannot know whether the identity behind it is
+    // new, and every provisioned user hits it on every login, so it must hand
+    // back an authorize URL regardless of the sign-up mode.
     const result = await auth.api.signInWithOAuth2({
       body: { providerId: "oidc", callbackURL: "/" },
     });
@@ -188,7 +180,7 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
     expect(result.url).toContain("/authorize");
   });
 
-  it("F3: signupMode 'closed' DOES block a new account, and writes no row", async () => {
+  it("signupMode 'closed' blocks a new account, and writes no row", async () => {
     await reset();
     await setSignupMode("closed");
 
@@ -199,14 +191,13 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
     );
 
     expect(status).toBe(403);
-    // The gate runs in `create.before`, so the insert must not have happened —
-    // a gate that denies the response but leaves a row is not a gate.
+    // A gate that denies the response but leaves a row is not a gate.
     await expect(
       db.user.findUnique({ where: { email: NEWCOMER } }),
     ).resolves.toBeNull();
   });
 
-  it("F3: signupMode 'sso-only' blocks password sign-up", async () => {
+  it("signupMode 'sso-only' blocks password sign-up", async () => {
     await reset();
     await setSignupMode("sso-only");
 
@@ -221,8 +212,8 @@ describe.skipIf(!PROOF_URL)("Better Auth against real PostgreSQL", () => {
 
   it("an unrecognised signupMode fails CLOSED against the real column", async () => {
     await reset();
-    // US-1: "misconfiguration denies; it does not admit". Asserted against a
-    // real write, because the value a mock returns is chosen by the test.
+    // Asserted against a real write: the value a mock returns is chosen by
+    // the test, so it cannot settle this.
     await setSignupMode("wide-open-please");
 
     const status = await statusOf(() =>

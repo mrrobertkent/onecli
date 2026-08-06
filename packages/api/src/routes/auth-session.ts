@@ -155,25 +155,15 @@ export const authSessionRoutes = () => {
 
       let defaultProject = await findUserDefaultProject(dbUser.id);
 
-      // "This session has no project of its own" is the whole condition, and
-      // deliberately so.
+      // Project absence is the whole condition: it is what this branch
+      // repairs, and both provisioning calls below are find-or-create, so
+      // re-entering is a no-op.
       //
-      // It used to also require `!existingUser` — "the row did not exist before
-      // this request's upsert" — as a proxy for "this identity is new". Under
-      // D-10 that proxy is dead: the auth library creates the user row at first
-      // login, so by the time this endpoint runs the row ALWAYS exists, the
-      // condition is always false, and no user is ever provisioned a project.
-      // The session then resolves without one and the gateway 401s with "no
-      // project found".
-      //
-      // Project absence is the correct predicate independently of that: it is
-      // what the branch actually repairs, it is edition-neutral, and it is
-      // idempotent — both `joinSharedOrganization` and `bootstrapOrganization`
-      // look for an existing project before creating one, so a repeated call
-      // returns the same project rather than a second one. `shouldBootstrapOrg`
-      // remains the edition's veto for identities that must join an org by
-      // invitation instead (cloud), which is the case `!existingUser` was
-      // conflated with.
+      // Deliberately NOT also `!existingUser`. Editions whose auth library
+      // creates the user row at login always have one by the time this runs,
+      // which made that condition permanently false and left every user
+      // without a project. `shouldBootstrapOrg` is the edition's veto for
+      // identities that must join an org by invitation instead.
       const bootstrappedOrg =
         !defaultProject && _hooks.shouldBootstrapOrg(c.req.raw);
 
@@ -198,12 +188,8 @@ export const authSessionRoutes = () => {
       // by this request. Fires outside the bootstrap branch so non-bootstrap
       // signups (invitation/claim flows) reach the hook too.
       //
-      // This is the one place `!existingUser` still means what it says, and it
-      // is no longer coupled to the provisioning decision above. Note it can
-      // therefore never fire in OSS under D-10, where the auth library creates
-      // the row first — OSS registers no `onUserCreated`, and anything that
-      // needs the creation moment there belongs in the library's own create
-      // hook, which is where the sign-up gate now lives.
+      // Editions whose auth library creates the row first never reach this;
+      // they hook creation in the library instead.
       if (!existingUser) {
         _hooks.onUserCreated(
           { email: dbUser.email, name: dbUser.name },

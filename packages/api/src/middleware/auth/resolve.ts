@@ -24,11 +24,18 @@ export const resolveOrganizationIdFromProject = async (
   return project?.organizationId ?? null;
 };
 
+/**
+ * Just the scope headers these resolvers read. Narrower than `Request` so
+ * Next server actions can pass `next/headers`' store and share this code
+ * rather than reimplementing the project gate.
+ */
+export type ScopeHeaders = Pick<Headers, "get">;
+
 export const resolveOrganizationId = async (
-  request: Request,
+  headers: ScopeHeaders,
   userId: string,
 ): Promise<string | null> => {
-  const headerOrgId = request.headers.get("x-organization-id");
+  const headerOrgId = headers.get("x-organization-id");
   if (!headerOrgId) return null;
 
   const membership = await db.organizationMember.findFirst({
@@ -90,10 +97,10 @@ export const canAccessProjectAsUser = async (
 };
 
 export const resolveProjectId = async (
-  request: Request,
+  headers: ScopeHeaders,
   userId: string,
 ): Promise<string | null> => {
-  const headerProjectId = request.headers.get("x-project-id");
+  const headerProjectId = headers.get("x-project-id");
   if (!headerProjectId) {
     if (CAPS.tenancy === "multi-org") return null;
     const fallback = await findUserDefaultProject(userId);

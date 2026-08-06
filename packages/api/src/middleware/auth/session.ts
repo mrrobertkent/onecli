@@ -37,7 +37,7 @@ export const authenticateSession = async (
     if (denial) return { denied: denial };
   }
 
-  const projectId = await resolveProjectId(request, dbUser.id);
+  const projectId = await resolveProjectId(request.headers, dbUser.id);
 
   if (!projectId && requireProject) return null;
 
@@ -54,7 +54,10 @@ export const authenticateSession = async (
     };
   }
 
-  const organizationId = await resolveOrganizationId(request, dbUser.id);
+  const organizationId = await resolveOrganizationId(
+    request.headers,
+    dbUser.id,
+  );
   if (!organizationId) return null;
 
   return {

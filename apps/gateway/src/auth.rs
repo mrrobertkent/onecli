@@ -117,6 +117,23 @@ async fn validate_api_key(pool: &PgPool, headers: &HeaderMap) -> Option<AuthUser
         .map_err(|e| warn!(error = %e, "api key auth: db error"))
         .ok()??;
 
+    // The key row alone is not authorization. Re-check on every request so a key
+    // stops working once its user loses access — suspension, removal, demotion,
+    // or a revoked project binding — rather than proxying traffic indefinitely.
+    // Mirrors the web API, which re-checks for the same reason.
+    let allowed = db::user_can_manage_project(pool, &api_key.user_id, &api_key.project_id)
+        .await
+        .map_err(|e| warn!(error = %e, "api key auth: access check failed"))
+        .ok()?;
+    if !allowed {
+        warn!(
+            user_id = %api_key.user_id,
+            project_id = %api_key.project_id,
+            "api key auth: user no longer has access to the key's project"
+        );
+        return None;
+    }
+
     let prefix = token.get(..12).unwrap_or(token);
     Some(AuthUser {
         user_id: api_key.user_id,

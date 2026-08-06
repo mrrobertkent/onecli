@@ -271,8 +271,10 @@ pub(crate) async fn user_can_access_project(
 /// (`user_id`) or through a group they belong to. Bindings are the sole
 /// per-project grant since step 13b; `created_by_user_id` is no longer read
 /// (pure provenance), so a creator who is no longer an active member — suspended
-/// or removed — is denied like anyone else. Cloud-only.
-#[cfg(edition_cloud)]
+/// or removed — is denied like anyone else.
+///
+/// Compiled into every edition: under shared tenancy (one org, many users) an
+/// unchecked project key reaches every other user's project.
 pub(crate) async fn user_can_manage_project(
     pool: &PgPool,
     user_id: &str,
@@ -950,4 +952,179 @@ pub(crate) async fn delete_vault_connection(
         .await
         .context("deleting vault_connection")?;
     Ok(())
+}
+
+// ── Proof tests ─────────────────────────────────────────────────────────
+
+/// Real-PostgreSQL tests for the project-key usage gate.
+///
+/// Skipped locally when `POLICY_PROOF_DATABASE_URL` is unset; a suite that
+/// silently disappears in CI reports the same green as one that passed, so an
+/// unset variable there is a hard failure instead.
+#[cfg(test)]
+mod access_proof_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    const P: &str = "gwacc-";
+
+    fn proof_database_url() -> Option<String> {
+        match std::env::var("POLICY_PROOF_DATABASE_URL") {
+            Ok(url) if !url.is_empty() => Some(url),
+            _ => {
+                if std::env::var("CI").map(|v| !v.is_empty()).unwrap_or(false) {
+                    panic!(
+                        "POLICY_PROOF_DATABASE_URL must be set in CI: the gateway \
+                         proof tests must not silently skip"
+                    );
+                }
+                None
+            }
+        }
+    }
+
+    async fn reset(pool: &PgPool) -> Result<()> {
+        for stmt in [
+            "DELETE FROM project_access WHERE project_id LIKE $1",
+            "DELETE FROM projects WHERE id LIKE $1",
+            "DELETE FROM organization_members WHERE user_id LIKE $1",
+            "DELETE FROM users WHERE id LIKE $1",
+            "DELETE FROM organizations WHERE id LIKE $1",
+        ] {
+            sqlx::query(stmt)
+                .bind(format!("{P}%"))
+                .execute(pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// One org, two users with a project each, plus an org admin who owns none.
+    /// Each project carries its creator's binding, as provisioning writes it.
+    async fn seed(pool: &PgPool) -> Result<()> {
+        reset(pool).await?;
+
+        sqlx::query(
+            "INSERT INTO organizations (id, name, slug, updated_at)
+             VALUES ($1, 'proof', $1, NOW())",
+        )
+        .bind(format!("{P}org"))
+        .execute(pool)
+        .await?;
+
+        for who in ["alice", "bob", "admin"] {
+            sqlx::query(
+                "INSERT INTO users (id, email, name, external_auth_id, updated_at)
+                 VALUES ($1, $2, $1, $1, NOW())",
+            )
+            .bind(format!("{P}{who}"))
+            .bind(format!("{P}{who}@proof.test"))
+            .execute(pool)
+            .await?;
+        }
+
+        for who in ["alice", "bob"] {
+            sqlx::query(
+                "INSERT INTO projects
+                   (id, name, slug, organization_id, created_by_user_id, updated_at)
+                 VALUES ($1, $1, $1, $2, $3, NOW())",
+            )
+            .bind(format!("{P}{who}-proj"))
+            .bind(format!("{P}org"))
+            .bind(format!("{P}{who}"))
+            .execute(pool)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO project_access (id, project_id, user_id, role, updated_at)
+                 VALUES ($1, $2, $3, 'owner', NOW())",
+            )
+            .bind(format!("{P}{who}-binding"))
+            .bind(format!("{P}{who}-proj"))
+            .bind(format!("{P}{who}"))
+            .execute(pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn add_member(pool: &PgPool, who: &str, role: &str, status: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO organization_members
+               (organization_id, user_id, user_email, role, status)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (organization_id, user_id)
+             DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status",
+        )
+        .bind(format!("{P}org"))
+        .bind(format!("{P}{who}"))
+        .bind(format!("{P}{who}@proof.test"))
+        .bind(role)
+        .bind(status)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn can(pool: &PgPool, who: &str, project_owner: &str) -> bool {
+        user_can_manage_project(
+            pool,
+            &format!("{P}{who}"),
+            &format!("{P}{project_owner}-proj"),
+        )
+        .await
+        .expect("access check")
+    }
+
+    #[tokio::test]
+    async fn project_key_access_is_rechecked_against_membership_and_bindings() {
+        let Some(url) = proof_database_url() else {
+            return;
+        };
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await
+            .expect("connect to proof database");
+
+        seed(&pool).await.expect("seed");
+
+        add_member(&pool, "alice", "member", "active")
+            .await
+            .unwrap();
+        add_member(&pool, "bob", "member", "active").await.unwrap();
+        add_member(&pool, "admin", "admin", "active").await.unwrap();
+
+        assert!(can(&pool, "alice", "alice").await, "own project");
+        // Shared tenancy puts Alice and Bob in ONE org, so org membership alone
+        // would admit her. The binding check is what refuses.
+        assert!(!can(&pool, "alice", "bob").await, "another user's project");
+        assert!(
+            can(&pool, "admin", "bob").await,
+            "org admin reaches any project"
+        );
+
+        // Suspension revokes immediately, binding or not — this is what stops a
+        // key proxying traffic after its user is cut off.
+        add_member(&pool, "alice", "member", "suspended")
+            .await
+            .unwrap();
+        assert!(!can(&pool, "alice", "alice").await, "suspended member");
+
+        add_member(&pool, "admin", "admin", "suspended")
+            .await
+            .unwrap();
+        assert!(!can(&pool, "admin", "bob").await, "suspended admin");
+
+        // Removal from the org revokes too.
+        sqlx::query("DELETE FROM organization_members WHERE user_id = $1")
+            .bind(format!("{P}alice"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(!can(&pool, "alice", "alice").await, "removed member");
+
+        reset(&pool).await.expect("cleanup");
+    }
 }

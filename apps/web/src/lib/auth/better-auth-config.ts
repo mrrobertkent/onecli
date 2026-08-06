@@ -35,13 +35,9 @@ import { hashPassword, verifyPassword } from "@/lib/auth/password-hash";
  * of named providers with no generic OIDC entry; an unknown key there is a
  * TypeError at startup, not an ignored provider.
  *
- * No `getUserInfo` override, and none is needed: the shipped presets
- * (`keycloak()`, `okta()`) map no claims, but the claim PATH lookup design D-4
- * requires (Keycloak keeps roles at `realm_access.roles`) does not read the
- * userinfo response at all. It reads the RAW id_token Better Auth persists to
- * `auth_accounts.id_token`, which keeps the full nested claim object intact —
- * see `session-membership.ts`. Better Auth's `mapping.extraFields` is flat-key
- * only and could not express the path; the id_token needs no mapping.
+ * No `getUserInfo` override: role resolution reads the raw `id_token` Better
+ * Auth persists on `auth_accounts`, which keeps nested claims intact, rather
+ * than the userinfo response. See `session-membership.ts`.
  */
 const oidcConfigured = Boolean(
   OIDC_ISSUER && OIDC_CLIENT_ID && OIDC_CLIENT_SECRET,
@@ -59,11 +55,9 @@ const oidcProviders = oidcConfigured
         clientSecret: OIDC_CLIENT_SECRET,
         scopes: ["openid", "profile", "email"],
         pkce: true,
-        // Same as `emailAndPassword.disableSignUp`: the gate is
-        // `databaseHooks.user.create.before`, which is where US-1's
-        // "authenticating at the IdP is not sufficient to be provisioned" is
-        // enforced. Setting this `true` would instead route a new identity to
-        // an interstitial "complete sign-up" step, which is not the policy.
+        // The gate is `databaseHooks.user.create.before`. Setting this true
+        // would instead route new identities to an interstitial "complete
+        // sign-up" step, which is not the policy here.
         disableImplicitSignUp: false,
       },
     ]
@@ -82,15 +76,12 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       /**
-       * `users.external_auth_id` is `NOT NULL` + unique, and it is the column
-       * five separate consumers resolve a session through — including the Rust
-       * gateway (`db.rs:105`), which is not ours to re-point. Better Auth
-       * cannot write a column it does not know about, so declare it.
+       * Declared so Better Auth can write it — `external_auth_id` is NOT NULL
+       * and unique, and several session lookups resolve through it.
        *
-       * `input: false` keeps it off the sign-up request body — a client that
-       * could choose its own `external_auth_id` could impersonate any user by
-       * claiming theirs. `returned: false` keeps it out of session responses.
-       * The only writer is the `create.before` hook below.
+       * `input: false` keeps it off the request body: a client able to choose
+       * its own value could claim another user's. `returned: false` keeps it
+       * out of session responses. Its only writer is the create hook below.
        */
       externalAuthId: {
         type: "string",
@@ -105,8 +96,7 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    // Deliberately FALSE — the gate is `databaseHooks.user.create.before`
-    // below (design D-15).
+    // Deliberately FALSE — the gate is `databaseHooks.user.create.before`.
     //
     // This field is read once, when `betterAuth()` is constructed, so it cannot
     // express an admin-changeable setting: flipping it would need a container
@@ -164,36 +154,21 @@ export const auth = betterAuth({
     user: {
       create: {
         /**
-         * The sign-up gate (design D-15) AND the `external_auth_id` writer.
+         * The sign-up gate and the `external_auth_id` writer.
          *
-         * Both live here because this hook fires at exactly one moment: a user
-         * row is about to be inserted. That is the definition of provisioning,
-         * so it is the only place the gate can sit without also catching
-         * sign-IN.
+         * The gate belongs here rather than on a route: this hook runs only
+         * when a user row is about to be inserted, so it cannot catch sign-in.
+         * The OAuth initiation routes cannot tell a new identity from a
+         * returning one, so gating them denies every login.
          *
-         * The gate previously ran as a `hooks.before` middleware over
-         * `/sign-in/oauth2`, `/sign-in/social`, `/callback` and
-         * `/oauth2/callback`. Those are the endpoints EVERY already-provisioned
-         * user hits on EVERY login — they are not sign-up routes — so with
-         * `signupMode` defaulting to `closed` the middleware locked the whole
-         * instance out permanently. An initiation endpoint cannot tell a new
-         * identity from a returning one; only this hook can, because by the
-         * time it runs Better Auth has already looked for a matching user and
-         * found none.
-         *
-         * `isSignupAllowed` denies on ANY failure — missing row, database
-         * error, unrecognised value — so US-1's "misconfiguration denies; it
-         * does not admit" holds even though the gate is no longer a build-time
-         * constant. Throwing `APIError` here aborts the insert; returning
-         * `false` would abort it just as surely but surface as an opaque 500.
+         * Throwing `APIError` aborts the insert with a real status; returning
+         * `false` also aborts it but surfaces as an opaque 500.
          */
         before: async (user, ctx) => {
-          // The route pattern of the endpoint being dispatched (better-auth
-          // sets it on the async-local endpoint context). `/sign-up/*` is the
-          // password path; every other route that reaches a user insert is an
-          // OAuth/OIDC first login. When the path cannot be established, take
-          // the STRICTER of the two: `password` is permitted only under
-          // `open`, so an unrecognised creation path fails closed.
+          // `ctx.path` is the dispatched route pattern. Anything reaching a
+          // user insert that is not `/sign-up/*` is an OAuth first login. An
+          // unknown path takes the stricter of the two, which is permitted
+          // only under `open`.
           const kind: SignupKind = ctx?.path?.startsWith("/sign-up")
             ? "password"
             : ctx?.path
@@ -208,18 +183,14 @@ export const auth = betterAuth({
             });
           }
 
-          // `users.external_auth_id` is NOT NULL + unique and has no default,
-          // so the insert fails outright unless the value is part of it. Under
-          // D-10 the column means "this user's id in the authoritative identity
-          // system", and that system is now Better Auth — so its own id IS the
-          // correct value, not a placeholder.
+          // `external_auth_id` is NOT NULL, unique, and has no default, so it
+          // has to be part of this insert. Better Auth is the identity system
+          // here, so its own id is the value.
           //
-          // Generated HERE, not in `create.after`: `after` is queued to run
-          // AFTER the transaction commits (`with-hooks.mjs:33`), which would
-          // both fail the NOT NULL constraint and leave a committed window in
-          // which `middleware/auth/session.ts:26` cannot resolve the session it
-          // just issued. `createWithHooks` passes `forceAllowId`, so the id we
-          // choose is the id that is inserted.
+          // Not `create.after`: that hook is queued until after the
+          // transaction commits, far too late for a NOT NULL column.
+          // `createWithHooks` passes `forceAllowId`, so the id set here is the
+          // id inserted.
           const id = crypto.randomUUID();
           return { data: { ...user, id, externalAuthId: id } };
         },
