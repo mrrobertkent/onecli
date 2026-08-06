@@ -1,8 +1,7 @@
 //! Bitwarden vault provider — `BitwardenVaultProvider` implementing `VaultProvider`.
 //!
-//! Contains all Bitwarden-specific logic: `RemoteClient` lifecycle, PSK pairing,
-//! Noise protocol, credential caching, and session restore. Per-account sessions are
-//! stored in a `DashMap<project_id, Arc<BitwardenUserSession>>`.
+//! `RemoteClient` lifecycle, PSK pairing, Noise protocol, credential caching and
+//! session restore, with one session per project.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

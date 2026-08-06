@@ -743,12 +743,11 @@ async fn handle_connect(
 
     let hostname = strip_port(&host).to_string();
 
-    // Extract agent token from Proxy-Authorization header.
     let agent_token = inject::extract_agent_token(&req).filter(|t| !t.is_empty());
 
     // Resolve at CONNECT time for the intercept decision and agent identity.
-    // DB injection/policy rules are NOT frozen here — they're re-resolved
-    // per request inside the MITM tunnel from cache (see mitm.rs).
+    // Injection/policy rules are not frozen here — the MITM tunnel re-resolves
+    // them per request from cache.
     let (mut intercept, project_id, organization_id, agent_id, agent_name, agent_identifier) =
         if let Some(ref token) = agent_token {
             match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
@@ -773,10 +772,8 @@ async fn handle_connect(
             (false, None, None, None, None, None)
         };
 
-    // Vault fallback: resolved at CONNECT time and passed to mitm as a frozen
-    // fallback. Vault queries are expensive (network calls to Bitwarden), so
-    // they're not repeated per request. DB secrets (re-resolved per request
-    // from cache) take precedence when available.
+    // Vault fallback, frozen at CONNECT time: vault queries are network calls,
+    // so they are not repeated per request. DB secrets take precedence.
     let mut vault_injection_rules = vec![];
     if !intercept {
         if let Some(ref aid) = project_id {
@@ -795,9 +792,8 @@ async fn handle_connect(
         }
     }
 
-    // Force MITM for all authenticated agent requests so the gateway can
-    // intercept auth errors (401/403/400) and provide actionable guidance
-    // (credential_not_found, app_not_connected, access_restricted).
+    // Force MITM for authenticated agents so the gateway can turn upstream auth
+    // errors (401/403/400) into actionable guidance.
     if !intercept && agent_token.is_some() {
         intercept = true;
     }
@@ -819,10 +815,8 @@ async fn handle_connect(
 
     let ca = Arc::clone(&state.ca);
     let skip_verify = host_matches_skip_verify(&hostname, &state.skip_verify_hosts);
-    // Both legs picked in one branch, deliberately: HTTP and WebSocket dial the
-    // same upstreams, so a host they disagree about would mean traffic verified
-    // on one protocol and not the other. One branch makes that unrepresentable
-    // rather than merely true today.
+    // Both legs picked in one branch: HTTP and WebSocket dial the same
+    // upstreams, so they must never disagree about a host.
     let (http_client, ws_connector) = if skip_verify {
         info!(parent: &session_span, "TLS verification skipped (GATEWAY_SKIP_VERIFY_HOSTS)");
         (
@@ -843,9 +837,8 @@ async fn handle_connect(
         agent_token: agent_token.clone(),
     });
 
-    // Taken here, before the spawn, so the session is tracked from the moment
-    // it is promised rather than from whenever the new task first runs — the
-    // accept task's own guard drops as soon as the upgrade is dispatched.
+    // Taken before the spawn so the session is tracked from the moment it is
+    // promised, not from whenever the new task first runs.
     let session_guard = crate::shutdown::task_guard();
 
     tokio::spawn(
@@ -870,10 +863,10 @@ async fn handle_connect(
                         )
                         .await
                     } else {
-                        // A raw tunnel is an indefinite byte pipe with no
-                        // request boundary to finish on. Waiting for one would
-                        // mean every shutdown takes the full deadline, so it is
-                        // deliberately untracked and cut when the process exits.
+                        // A raw tunnel has no request boundary to finish on, so
+                        // waiting for one would make every shutdown take the
+                        // full deadline. Untracked, and cut when the process
+                        // exits.
                         drop(session_guard);
                         tunnel::tunnel(upgraded, &host).await
                     };

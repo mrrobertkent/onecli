@@ -105,7 +105,8 @@ export const resolveRoleFromGroups = async (
 };
 
 /**
- * Persist a resolved role onto an existing membership.
+ * Persist a resolved role onto an existing membership, reinstating it if the
+ * directory had previously stopped mapping the user.
  *
  * Never promotes to or demotes FROM `owner`: the bootstrap admin's authority
  * does not answer to the directory, so an owner whose groups change in the IdP
@@ -118,16 +119,49 @@ export const writeResolvedRole = async (
 ): Promise<{ changed: boolean; from: OrgRole | null }> => {
   const existing = await db.organizationMember.findFirst({
     where: { organizationId, userId },
-    select: { role: true },
+    select: { role: true, status: true },
   });
   const from = existing && isOrgRole(existing.role) ? existing.role : null;
 
   if (from === "owner") return { changed: false, from };
-  if (from === role) return { changed: false, from };
+  const suspended = existing?.status === "suspended";
+  if (from === role && !suspended) return { changed: false, from };
 
   await db.organizationMember.update({
     where: { organizationId_userId: { organizationId, userId } },
-    data: { role },
+    data: { role, status: "active", suspendedAt: null },
+  });
+  return { changed: true, from };
+};
+
+/**
+ * Suspend a membership the directory no longer maps to any role.
+ *
+ * Suspended rather than deleted: `activeMembershipWhere` already treats a
+ * suspended member as a non-member everywhere authorization is decided, and the
+ * row is what lets the grant be reinstated and audited rather than silently
+ * reappearing.
+ *
+ * An `owner` is never suspended — the directory does not get to lock the
+ * instance's operator out of it.
+ */
+export const revokeResolvedRole = async (
+  organizationId: string,
+  userId: string,
+): Promise<{ changed: boolean; from: OrgRole | null }> => {
+  const existing = await db.organizationMember.findFirst({
+    where: { organizationId, userId },
+    select: { role: true, status: true },
+  });
+  if (!existing) return { changed: false, from: null };
+
+  const from = isOrgRole(existing.role) ? existing.role : null;
+  if (from === "owner") return { changed: false, from };
+  if (existing.status === "suspended") return { changed: false, from };
+
+  await db.organizationMember.update({
+    where: { organizationId_userId: { organizationId, userId } },
+    data: { status: "suspended", suspendedAt: new Date() },
   });
   return { changed: true, from };
 };

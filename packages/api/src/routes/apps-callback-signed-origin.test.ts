@@ -3,13 +3,11 @@ import type { Hono } from "hono";
 import type { ApiEnv } from "../types";
 
 /**
- * The OAuth callback is **unauthenticated** — anyone can call it with whatever
- * headers they like. `/authorize` is not, and it signs the state. These tests
- * pin the consequence: once a state verifies, the post-consent destination comes
- * from what `/authorize` committed to, not from the callback's own headers.
- *
- * Driven through the real Hono app and the real `signOAuthState`, so the
- * signature path under test is genuinely exercised rather than stubbed.
+ * The OAuth callback is unauthenticated, so anyone can call it with whatever
+ * headers they like. These tests pin that once a state verifies, the
+ * post-consent destination comes from what `/authorize` signed into it rather
+ * than from the callback's own headers. Driven through the real app and the
+ * real `signOAuthState`.
  */
 
 vi.hoisted(() => {

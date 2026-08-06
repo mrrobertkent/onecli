@@ -78,8 +78,8 @@ beforeAll(async () => {
   orgService = await import("../services/organization-service");
   sessionMembership = await import("../services/session-membership");
 
-  // The real OSS wiring, not a stand-in: the enforcer runs before project
-  // resolution on every session, so a stub would change the outcome.
+  // The real OSS wiring, not a stand-in — the enforcer runs before project
+  // resolution, so a stub would change the outcome.
   providers.initSession({
     getSession: async () => currentSession,
   });
@@ -105,16 +105,14 @@ beforeEach(async () => {
 describe.skipIf(!PROOF_URL)("GET /v1/auth/session on real PostgreSQL", () => {
   it("provisions a project for a user the auth library already created", async () => {
     const user = await seedAuthLibraryUser(USER);
-    // The membership the login-time role writer creates for a mapped
-    // identity; without it the enforcer denies before provisioning is reached.
+    // The membership the login-time role writer creates for a mapped identity;
+    // without it the enforcer denies before provisioning is reached.
     await orgService.ensureSharedOrgMembership(user.id, user.email, "member");
     currentSession = { id: user.id, email: user.email };
 
     const { status, body } = await callSessionRoute();
 
     expect(status).toBe(200);
-    // Without this the session resolves projectless and the gateway 401s with
-    // "no project found".
     expect(body.projectId).toBeTruthy();
 
     const project = await db.project.findFirst({
@@ -172,7 +170,7 @@ describe.skipIf(!PROOF_URL)("GET /v1/auth/session on real PostgreSQL", () => {
     currentSession = { id: second.id, email: second.email };
     await callSessionRoute();
 
-    // Asserted on the persisted role: a behavioural check would pass either
+    // Asserted on the persisted role — a behavioural check would pass either
     // way, since the resolver reads this same column.
     const membership = await db.organizationMember.findFirst({
       where: { userId: second.id },

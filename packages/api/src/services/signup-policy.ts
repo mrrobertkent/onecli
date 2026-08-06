@@ -2,16 +2,11 @@ import { db } from "@onecli/db";
 import { logger } from "../lib/logger";
 
 /**
- * The instance sign-up gate.
+ * The instance sign-up gate. It lives here rather than in Better Auth's
+ * `disableSignUp` so an admin can change the setting at runtime.
  *
- * The gate must fail CLOSED: misconfiguration denies, it does not admit.
- * Better Auth's own `disableSignUp` is fail-closed by construction but is read
- * once when `betterAuth()` is built, so it cannot express a setting an admin
- * changes from the GUI. Moving the gate here buys that, at the cost of making
- * fail-closed a property of this code rather than of the library.
- *
- * So every path out of this module that is not an explicit, recognised
- * permission denies: unreadable row, database error, unknown value, all denied.
+ * Every path out of this module that is not an explicit, recognised permission
+ * denies: unreadable row, database error, unknown value.
  */
 
 export const SIGNUP_MODES = ["closed", "sso-only", "open"] as const;
@@ -24,10 +19,9 @@ const isSignupMode = (value: string): value is SignupMode =>
   (SIGNUP_MODES as readonly string[]).includes(value);
 
 /**
- * The persisted mode, or `"closed"` if it cannot be established for ANY reason.
- *
- * Deliberately does not distinguish "no row yet" from "database is down": a
- * fresh instance and a broken one should both refuse to provision strangers.
+ * The persisted mode, or `"closed"` if it cannot be established for any reason.
+ * A missing row and an unreachable database are not distinguished — both refuse
+ * to provision strangers.
  */
 export const getSignupMode = async (): Promise<SignupMode> => {
   try {
@@ -37,8 +31,8 @@ export const getSignupMode = async (): Promise<SignupMode> => {
     });
     if (!row) return "closed";
     if (!isSignupMode(row.signupMode)) {
-      // A value this build does not recognise — e.g. written by a newer version,
-      // or hand-edited. Loud, because it is a silent lockout otherwise.
+      // A value this build does not recognise. Logged loudly, because it is a
+      // silent lockout otherwise.
       logger.error(
         { signupMode: row.signupMode },
         "unrecognised signupMode; denying sign-up",

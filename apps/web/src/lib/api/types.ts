@@ -4,12 +4,12 @@ export interface Agent {
   identifier: string;
   accessToken: string;
   isDefault: boolean;
-  /** The all-vs-selective injection switch the gateway reads per request. Not
-   * editable from the console since step 10 — policy rules decide access. */
+  /** The all-vs-selective injection switch the gateway reads per request. Read
+   * only from the console — policy rules decide access. */
   secretMode: string;
   createdAt: string;
   /** Newest gateway request inside the list's bounded lookback window; null =
-   * none in-window (never used OR quiet — `agentLastSeen` tells them apart). */
+   * none in-window. `agentLastSeen` distinguishes never-used from quiet. */
   lastSeenAt: string | null;
 }
 
@@ -82,10 +82,9 @@ export interface Project {
   createdAt: string;
 }
 
-// Project access bindings (the human sharing surface for a project). `role` is
-// the management role on a user binding (step 13c): "owner" may manage the
-// project, "member" is a plain use grant. `isOwner` flags the creator — a
-// provenance display hint, distinct from the (transferable) management role.
+// Project access bindings. `role` is the management role: "owner" may manage
+// the project, "member" is a plain use grant. `isOwner` flags the creator — a
+// display hint, distinct from the transferable management role.
 export interface ProjectAccessUserRow {
   id: string;
   userId: string;
@@ -109,8 +108,7 @@ export interface ProjectAccessBindings {
   groups: ProjectAccessGroupRow[];
 }
 
-// The shares to keep. Each user carries a management `role` (owner = may manage
-// the project); groups carry no role in v1.
+// The shares to keep. Groups carry no role.
 export interface SetProjectAccessInput {
   users: { userId: string; role: "owner" | "member" }[];
   groupIds: string[];
@@ -270,7 +268,7 @@ export interface GroupMemberRow {
   addedAt: string;
 }
 
-// Group→role mappings (step 15): map an IdP group to an org role, priority-ordered.
+// Maps an IdP group to an org role, priority-ordered.
 export interface RoleMappingRow {
   id: string;
   groupId: string;
@@ -308,9 +306,8 @@ export interface OrgMemberListRow {
 }
 
 // ── Shared policy identity/condition shapes ──────────────────────────────────
-// Used by the editor's PolicyRuleV2. Project rules target a specific agent or
-// "any" (empty); org rules target directory identities (user / user-group).
-// Conditions are body-contains.
+// Project rules target a specific agent or "any" (empty); org rules target
+// directory identities. Conditions are body-contains.
 
 export type ProjectionIdentity =
   | { type: "agent"; id: string }

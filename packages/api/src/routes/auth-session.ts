@@ -132,14 +132,12 @@ export const authSessionRoutes = () => {
         },
       });
 
-      // Edition membership (e.g. SSO JIT join) runs before the default
-      // project resolution so a just-created membership's project is what
-      // the session lands on — and the bootstrap branch below self-skips.
+      // Runs before project resolution so a just-created membership's project
+      // is what the session lands on, and the bootstrap branch below self-skips.
       await _hooks.ensureSessionMembership(user, dbUser);
 
-      // Edition session policy (e.g. enterprise "require SSO") — after JIT
-      // so a first SSO login joins and then trivially passes. Denials MUST
-      // return inline: a throw would land in the catch below as a 500.
+      // After the JIT join, so a first SSO login joins and then passes. Denials
+      // return inline; a throw would land in the catch below as a 500.
       const enforcer = getSessionEnforcer();
       if (enforcer) {
         const denial = await enforcer(user, dbUser);
@@ -150,26 +148,20 @@ export const authSessionRoutes = () => {
 
       let defaultProject = await findUserDefaultProject(dbUser.id);
 
-      // Project absence is the whole condition: it is what this branch
-      // repairs, and both provisioning calls below are find-or-create, so
-      // re-entering is a no-op.
-      //
-      // Deliberately NOT also `!existingUser`. Editions whose auth library
-      // creates the user row at login always have one by the time this runs,
-      // which made that condition permanently false and left every user
-      // without a project. `shouldBootstrapOrg` is the edition's veto for
-      // identities that must join an org by invitation instead.
+      // Project absence is the whole condition — both provisioning calls below
+      // are find-or-create, so re-entering is a no-op. It must not also test
+      // `!existingUser`: where the auth library creates the user row at login,
+      // that is permanently false and nobody ever gets a project.
+      // `shouldBootstrapOrg` is the veto for invitation-only identities.
       const bootstrappedOrg =
         !defaultProject && _hooks.shouldBootstrapOrg(c.req.raw);
 
       if (bootstrappedOrg) {
         const result =
           CAPS.tenancy === "single-org-shared"
-            ? // "member", never "owner". `ensureSessionMembership`
-              // runs above and is where a claim-resolved role is written; if it
-              // already created the membership this call preserves that role.
-              // This literal is the floor for a joiner it did not cover — under
-              // shared tenancy an unmapped identity must not land as an owner.
+            ? // The floor for a joiner `ensureSessionMembership` did not cover:
+              // under shared tenancy an unmapped identity must not land as an
+              // owner. A membership it already created keeps its own role.
               await joinSharedOrganization(dbUser.id, dbUser.email, "member")
             : await bootstrapOrganization(
                 dbUser.id,
@@ -179,12 +171,9 @@ export const authSessionRoutes = () => {
         defaultProject = result.project;
       }
 
-      // No user row existed for this email before the upsert → it was created
-      // by this request. Fires outside the bootstrap branch so non-bootstrap
-      // signups (invitation/claim flows) reach the hook too.
-      //
-      // Editions whose auth library creates the row first never reach this;
-      // they hook creation in the library instead.
+      // Outside the bootstrap branch so invitation and claim flows reach the
+      // hook too. Editions whose auth library creates the row first never get
+      // here and hook creation in the library instead.
       if (!existingUser) {
         _hooks.onUserCreated(
           { email: dbUser.email, name: dbUser.name },

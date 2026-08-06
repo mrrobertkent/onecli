@@ -241,7 +241,7 @@ mod tests {
     use super::*;
 
     /// A realistic cookie value: the 32-char token, then the percent-encoded
-    /// base64 signature (`/` → `%2F`, `+` → `%2B`, the `=` pad → `%3D`).
+    /// base64 signature.
     const SIGNED: &str =
         "Xk3pQz7RtV1aB2cD4eF5gH6iJ8kL9mN0.9Xq%2Fz1c%2BAbC3dEfGhIjKlMnOpQrStUvWxYz0123%3D";
 
@@ -271,16 +271,14 @@ mod tests {
         assert_eq!(session_token_from_cookies(&header), Some(SIGNED));
     }
 
-    /// What a browser sends to an https deployment: Better Auth switches the
-    /// session cookie to the `__Secure-` prefix.
+    /// What a browser sends to an https deployment.
     #[test]
     fn session_token_accepts_secure_prefixed_name() {
         let header = format!("other=abc; __Secure-better-auth.session_token={SIGNED}");
         assert_eq!(session_token_from_cookies(&header), Some(SIGNED));
     }
 
-    /// The bare name wins when both are somehow present, so an http install's
-    /// behaviour is unchanged.
+    /// The bare name wins when both are present.
     #[test]
     fn session_token_prefers_bare_name() {
         let header = "__Secure-better-auth.session_token=prefixed.sig; \
@@ -293,9 +291,7 @@ mod tests {
         assert_eq!(session_token_from_cookies("other=abc; foo=bar"), None);
     }
 
-    /// The signature — percent-encoded base64, which can hold `%2F`/`%2B`/`%3D`
-    /// but never a `.` — is dropped, leaving exactly what `auth_sessions.token`
-    /// stores.
+    /// The signature is dropped, leaving what `auth_sessions.token` stores.
     #[test]
     fn session_token_value_strips_signature() {
         assert_eq!(
@@ -304,15 +300,14 @@ mod tests {
         );
     }
 
-    /// Splitting on the LAST `.`, not the first: a token carrying dots of its own
-    /// must still come back whole.
+    /// Splits on the last `.`, not the first, so a token carrying dots of its
+    /// own comes back whole.
     #[test]
     fn session_token_value_splits_on_last_dot() {
         assert_eq!(session_token_value("a.b.c.signature"), "a.b.c");
     }
 
-    /// An unsigned-looking value is passed through, not truncated to nothing —
-    /// the lookup rejects it.
+    /// An unsigned-looking value is passed through, not truncated to nothing.
     #[test]
     fn session_token_value_without_signature_passes_through() {
         assert_eq!(

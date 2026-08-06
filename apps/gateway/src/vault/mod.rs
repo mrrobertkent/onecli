@@ -1,7 +1,4 @@
 //! Vault integration — provider-agnostic credential fetching from external vaults.
-//!
-//! The `VaultProvider` trait defines the interface for vault backends (Bitwarden, etc.).
-//! `VaultService` is the orchestrator that routes requests to the correct provider.
 
 pub(crate) mod api;
 pub(crate) mod bitwarden;

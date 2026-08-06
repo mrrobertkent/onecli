@@ -685,9 +685,8 @@ pub(crate) async fn find_app_config(
 
 /// Find an enabled org-level BYOC app config for an organization + provider.
 ///
-/// EE-only (cloud + onprem): org-level app configs are writable only through
-/// the EE org surface (`POST /v1/org/apps/:provider/config`); OSS has no way
-/// to create them, so its build carries no org lookup.
+/// EE-only: org-level app configs are writable only through the EE org surface,
+/// so OSS can never have one to look up.
 #[cfg(not(edition_oss))]
 pub(crate) async fn find_app_config_by_org(
     pool: &PgPool,
@@ -740,8 +739,8 @@ pub(crate) async fn find_app_config_by_connection(
 pub(crate) struct AppConnectionRow {
     pub id: String,
     pub provider: String,
-    /// "organization" | "project" — the connection's level, so a step-8 app
-    /// target scoped to "all connections at level L" can match by it.
+    /// "organization" | "project" — the connection's level, matched by app
+    /// targets scoped to every connection at a level.
     pub scope: String,
     pub credentials: Option<String>,
     pub label: Option<String>,
@@ -874,9 +873,8 @@ pub(crate) async fn delete_vault_connection(
 
 /// Real-PostgreSQL tests for the project-key usage gate.
 ///
-/// Skipped locally when `POLICY_PROOF_DATABASE_URL` is unset; a suite that
-/// silently disappears in CI reports the same green as one that passed, so an
-/// unset variable there is a hard failure instead.
+/// Skipped locally when `POLICY_PROOF_DATABASE_URL` is unset, but a hard failure
+/// in CI — a silently skipped suite reports the same green as a passing one.
 #[cfg(test)]
 mod access_proof_tests {
     use super::*;
@@ -1013,16 +1011,15 @@ mod access_proof_tests {
         add_member(&pool, "admin", "admin", "active").await.unwrap();
 
         assert!(can(&pool, "alice", "alice").await, "own project");
-        // Shared tenancy puts Alice and Bob in ONE org, so org membership alone
-        // would admit her. The binding check is what refuses.
+        // Alice and Bob share one org, so membership alone would admit her; the
+        // binding check is what refuses.
         assert!(!can(&pool, "alice", "bob").await, "another user's project");
         assert!(
             can(&pool, "admin", "bob").await,
             "org admin reaches any project"
         );
 
-        // Suspension revokes immediately, binding or not — this is what stops a
-        // key proxying traffic after its user is cut off.
+        // Suspension revokes immediately, binding or not.
         add_member(&pool, "alice", "member", "suspended")
             .await
             .unwrap();

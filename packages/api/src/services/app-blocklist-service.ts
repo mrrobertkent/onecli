@@ -49,9 +49,8 @@ const liveGeneration = async (
 
 /**
  * Where a block belongs in a first-match set: after the existing blocks, before
- * everything looser. Mirrors the strictness order the engine and the console
- * share (block ≺ approval ≺ rate-limit ≺ allow) — appending instead would let an
- * earlier allow win and the block would never fire.
+ * everything looser. Appending instead would let an earlier allow win, and the
+ * block would never fire.
  */
 const insertPriority = async (
   tx: Tx,
@@ -131,17 +130,17 @@ const listDraftRules = async (base: PolicyScopeBase) =>
     },
   });
 
-/** The scope this caller OWNS — where its writes land. A project caller carries
- * its organizationId too (for the inherited read below), so this can't use
+/** The scope this caller owns — where its writes land. A project caller carries
+ * its organizationId too, for the inherited read below, so this can't use
  * `policyScope`, which resolves an org id first. */
 const ownScope = (scope: ResourceScope): PolicyScopeBase =>
   scope.projectId
     ? { scope: "project" as const, projectId: scope.projectId }
     : policyScope(scope);
 
-/** The org scope a PROJECT caller also sees, read-only: an org-level block
+/** The org scope a project caller also sees, read-only: an org-level block
  * applies to every project under it, and the panel shows it locked. Null at org
- * scope (nothing above it) — mirrors the old `scopeWhere` OR. */
+ * scope, which has nothing above it. */
 const inheritedScope = (scope: ResourceScope): PolicyScopeBase | null =>
   scope.projectId && scope.organizationId
     ? { scope: "organization" as const, organizationId: scope.organizationId }
@@ -221,8 +220,8 @@ export const getBlocklistState = async (
       hostId: host.id,
       ruleId: rule?.id ?? null,
       enabled: rule?.enabled ?? false,
-      // Blocking an arbitrary host is a policy rule now, so every entry the app
-      // page shows is one the app itself declares.
+      // Every entry the app page shows is one the app itself declares;
+      // arbitrary hosts are blocked with an ordinary policy rule.
       custom: false,
       name: host.name,
       hostPattern: host.hostPattern,

@@ -1,18 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The backfill write (`backfillPublishScope`) is the only DB-touching path under
-// test; everything else it uses (policyScope, jsonInput, identityCreate,
-// backfillTargetCreate) is pure. So we mock just the transaction + the two
-// policyRuleV2 methods it calls and assert control flow + the emitted row shape.
+// `backfillPublishScope` is the only DB-touching path under test — everything
+// else it uses is pure — so only the transaction and the policyRuleV2 methods
+// it calls are mocked.
 
 const state = vi.hoisted(() => ({
   publishedCount: 0,
   creates: [] as { data: Record<string, unknown> }[],
   deleteManyCalls: 0,
   deleteManyWheres: [] as unknown[],
-  // For assertSessionPolicyValid: the project→org resolution, the (already
-  // scope-fenced) connection rows the mock returns, the `where` each fence query
-  // is called with, and the validator invocations.
+  // For assertSessionPolicyValid: the project→org resolution, the connection
+  // rows, the recorded fence `where`s, and the validator invocations.
   projectOrg: "org-1" as string | null,
   connections: [] as { provider: string; metadata: unknown }[],
   connectionWheres: [] as unknown[],
@@ -164,8 +162,8 @@ describe("assertSessionPolicyValid", () => {
     state.connections = [];
     state.connectionWheres = [];
     state.validatorCalls = [];
-    // A spy validator via the provider seam — the default (OSS) validator is a
-    // no-op, so a spy is how we observe the entitlement/shape gate firing.
+    // The default validator is a no-op, so a spy is how the gate is observed
+    // firing.
     initPolicyValidator({
       validate: async (organizationId, provider, _metadata, policy) => {
         state.validatorCalls.push({ organizationId, provider, policy });
@@ -207,8 +205,8 @@ describe("assertSessionPolicyValid", () => {
   });
 
   it("rejects a session policy with NO connection target (the update-path gate)", async () => {
-    // The create Zod refine catches this, but an update has no refine — the
-    // service throw is the ONLY thing stopping a two-PATCH entitlement bypass.
+    // Create has a Zod refine; update has none, so the service throw is what
+    // stops a two-PATCH bypass.
     await expect(
       assertSessionPolicyValid(
         { scope: "project", projectId: "p1" },

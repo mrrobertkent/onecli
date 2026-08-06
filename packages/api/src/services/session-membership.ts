@@ -12,24 +12,21 @@ import {
   ensureSharedOrgMembership,
   SHARED_ORG_SLUG,
 } from "./organization-service";
-import { readClaimPath, resolveRoleFromGroups } from "./role-resolution";
+import {
+  readClaimPath,
+  resolveRoleFromGroups,
+  revokeResolvedRole,
+  writeResolvedRole,
+} from "./role-resolution";
 import type { SessionDenial, SessionUser } from "../providers/types";
 
 /**
- * The login-time role writer, registered on the `ensureSessionMembership` hook.
+ * Resolves the IdP's groups to a role and persists it, once per session sync.
+ * Reads the id_token from `auth_accounts` rather than the session cookie, which
+ * cannot be refreshed.
  *
- * Authorization reads a persisted role, so the IdP's groups are resolved here —
- * once per session sync — rather than by a group-aware `RoleResolver`.
- *
- * The groups come from the OIDC `id_token` Better Auth persists on
- * `auth_accounts`, not from the session cookie, which cannot be refreshed. The
- * token is not re-verified: Better Auth checked it against the provider's JWKS
- * before storing it, so re-verifying a row we wrote ourselves would only add a
- * network call to the login path.
- *
- * Contract: idempotent, and MUST NOT THROW. Membership is best-effort; session
- * resolution is not, and a throw here surfaces as a 500 rather than a denial.
- * Denying an unmapped identity belongs to the `SessionEnforcer`.
+ * Must be idempotent and must not throw — a throw here becomes a 500 instead of
+ * a denial. Denying an unmapped identity is the `SessionEnforcer`'s job.
  */
 export const ossSessionMembership = async (
   _session: SessionUser,
@@ -40,30 +37,45 @@ export const ossSessionMembership = async (
       where: { slug: SHARED_ORG_SLUG },
       select: { id: true },
     });
-    // No shared org yet means this is the first login, and the caller's
-    // bootstrap runs after us. Nothing to re-grade.
+    // No shared org yet: the caller's bootstrap runs after us, so there is
+    // nothing to re-grade.
     if (!org) return;
 
+    // Only identities that actually sign in through the directory are governed
+    // by it. A password account has no id_token, and treating that absence as
+    // "no groups" would suspend the bootstrap admin on their next login.
     const groups = await readIdpGroups(user.id);
-    if (groups.length === 0) return;
+    if (groups === null) return;
 
     const role = await resolveRoleFromGroups(org.id, groups);
-    // Null means no group mapped. Deliberately NOT treated as "member" — an
-    // unmapped identity is not admitted at all, and that decision belongs to
-    // the enforcer. Downgrading here would silently admit them.
-    if (!role) return;
+
+    // The directory no longer grants this identity anything — removed from
+    // every group, or the mapping was deleted. Access has to follow, or the
+    // grant survives every revocation after the first login.
+    if (!role) {
+      const revoked = await revokeResolvedRole(org.id, user.id);
+      if (revoked.changed) {
+        await recordAuditEvent({
+          organizationId: org.id,
+          userId: user.id,
+          userEmail: user.email,
+          action: AUDIT_ACTIONS.DELETE,
+          service: AUDIT_SERVICES.MEMBER,
+          source: AUDIT_SOURCE.SSO_LOGIN,
+          metadata: { from: revoked.from, groups },
+        });
+      }
+      return;
+    }
 
     const member = await db.organizationMember.findFirst({
       where: { organizationId: org.id, userId: user.id },
       select: { role: true },
     });
 
-    // First login for a mapped identity: CREATE the membership here, at the
-    // resolved role. Returning early instead would let the caller's
-    // `joinSharedOrganization` create it at its floor role, and the IdP's
-    // groups would not take effect until the second sync. Creating it here is
-    // also what lets the enforcer below treat "no membership" as "not
-    // authorised" without denying every legitimate first login.
+    // First login for a mapped identity: create the membership at the resolved
+    // role. Leaving it to the caller's `joinSharedOrganization` would create it
+    // at the floor role, delaying the IdP's groups until the second sync.
     if (!member) {
       await ensureSharedOrgMembership(user.id, user.email, role);
       await recordAuditEvent({
@@ -78,18 +90,11 @@ export const ossSessionMembership = async (
       return;
     }
 
-    if (member.role === "owner" || member.role === role) return;
+    const written = await writeResolvedRole(org.id, user.id, role);
+    if (!written.changed) return;
 
-    await db.organizationMember.update({
-      where: {
-        organizationId_userId: { organizationId: org.id, userId: user.id },
-      },
-      data: { role },
-    });
-
-    // `recordAuditEvent`, not `withAudit`: the change is conditional (most
-    // syncs are a no-op) and has already happened by here. It never throws,
-    // which this hook's contract requires.
+    // `recordAuditEvent` rather than `withAudit`: the write has already
+    // happened, and this one never throws, as the hook's contract requires.
     await recordAuditEvent({
       organizationId: org.id,
       userId: user.id,
@@ -97,28 +102,31 @@ export const ossSessionMembership = async (
       action: AUDIT_ACTIONS.UPDATE,
       service: AUDIT_SERVICES.MEMBER,
       source: AUDIT_SOURCE.SSO_LOGIN,
-      metadata: { from: member.role, to: role, groups },
+      metadata: { from: written.from, to: role, groups },
     });
   } catch (err) {
-    // Never rethrow: see the contract above.
+    // Never rethrow — see the contract above.
     logger.error({ err, userId: user.id }, "session role resolution failed");
   }
 };
 
 /**
- * Group names from the most recent OIDC `id_token` this user signed in with.
+ * Group names from the most recent OIDC `id_token` this user signed in with, or
+ * null when they have no directory identity at all.
  *
- * Read by path, not by name: Authentik and Okta emit a flat `groups` while
- * Keycloak keeps roles at `realm_access.roles`, and a configuration storing a
- * claim NAME cannot express the second.
+ * The distinction decides whether the directory governs this user: an empty
+ * array means it grants them nothing, null means it has no opinion.
+ *
+ * Read by claim path, not name — Keycloak nests roles at `realm_access.roles`
+ * where Authentik and Okta emit a flat `groups`.
  */
-const readIdpGroups = async (userId: string): Promise<string[]> => {
+const readIdpGroups = async (userId: string): Promise<string[] | null> => {
   const account = await db.authAccount.findFirst({
     where: { userId, idToken: { not: null } },
     select: { idToken: true },
     orderBy: { updatedAt: "desc" },
   });
-  if (!account?.idToken) return [];
+  if (!account?.idToken) return null;
 
   const claims = decodeJwtPayload(account.idToken);
   if (!claims) return [];
@@ -126,9 +134,8 @@ const readIdpGroups = async (userId: string): Promise<string[]> => {
 };
 
 /**
- * Decode a JWT payload WITHOUT verifying it. Safe only because the caller reads
- * a token Better Auth already verified against the provider's JWKS before
- * persisting it. Never use this on a token that arrived in a request.
+ * Decode a JWT payload without verifying it. Only safe on a persisted token
+ * that was verified before storage — never on one that arrived in a request.
  */
 const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
   try {
@@ -144,28 +151,26 @@ const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
 };
 
 /**
- * The OSS `SessionEnforcer` — the server-side access gate.
+ * The OSS `SessionEnforcer`: admits an identity only if it holds an active
+ * membership of the shared org. Runs after the role writer above and before
+ * project resolution, on every authenticated session.
  *
- * Runs on every authenticated session, after the role writer above and before
- * project resolution, so a client that goes straight to a `/v1/*` route cannot
- * skip it.
- *
- * The rule is "does this identity hold an active membership of the shared
- * organization". The writer above creates one for any identity whose IdP groups
- * map to a role, so together they mean: authenticate at the IdP AND map to a
- * role. Authenticating alone is not sufficient.
- *
- * Fail-closed — a database error denies rather than admits. That is also why it
- * returns a denial instead of throwing: a throw lands in the route's catch as a
- * 500, which some clients treat as retryable.
+ * Fail-closed — a database error denies. Returns a denial rather than throwing,
+ * since a throw becomes a 500 that some clients retry.
  */
 export const ossSessionEnforcer = async (
   _session: SessionUser,
   user: { id: string; email: string },
 ): Promise<SessionDenial | null> => {
   try {
+    // Scoped to the shared org, not to any membership anywhere: a leftover
+    // membership of some other organization is not a grant on this instance.
     const membership = await db.organizationMember.findFirst({
-      where: { userId: user.id, ...activeMembershipWhere },
+      where: {
+        userId: user.id,
+        organization: { slug: SHARED_ORG_SLUG },
+        ...activeMembershipWhere,
+      },
       select: { role: true },
     });
     if (membership) return null;

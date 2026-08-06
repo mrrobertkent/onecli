@@ -2,19 +2,13 @@ import { ServiceError } from "../../services/errors";
 import { getAppPermissionDefinition } from "./index";
 
 /**
- * Validate that every tool id names a CONCRETE catalog tool of `provider`.
+ * Validate that every tool id names a concrete catalog tool of `provider`.
  *
- * Grants store per-tool tri-state as explicit tool-id lists; an id the catalog
- * doesn't know compiles into a rule that never matches anything (the engine's
- * fail-closed law: an unknown toolId matches nothing) — the silent-no-op class
- * this assert exists to reject loudly instead. Group wildcard ids are authoring
- * aliases of the rule form's picker, not grant inputs — the grant compiler
- * needs the concrete set to derive the blocked complement, so wildcards are
- * rejected here like any unknown id.
- *
- * A provider with no catalog has no per-tool axis at all — callers offer only
- * whole-app access there (mirroring the reflections' `catalog: false` honesty
- * arm), so any tool list for it is unprocessable.
+ * An unknown id would compile into a rule that matches nothing, so reject it
+ * loudly rather than silently no-op. Group wildcard ids count as unknown here:
+ * the grant compiler needs the concrete set to derive the blocked complement.
+ * A provider with no catalog has no per-tool axis at all, so any tool list for
+ * it is unprocessable.
  */
 export const assertToolIdsValid = (
   provider: string,
@@ -38,9 +32,8 @@ export const assertToolIdsValid = (
   }
 };
 
-/** The provider's full concrete tool-id set — the universe the grant
- * compiler derives the blocked complement from. Empty for a catalog-less
- * provider. */
+/** The provider's full concrete tool-id set, which the grant compiler derives
+ * the blocked complement from. Empty for a catalog-less provider. */
 export const catalogToolIds = (provider: string): string[] => {
   const def = getAppPermissionDefinition(provider);
   if (!def) return [];

@@ -207,11 +207,9 @@ describe.skipIf(!PROOF_URL)(
     });
 
     it("PRECEDENCE: the project secret wins over an org one of the same type", async () => {
-      // Insert the org row FIRST so an unordered findFirst would return it. The
-      // gateway's merge puts project last with later overriding earlier, so the
-      // container must read the project's auth mode or it is configured for the
-      // wrong credential. Both rows are granted — precedence is only visible
-      // when more than one secret is reachable at all.
+      // Insert the org row first so an unordered findFirst would return it.
+      // Both rows are granted; precedence is only visible when more than one
+      // secret is reachable.
       await db.secret.create({
         data: secret(`${P}org-oauth`, {
           projectId: null,
@@ -226,7 +224,7 @@ describe.skipIf(!PROOF_URL)(
       await grant(`${P}g-org`, `${P}org-oauth`);
       await grant(`${P}g-proj`, `${P}proj-apikey`);
 
-      // Goes through the route's own resolver — asserting an ordering the test
+      // Goes through the route's own resolver: asserting an ordering the test
       // supplies itself would pass with the ordering removed from the code.
       const picked = await route.findInjectableSecretOfType(
         await resolve(),

@@ -47,15 +47,14 @@ pub(crate) fn derive_inject_selection(rules: &PolicyV2Rules, agent_id: &str) -> 
                 }
                 "connection" => {
                     if let Some(id) = &t.app_connection_id {
-                        // ALWAYS `None`: sessionPolicy must never attach in OSS
-                        // (see the module doc).
+                        // Always `None`: sessionPolicy must never attach in OSS.
                         connections.insert(id.clone(), None);
                     }
                 }
                 "app" => {
-                    // With a connection_scope this is the "all the agent's
-                    // connections of `provider` at that level" instruction;
-                    // without one it's a block/allow app rule — no injection.
+                    // A connection_scope means "all the agent's connections of
+                    // `provider` at that level"; without one this is a
+                    // block/allow app rule and injects nothing.
                     if let (Some(provider), Some(scope)) =
                         (&t.app_provider, &t.app_connection_scope)
                     {
@@ -69,8 +68,8 @@ pub(crate) fn derive_inject_selection(rules: &PolicyV2Rules, agent_id: &str) -> 
     InjectSelection {
         secret_ids,
         connections,
-        // OSS enforces no resource boundaries (there is no guard to enforce
-        // one), so nothing ever bounds a connection here.
+        // OSS has no guard to enforce a resource boundary, so nothing ever
+        // bounds a connection here.
         boundaries: HashMap::new(),
         app_scopes,
         secret_scopes,
@@ -148,8 +147,7 @@ mod tests {
                 agent_identity("a1"),
                 json!([{ "kind": "secret", "secretId": "s1" }]),
             ),
-            // Empty identity ("any" for block/allow) must NOT inject — the
-            // orphaned-equipment leak guard.
+            // Empty identity ("any" for block/allow) must not inject.
             rule(
                 "allow",
                 json!([]),

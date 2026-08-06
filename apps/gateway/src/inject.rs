@@ -910,7 +910,7 @@ mod tests {
         }
     }
 
-    // ── merge_injection_rules / secret+app coexistence (#428) ───────────
+    // ── merge_injection_rules / secret+app coexistence ──────────────────
 
     fn apply_to(path: &str, rules: &[InjectionRule]) -> (hyper::HeaderMap, String) {
         let mut headers = hyper::HeaderMap::new();
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn merged_disjoint_secret_and_app_rules_coexist() {
-        // #428: a /youtube/* API-key secret and a /calendar/* OAuth app share
+        // A /youtube/* API-key secret and a /calendar/* OAuth app share
         // www.googleapis.com; each request applies only its own rule.
         let secrets = vec![make_rule(
             "/youtube/*",
@@ -985,8 +985,7 @@ mod tests {
 
     #[test]
     fn single_source_lists_pass_through_unchanged() {
-        // An app-less (or secret-less) resolution must keep its original
-        // order — the specificity law applies only to real coexistence.
+        // A single-source resolution keeps its original order.
         let secrets = vec![
             make_rule("/v1/*", vec![set_header("authorization", "specific")]),
             make_rule("*", vec![set_header("authorization", "catch-all")]),
@@ -1002,8 +1001,7 @@ mod tests {
 
     #[test]
     fn equal_specificity_keeps_secret_precedence() {
-        // A pre-existing catch-all secret keeps winning over a catch-all app
-        // rule — no silent credential flip for overlapping configs.
+        // A catch-all secret wins over a catch-all app rule.
         let secrets = vec![make_rule(
             "*",
             vec![set_header("authorization", "token secret-pat")],
@@ -1038,13 +1036,9 @@ mod tests {
         assert_eq!(headers.get("accept").unwrap(), "application/json");
     }
 
-    /// The vault key is authoritative: SetHeader must REPLACE a key the agent
-    /// sent itself, never defer to it. `onecli run` hands agents that require
-    /// a local provider key (e.g. OpenClaw) a placeholder ANTHROPIC_API_KEY,
-    /// and users' own shell keys pass through the child env — both ride
-    /// requests as x-api-key and must lose to the injected credential, or a
-    /// placeholder (or stale personal key) would reach the provider and
-    /// governance would silently depend on the agent's local config.
+    /// The vault key is authoritative: `SetHeader` must replace a key the agent
+    /// sent itself. Placeholder and personal `ANTHROPIC_API_KEY` values ride
+    /// requests as x-api-key and must lose to the injected credential.
     #[test]
     fn inject_set_header_replaces_agent_supplied_key() {
         let mut headers = hyper::HeaderMap::new();
@@ -1061,8 +1055,7 @@ mod tests {
         let count = apply_injections(&mut headers, &mut "/v1/messages".to_string(), &rules);
         assert_eq!(count, 1);
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-ant-vault");
-        // Exactly one value — insert semantics, not append (a duplicate header
-        // would leak the placeholder alongside the real key).
+        // Insert semantics, not append — a duplicate would leak the placeholder.
         assert_eq!(headers.get_all("x-api-key").iter().count(), 1);
     }
 

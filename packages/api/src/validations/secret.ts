@@ -134,10 +134,9 @@ export const isPathSafeValue = (value: string): boolean =>
     );
   });
 
-// A secret's host pattern decides which hosts its credential is injected into.
-// A "*.X" wildcard is safe only when X is a single registrable domain; a wildcard
-// over a public suffix ("*.com", "*.s3.amazonaws.com") would inject the credential
-// across many unrelated owners. Returns true for that over-broad case.
+// A "*.X" host pattern is safe only when X is a single registrable domain; over a
+// public suffix ("*.com", "*.s3.amazonaws.com") it would inject the credential
+// across unrelated owners. Returns true for that over-broad case.
 export const wildcardCoversPublicSuffix = (hostPattern: string): boolean => {
   if (!hostPattern.startsWith("*.")) return false;
   const { domain, isIcann, isPrivate } = parse(hostPattern.slice(2), {
@@ -148,9 +147,8 @@ export const wildcardCoversPublicSuffix = (hostPattern: string): boolean => {
 
 export const hostPatternSchema = z
   .string()
-  // Trim before validating so the refines see exactly what gets stored: the
-  // service also trims on save, so trailing Unicode whitespace must not smuggle
-  // a public-suffix wildcard ("*.com " -> stored "*.com") past the checks.
+  // Trim first so the refines see exactly what gets stored; the service trims on
+  // save too, and "*.com " must not slip past as a non-wildcard.
   .trim()
   .min(1, "Host pattern is required")
   .max(1000)
@@ -164,10 +162,9 @@ export const hostPatternSchema = z
   .refine((v) => !v.includes(" "), {
     message: "Host pattern must not contain spaces",
   })
-  // A credential is injected into every host its pattern matches, so only allow
-  // a single leading-subdomain wildcard ("*.example.com"). Reject mid-string
-  // ("api.*.com") and bare ("*") wildcards, which would inject into unintended
-  // hosts now that the gateway matches a `*` anywhere in the pattern.
+  // The gateway matches a `*` anywhere in the pattern, so only a single
+  // leading-subdomain wildcard is allowed; mid-string ("api.*.com") and bare
+  // ("*") wildcards would inject into unintended hosts.
   .refine((v) => !v.includes("*") || /^\*\.[a-z0-9.-]+$/i.test(v), {
     message:
       "Wildcards are only allowed as a leading subdomain, e.g. *.example.com",

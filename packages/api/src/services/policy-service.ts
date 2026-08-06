@@ -99,9 +99,8 @@ const scopeKeyOf = (base: PolicyScopeBase) =>
   base.scope === "organization" ? base.organizationId : base.projectId;
 
 // Serialize per-scope publish/default mutations so concurrent callers can't
-// double-create a generation or a second Default Rule. (A partial-unique index
-// on the default is the durable guard — a follow-up hardening.) Exported so the
-// callers can read + write under one lock.
+// double-create a generation or a second Default Rule. Exported so callers can
+// read and write under one lock.
 export const lockScope = (
   tx: Prisma.TransactionClient,
   base: PolicyScopeBase,
@@ -139,7 +138,7 @@ const toTargetDto = (row: RuleRow["targets"][number]): PolicyTargetDto => {
         tools: row.appTools,
       };
     case "secret":
-      // A secret target names EITHER a specific secret OR "all secrets at a level".
+      // A secret target names either a specific secret or "all secrets at a level".
       if (row.secretScope === "organization" || row.secretScope === "project") {
         return { kind: "secret", secretId: null, secretScope: row.secretScope };
       }
@@ -256,8 +255,8 @@ const targetRowToCreate = (
 });
 
 // Drop redundant entries whose (rule, principal) / (rule, connection|secret)
-// pair the DB would reject as a UNIQUE violation. Same-key entries are
-// redundant, not an error (§2.6); app/network rows carry no such unique.
+// pair the DB would reject as a unique violation. Same-key entries are
+// redundant, not an error; app/network rows carry no such unique.
 const dedupeIdentities = (
   items: PolicyIdentityInput[],
 ): PolicyIdentityInput[] => {
@@ -296,10 +295,8 @@ const hasDirectoryIdentity = (
 export const rowHasDirectoryIdentity = (rows: RuleRow["identities"]): boolean =>
   rows.some((i) => i.userId != null || i.groupId != null);
 
-// The paid-plan gate keys off the modifiers + directory identities, reusing the
-// existing RuleActionGate (requireApproval → "manual_approval" [team], rateLimit
-// → "rate_limit" [pro], a directory identity → "identity_directory" → "groups"
-// [enterprise]).
+// Map a rule's paid modifiers and directory identities onto the RuleActionGate's
+// action names.
 export const gatedActions = (rule: {
   rateLimit?: number | null;
   requireApproval?: boolean | null;
@@ -322,8 +319,7 @@ const jsonInput = (
 };
 
 // A referenced identity/resource id that doesn't exist surfaces as P2025 from
-// the nested `connect`; turn it into a clean 422 instead of a 500. (Scope
-// validation of references lands with the resource picker in step 7.)
+// the nested `connect`; turn it into a clean 422 instead of a 500.
 const asReferenceError = (err: unknown): never => {
   if (
     err instanceof Prisma.PrismaClientKnownRequestError &&

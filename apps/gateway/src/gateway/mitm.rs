@@ -273,9 +273,7 @@ impl ResolvedRules {
 enum ResolveResult {
     /// Rules resolved successfully, with the raw app connections for the response header.
     Resolved {
-        /// Boxed: `ResolvedRules` is large, so inlining it makes this variant
-        /// dwarf the others (`clippy::large_enum_variant`). `Deref` keeps the box
-        /// transparent at the use sites.
+        /// Boxed to keep this variant from dwarfing the others.
         rules: Box<ResolvedRules>,
         app_connections: Vec<db::AppConnectionRow>,
     },
@@ -291,9 +289,8 @@ enum ResolveResult {
 }
 
 /// Resolve injection + policy rules from cache, with per-request app connection
-/// disambiguation. Secret and app-connection rules are both path-scoped and are
-/// merged per request (`inject::merge_injection_rules`); vault rules fill in
-/// only when neither source yields any.
+/// disambiguation. Secret and app rules are path-scoped and merged; vault rules
+/// fill in only when neither source yields any.
 async fn resolve_rules(
     ctx: &ProxyContext,
     hostname: &str,
@@ -333,18 +330,12 @@ async fn resolve_rules(
     let mut body_transform: Option<crate::apps::BodyTransform> = None;
     // Granular-access policy of the connection that wins injection (if any).
     let mut session_policy: Option<serde_json::Value> = None;
-    // Id of the connection that wins injection (if any) — rides with
-    // `session_policy` under the same attribution law.
     let mut winning_connection_id: Option<String> = None;
 
-    // Resolve app connections whenever any exist and MERGE their rules with
-    // the secret rules. A shared host (e.g. www.googleapis.com) can carry
-    // both an API-key secret (/youtube/*) and OAuth app connections
-    // (/calendar/*, /drive/*); both rule sets are path-scoped and coexist —
-    // a secret must not preempt the apps (#428). When the secret rules
-    // already serve this request's path, app-side escalations (ambiguity,
-    // stale connection id, resolution errors) are best-effort no-ops rather
-    // than failures of a request the secret alone satisfies.
+    // Merge app-connection rules with the secret rules: one host can carry both
+    // an API-key secret and OAuth connections on different paths. When the
+    // secrets already serve this path, app-side escalations are best-effort
+    // no-ops rather than failures of a request the secret alone satisfies.
     if !resp.app_connections.is_empty() {
         let secrets_serve = crate::inject::rules_serve_path(&secret_rules, request_path);
         match engine

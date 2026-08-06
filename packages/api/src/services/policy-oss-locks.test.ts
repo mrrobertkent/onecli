@@ -3,9 +3,8 @@ import { ossPolicyValidator } from "./policy-oss-locks";
 import { ServiceError } from "./errors";
 import type { PolicyTargetInput } from "../validations/policy";
 
-// The OSS edition's policy locks. These run against the DEFAULT registries —
-// exactly what an OSS process sees (no initEeApps): base apps available, the
-// shared EE-stub list (aws-role, datadog, …) present with `available: false`.
+// Run against the default registries, which is what an OSS process sees: base
+// apps available, EE stubs (aws-role, datadog, …) present but unavailable.
 
 describe("ossPolicyValidator.validate (granular session policy)", () => {
   it("rejects unconditionally with the cloud-only message", async () => {

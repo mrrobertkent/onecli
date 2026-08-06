@@ -356,22 +356,15 @@ impl PolicyEngine {
         hostname: &str,
         selection: &db::InjectSelection,
     ) -> Result<(Vec<InjectionRule>, Vec<crate::budget::BudgetBinding>), ConnectError> {
-        // The PARTNER tier is GRANT-INDEPENDENT (attach-model steps 5+7): a
-        // rule cannot name a partner secret (`assertTargetsValid`), so grants
-        // can never carry that tier — it is injected in every arm, at LOWEST
-        // precedence: later same-header injections override earlier ones, so
-        // org/project values always win. `inherited_secret_rows` is a no-op
-        // stub outside the cloud edition (returns an empty Vec).
+        // The partner tier is grant-independent: a rule cannot name a partner
+        // secret, so it is injected in every arm, first — later same-header
+        // injections override earlier ones, so org/project values win.
+        // `inherited_secret_rows` is a no-op stub outside the cloud edition.
         let secrets = match secret_pool(selection) {
             InjectionPool::RuleSelected => {
-                // Rule-driven: the agent's allow rules name specific secrets
-                // (`secret_ids`) and/or "all secrets at a level"
-                // (`secret_scopes`). Fetch the ORG/PROJECT-fenced candidate
-                // pool and NARROW to the named ids OR the named levels (a
-                // secret's own `scope` — "organization" / "project"). The
-                // org-fence is on the FETCH, so a rule naming another org's
-                // secret can't pull it (the id simply isn't in the pool). The
-                // selection never filters the partner tier (above).
+                // Narrow the fenced pool to the named ids or the named levels.
+                // The org fence is on the fetch, so a rule naming another org's
+                // secret can't pull it — the id is simply not in the pool.
                 let (partner_rows, org_result, project_result) = tokio::join!(
                     crate::partner::inherited_secret_rows(&self.pool, &agent.organization_id),
                     db::find_secrets_by_org(&self.pool, &agent.organization_id),
@@ -387,12 +380,8 @@ impl PolicyEngine {
                 merged.extend(selected);
                 merged
             }
-            // An agent with no rule-driven selection has no granted org/project
-            // secrets → only the grant-independent partner tier is injected.
-            // WHICH org/project secrets an agent gets comes solely from its v2
-            // allow rules (incl. the frozen equipment rules that mirror its old
-            // grants) — there is no `agent_secrets` fallback since step 10, and
-            // no all-mode fallback since step 7.
+            // No selection: only the grant-independent partner tier is injected,
+            // and there is no fallback that would widen this.
             InjectionPool::Empty => {
                 crate::partner::inherited_secret_rows(&self.pool, &agent.organization_id).await
             }
@@ -401,10 +390,9 @@ impl PolicyEngine {
         let matching: Vec<_> = secrets
             .into_iter()
             .filter(|s| {
-                // Injection covers every host this secret's credential is valid on —
-                // the SAME set enforcement resolves (`db::find_secret_hosts`), so a
-                // policy rule on the secret can never fall short of injection (the
-                // OpenAI multi-host bypass class).
+                // Injection covers every host this credential is valid on — the
+                // same set enforcement resolves, so a policy rule on the secret
+                // can never fall short of injection.
                 secret_inject::secret_host_patterns(&s.type_, &s.host_pattern)
                     .iter()
                     .any(|p| host_matches(hostname, p))
@@ -413,9 +401,6 @@ impl PolicyEngine {
 
         let mut rules = Vec::with_capacity(matching.len());
         for secret in &matching {
-            // Resolve the value from its source (inline column or live 1Password
-            // reference); a failure skips the secret, exactly as a decrypt
-            // failure always has.
             let Some(value) = self.resolve_secret_value(secret, &agent.project_id).await else {
                 continue;
             };

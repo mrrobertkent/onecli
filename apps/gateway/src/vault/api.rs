@@ -1,7 +1,4 @@
 //! Axum handlers for vault operations (pair, status, disconnect).
-//!
-//! All handlers require `AuthUser` — authentication is enforced by the extractor
-//! before the handler runs. Provider is specified in the URL path.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -114,8 +111,7 @@ pub(crate) async fn vault_disconnect(
 }
 
 // ── 1Password picker (browse vaults → items → fields) ──────────────────
-// The browser drives the secret dialog's value picker through these; the SA
-// token and field values never leave the gateway / Node boundary.
+// The SA token and field values never leave the gateway / Node boundary.
 
 /// GET /v1/vault/onepassword/vaults
 pub(crate) async fn vault_op_vaults(
