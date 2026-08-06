@@ -74,7 +74,20 @@ export const auth = betterAuth({
     },
   },
   session: { modelName: "authSession" },
-  account: { modelName: "authAccount" },
+  account: {
+    modelName: "authAccount",
+    accountLinking: {
+      /**
+       * Implicit linking otherwise requires the IdP to assert `email_verified`,
+       * and Authentik's built-in email mapping returns a hardcoded `false` — it
+       * has no verification concept — so every SSO login onto an existing row
+       * fails with ACCOUNT_NOT_LINKED. Trusting the configured provider says
+       * the instance's own directory is authoritative for its identities.
+       * Enumerated, not blanket: only the provider this deployment configures.
+       */
+      trustedProviders: oidcConfigured ? ["oidc"] : [],
+    },
+  },
   verification: { modelName: "authVerification" },
 
   emailAndPassword: {
