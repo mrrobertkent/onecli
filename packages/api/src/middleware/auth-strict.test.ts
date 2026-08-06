@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { ApiEnv } from "../types";
 
-// Strict API-key mode (EE): an `oc_` bearer commits to API-key auth instead of
-// falling through to session auth. The regression these guard: on onprem the
-// session is ambient (local admin), so an org key that failed key auth — e.g.
-// no X-Project-Id header — silently resolved to the user's DEFAULT project.
-// Pin onprem-slim so the ambient-session fallthrough is actually reachable
-// (and CAPS.rbac is off, so the org-key role re-check is skipped).
+// In strict mode an `oc_` bearer commits to API-key auth instead of falling
+// through to session auth, where an ambient session would resolve a failed org
+// key to the user's default project. Pinned to onprem-slim so that fallthrough
+// is reachable and `CAPS.rbac` is off.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "onprem-slim";
 });
@@ -70,8 +68,7 @@ const bearer = (token: string) => ({
 
 describe("auth middleware — strict API-key mode", () => {
   beforeEach(() => {
-    // Ambient local session, like onprem's local auth: authenticated
-    // regardless of the request.
+    // Ambient local session: authenticated regardless of the request.
     initSession({
       getSession: async () => ({ id: "local-admin", email: "admin@localhost" }),
     });

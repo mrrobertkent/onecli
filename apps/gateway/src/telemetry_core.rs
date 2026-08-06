@@ -99,9 +99,8 @@ pub(crate) fn on_request(mut event: RequestEvent) {
     }
 }
 
-/// Signals the flush loop to drain and exit. A watch rather than a flag: the
-/// loop parks inside `rx.recv()`, and only something that can *wake* it will
-/// do — a bare `AtomicBool` would go unnoticed until the poll interval expired.
+/// Signals the flush loop to drain and exit. A watch rather than a flag because
+/// the loop parks inside `rx.recv()` and needs waking, not polling.
 static FLUSH_DOWN: OnceLock<watch::Sender<bool>> = OnceLock::new();
 
 /// The flush task, so shutdown can wait for it to finish rather than guess.
@@ -111,10 +110,9 @@ fn flush_down_tx() -> &'static watch::Sender<bool> {
     FLUSH_DOWN.get_or_init(|| watch::channel(false).0)
 }
 
-/// Spawn the flush loop, keeping its handle for [`shutdown`].
-///
-/// Both editions' `init` call this instead of `tokio::spawn` — the only thing
-/// they need to change to become drainable.
+/// Spawn the flush loop, keeping its handle for [`shutdown`]. Both editions'
+/// `init` call this instead of `tokio::spawn`, which is what makes them
+/// drainable.
 pub(crate) fn spawn_flush_loop<F>(flush_loop: F)
 where
     F: std::future::Future<Output = ()> + Send + 'static,
@@ -135,10 +133,8 @@ fn fill(rx: &mut mpsc::Receiver<RequestEvent>, buffer: &mut Vec<RequestEvent>) {
 /// Drain available events from the channel into the buffer.
 /// Returns `false` when there is nothing more to flush and the loop should end.
 ///
-/// The buffer is always empty on entry (both flush loops drain and clear it
-/// before looping), so during shutdown this returns `true` for the final
-/// non-empty batch and `false` on the call after it — which is what lets the
-/// loops exit through the `break` they already have.
+/// The buffer must be empty on entry: during shutdown this returns `true` for
+/// the final non-empty batch and `false` on the call after it.
 #[must_use]
 pub(crate) async fn collect_batch(
     rx: &mut mpsc::Receiver<RequestEvent>,
@@ -172,9 +168,8 @@ pub(crate) async fn collect_batch(
 
 /// Flush everything still buffered, then wait for the loop to finish.
 ///
-/// Called after the connection drain, never at signal time: connections emit
-/// their last events *while* they finish, and those are exactly the ones worth
-/// saving — including the responses shutdown itself generates.
+/// Call after the connection drain, not at signal time: connections emit their
+/// last events while they finish.
 pub(crate) async fn shutdown(deadline: std::time::Duration) {
     let _ = flush_down_tx().send(true);
 

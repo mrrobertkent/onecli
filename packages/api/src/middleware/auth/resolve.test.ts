@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// canAccessProjectAsUser only enforces under RBAC — pin the cloud edition.
+// `canAccessProjectAsUser` only enforces under RBAC, so pin the cloud edition.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "cloud";
 });
@@ -38,11 +38,9 @@ afterEach(() => {
   initRoleResolver({ getUserRole: async () => null });
 });
 
-// Usage flipped to bindings-only in step 13b: an ACTIVE member reaches a project
-// iff they are an org admin/owner OR hold a ProjectAccess binding. The creator
-// arm is gone, and a binding never rescues a non-member/suspended user — the
-// binding check lives *inside* the active-member gate (the suspension invariant),
-// so the resolver reading suspended members as null (no role) is what closes it.
+// An active member reaches a project when they are an org admin/owner or hold a
+// ProjectAccess binding. The binding check lives inside the active-member gate,
+// so a suspended user's binding is never consulted.
 describe("canAccessProjectAsUser (cloud, bindings-only)", () => {
   it("admins access any project in their org", async () => {
     role = "admin";
@@ -68,7 +66,7 @@ describe("canAccessProjectAsUser (cloud, bindings-only)", () => {
   });
 
   it("denies the creator once their binding is gone (13b: no creator arm)", async () => {
-    // A creator is just a member now; with no binding they don't get in.
+    // A creator is just a member; with no binding they do not get in.
     role = "member";
     state.bindingRow = null;
     await expect(canAccessProjectAsUser("creator-1", PROJECT)).resolves.toBe(
@@ -77,8 +75,7 @@ describe("canAccessProjectAsUser (cloud, bindings-only)", () => {
   });
 
   it("a membership-less creator is denied (13b closes the creator door)", async () => {
-    // Previously a creator with no membership kept access; bindings-only closes
-    // it — a binding is only ever consulted for an active member.
+    // A binding is only ever consulted for an active member.
     role = null;
     state.bindingRow = null;
     await expect(canAccessProjectAsUser("creator-1", PROJECT)).resolves.toBe(
@@ -87,8 +84,8 @@ describe("canAccessProjectAsUser (cloud, bindings-only)", () => {
   });
 
   it("a binding does NOT rescue a suspended/non-member (no role)", async () => {
-    // No role = non-member or suspended; the stray binding is never consulted
-    // because we deny before the active-member binding check.
+    // No role means non-member or suspended, so the stray binding is never
+    // consulted.
     role = null;
     state.bindingRow = { id: "binding-1" };
     await expect(canAccessProjectAsUser("someone-else", PROJECT)).resolves.toBe(

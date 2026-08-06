@@ -1,21 +1,14 @@
 import { NODE_ENV, LOG_LEVEL, CAPS } from "@/lib/env";
 
 /**
- * Next.js instrumentation hook — runs once when the server starts.
- *
- * In production, patches console.* to route all output through pino
- * as structured JSON. This captures both our code AND Next.js internal
- * logs (startup, errors, request logging) in a format CloudWatch
- * Insights can parse.
- *
- * In development, console.* is left untouched (pino-pretty handles
- * our explicit logger calls, and Next.js dev output stays readable).
+ * In production, patches console.* to route all output through pino as
+ * structured JSON so Next.js internals land in CloudWatch Insights too.
+ * Development is left untouched, so dev output stays readable.
  */
 export async function register() {
-  // NEXT_RUNTIME is read literally (not via @/lib/env) so Next.js can inline it
-  // per-runtime and the Edge compile drops this whole Node-only branch — via the
-  // env re-export the branch survives DCE and the dynamic imports below get
-  // traced into node:crypto/node:fs, warning on every Edge build.
+  // NEXT_RUNTIME is read literally so the Edge compile can drop this Node-only
+  // branch; via the env re-export it survives DCE and the dynamic imports below
+  // get traced into node:crypto/node:fs.
   if (process.env.NEXT_RUNTIME === "nodejs" && NODE_ENV === "production") {
     const pino = (await import("pino")).default;
     const logger = pino({
@@ -35,11 +28,9 @@ export async function register() {
     console.error = (...args: unknown[]) =>
       logger.error(args.length === 1 ? args[0] : { msg: args.join(" ") });
 
-    // Onprem: eagerly provision the org + operator API key at boot so the
-    // instance is usable via the org key immediately — before anyone opens the
-    // web (headless). Runs for any onprem auth mode; the key is owned by the
-    // bootstrap admin user. Idempotent; never fatal (a failure just falls back to
-    // the lazy first-login bootstrap).
+    // Provision the org + operator API key at boot so a headless instance is
+    // usable before anyone opens the web. Idempotent, and never fatal: a
+    // failure falls back to the lazy first-login bootstrap.
     if (CAPS.tenancy === "single-org-shared") {
       try {
         const { ensureOnpremInstance } =

@@ -3,14 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "../../testing/pg-proof.js";
 
 /**
- * `resolveProjectId` against real PostgreSQL — the shared project gate.
- *
- * Under shared tenancy every user is in one organization, so "the project is
- * in an org you belong to" admits everybody to everything. The fence is the
- * ProjectAccess binding check inside `canAccessProjectAsUser`, which only
- * applies when a role resolver is registered. Both are asserted on real rows.
- *
- * Env-gated like the other proof suites; see pg-proof.ts.
+ * `resolveProjectId` against real PostgreSQL. Under shared tenancy every user is
+ * in one organization, so org membership alone admits everybody to everything;
+ * the fence is the ProjectAccess binding check inside `canAccessProjectAsUser`,
+ * which only applies when a role resolver is registered.
  */
 
 const PROOF_URL = proofDatabaseUrl();

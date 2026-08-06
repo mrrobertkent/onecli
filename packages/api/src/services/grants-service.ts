@@ -422,9 +422,8 @@ export const setConnectionGrant = async (
   if (input.access === "custom") {
     assertToolIdsValid(connection.provider, [...input.allow, ...input.ask]);
     if (input.ask.length > 0) {
-      // Same law as the rule CRUD: approval-modified rules are plan-gated at
-      // write time (publish re-asserts over the whole draft — an ungated write
-      // here would brick the scope's next publish, not dodge the entitlement).
+      // Approval-modified rules are plan-gated at write time, as in the rule
+      // CRUD; publish re-asserts over the whole draft.
       await getRuleActionGate().assertAllowed(
         base(scope),
         gatedActions({ requireApproval: true }),
@@ -434,22 +433,19 @@ export const setConnectionGrant = async (
 
   const nameBase = `Grant: ${agent.name} · ${connection.label ?? connection.provider}`;
   const existing = await readGrantRows(db, scope, { agentId, connectionId });
-  // The resources tri-state (validations/grants.ts): ABSENT preserves whatever
-  // the existing stack carries — the step-5 conversion's carried policies and
-  // every tools-only dialog save — while NULL clears and an OBJECT sets. The
-  // preserve read sits deliberately outside the write transaction (the same
-  // window the step-5 carry always had): a tools-only save racing a concurrent
-  // resources save can lose the newer restriction — accepted.
+  // The resources tri-state: absent preserves whatever the existing stack
+  // carries, null clears, an object sets. The preserve read sits outside the
+  // write transaction, so a tools-only save racing a resources save can lose
+  // the newer restriction — accepted.
   let conditions: Prisma.JsonValue | null;
   if (input.resources === undefined) {
     conditions = stackConditions(existing);
   } else {
     const resources = normalizeResources(input.resources);
     if (resources !== null) {
-      // An explicit SET runs the edition's validator: EE deep-checks the shape
-      // against the provider and team-gates the entitlement; OSS rejects every
-      // session policy with its 422 lock. Clearing and preserving are never
-      // gated — removing a restriction must not require an entitlement.
+      // Only an explicit set runs the edition's validator; clearing and
+      // preserving are never gated — removing a restriction must not require
+      // an entitlement.
       await getPolicyValidator().validate(
         scope.organizationId,
         connection.provider,
@@ -507,9 +503,8 @@ export const removeConnectionGrant = async (
   userId: string | null,
 ): Promise<GrantMutationResult> => {
   const agent = await requireAgent(scope, agentId);
-  // Deliberately NO connection fence: detaching must work for a connection
-  // that was deleted meanwhile (its stack rows survive the FK cascade only
-  // when other targets exist — matching rows here mean live intent to clear).
+  // No connection fence: detaching must still work for a connection that was
+  // deleted meanwhile.
   const existing = await readGrantRows(db, scope, {
     agentId: agent.id,
     connectionId,

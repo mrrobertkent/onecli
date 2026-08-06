@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The self-hosted → cloud exporter. Since step 10 it carries secrets + agents
-// only: the legacy tables are frozen and `policy_rules_v2` has no import
-// contract yet. The property under test is that the policy it CANNOT carry is
-// REPORTED — a customer with rules must not see a clean success and land on a
-// destination enforcing nothing they authored. Silence there is the failure
-// mode, and it is invisible to types, lint and the happy-path test.
+// The self-hosted → cloud exporter carries secrets and agents only. The property
+// under test is that the policy it cannot carry is reported, so a customer with
+// rules never sees a clean success and lands on a destination enforcing nothing
+// they authored.
 
 const state = vi.hoisted(() => ({
   secrets: [] as unknown[],

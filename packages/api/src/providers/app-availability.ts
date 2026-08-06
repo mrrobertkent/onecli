@@ -1,8 +1,7 @@
 import type { AppAvailabilityProvider } from "./types";
 
-// OSS default: no provider — availability is never restricted, so the connect
-// picker shows every app (unchanged from before the seam). The EE editions
-// register a provider that reads the org allowlist.
+// With no provider registered, availability is never restricted and the connect
+// picker shows every app. EE editions register one that reads the org allowlist.
 let _appAvailability: AppAvailabilityProvider | null = null;
 
 export const initAppAvailability = (
