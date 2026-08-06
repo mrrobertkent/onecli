@@ -6,10 +6,9 @@ import {
 } from "./evaluator";
 import type { NewRule, PolicyRequest } from "./types";
 
-// The ATTRIBUTED evaluation (step 9 visibility): `evaluatePolicyOutcome` names
-// the deciding rule / Default Rule; `evaluateNew` is its collapsing wrapper, so
-// the golden corpus remains the behavior proof — these tests pin only the
-// attribution facets the corpus can't see (which rule/level/managed decided).
+// `evaluatePolicyOutcome` names the deciding rule or Default Rule and
+// `evaluateNew` is its collapsing wrapper, so the golden corpus stays the
+// behavior proof; these tests pin only the attribution it cannot see.
 
 const rule = (over: Partial<NewRule>): NewRule => ({
   scope: "project",
@@ -120,10 +119,8 @@ describe("evaluatePolicyOutcome attribution", () => {
   });
 
   it("collapses every arm to the exact corpus-contract decision", () => {
-    // Concrete expected decisions (not just wrapper equality — evaluateNew IS
-    // the composition, so a pure f(x)===f(x) loop could never fail): each arm
-    // incl. the rate modifier collapses to the decision the corpus contract
-    // demands.
+    // Concrete expected decisions rather than wrapper equality: evaluateNew is
+    // the composition, so an f(x) === f(x) loop could never fail.
     const cases: [NewRule[], PolicyRequest, ReturnType<typeof evaluateNew>][] =
       [
         [[rule({ action: "block" })], request(), { action: "block" }],

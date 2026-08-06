@@ -253,9 +253,7 @@ export const effectiveAgents = async (
         winningConnectionId: connectionId,
       });
       const tools = groups.flatMap((g) => g.tools);
-      // The rollup status matches the credential dialog EXACTLY (the shared
-      // `rollupToolStatus`) so the two surfaces can't disagree — all-approval
-      // reads "limited" on both, not "usable" on one.
+      // Shared with the credential dialog so the two surfaces can't disagree.
       toolStatus = rollupToolStatus(tools.map((t) => t.verdict));
       decisions = {
         allowedTools: tools.filter(
@@ -270,8 +268,8 @@ export const effectiveAgents = async (
       };
     }
 
-    // The effective-access headline: no credential → can't use it; else the
-    // shared per-tool rollup (a custom app with no catalog stays "unknown").
+    // No credential means unusable; otherwise the per-tool rollup, or
+    // "unknown" for a custom app with no catalog.
     const access: AgentAccessStatus =
       credential.status === "none" ? "none" : def ? toolStatus : "unknown";
 

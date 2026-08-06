@@ -1,22 +1,15 @@
 import { CAPS } from "@/lib/env";
 
-/**
- * Matches `/p/<projectId>` at the start of a pathname and captures the id.
- * Shared across sidebar, header, and navigation helpers so the pattern stays
- * consistent.
- */
+/** Matches `/p/<projectId>` at the start of a pathname and captures the id. */
 export const PROJECT_PATH_RE = /^\/p\/([^/]+)(?=\/|$)/;
 
 /**
- * Whether `pathname` is inside a project scope for project-scoped UI (the
- * approvals bell + pending-approvals poll). In editions with URL-scoped
- * tenancy (`orgScopedUI`: cloud, onprem-full) only `/p/<id>` routes are —
- * project context comes from the URL. In flat single-project editions (OSS,
- * onprem-slim) every dashboard page is: the gateway resolves the caller's
- * default project server-side.
+ * Whether `pathname` is inside a project scope. Under `orgScopedUI` only
+ * `/p/<id>` routes are; in flat editions every dashboard page is, since the
+ * gateway resolves the caller's default project server-side.
  *
- * Distinct from `getProjectId()` (`@/lib/api-fetch`), which answers "which
- * project id does the URL carry" — `undefined` in flat editions by design.
+ * Distinct from `getProjectId()`, which answers which project id the URL
+ * carries and is `undefined` in flat editions.
  */
 export const hasProjectContext = (pathname: string): boolean =>
   CAPS.orgScopedUI ? PROJECT_PATH_RE.test(pathname) : true;

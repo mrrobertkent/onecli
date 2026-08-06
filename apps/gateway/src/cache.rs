@@ -1,11 +1,8 @@
 //! Generic key-value cache with TTL.
 //!
-//! OSS uses an in-memory `DashMap` backend. Cloud swaps this module
-//! via `#[cfg(edition_cloud)]` to use Redis.
-//!
-//! All values are serialized to JSON — the `CacheStore` trait is
-//! type-agnostic. Consumers use namespaced keys to avoid collisions
-//! (e.g., `connect:{token}:{host}`, `cred:{user}:{host}`).
+//! OSS uses an in-memory `DashMap` backend; cloud swaps this module for Redis.
+//! Values are serialized to JSON, and consumers use namespaced keys to avoid
+//! collisions (e.g. `connect:{token}:{host}`, `cred:{user}:{host}`).
 
 use std::time::{Duration, Instant};
 
@@ -15,13 +12,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tracing::warn;
 
-/// Generic key-value cache with TTL.
-///
-/// Implementations must be `Send + Sync` for use in async contexts.
-/// Values are serialized to JSON internally — callers work with
-/// concrete types via serde.
-///
-/// Uses `async_trait` for dyn-compatibility (`Arc<dyn CacheStore>`).
+/// Generic key-value cache with TTL. Values are serialized to JSON internally;
+/// callers work with concrete types via serde.
 #[async_trait]
 pub(crate) trait CacheStore: Send + Sync {
     /// Get a value by key. Returns `None` on miss or expiry.
@@ -37,9 +29,8 @@ pub(crate) trait CacheStore: Send + Sync {
     /// Delete all keys matching a prefix.
     async fn del_by_prefix(&self, prefix: &str);
 
-    /// Atomically increment a counter at `key`.
-    /// Sets TTL only on first increment (new key / expired key).
-    /// Returns the new count, or `None` on error (graceful fallback).
+    /// Atomically increment a counter at `key`, setting the TTL only on the
+    /// first increment. Returns the new count, or `None` on error.
     async fn incr(&self, key: &str, ttl_secs: u64) -> Option<u64>;
 }
 
@@ -67,7 +58,6 @@ impl dyn CacheStore + '_ {
 }
 
 /// Create the cache store for this build.
-/// OSS: in-memory DashMap. Cloud: Redis (swapped via `#[cfg]`).
 pub(crate) async fn create_store() -> anyhow::Result<std::sync::Arc<dyn CacheStore>> {
     Ok(std::sync::Arc::new(InMemoryCacheStore::new()))
 }
@@ -79,11 +69,10 @@ struct CachedEntry {
     expires_at: Instant,
 }
 
-/// In-memory cache backed by `DashMap`. Used in OSS (single-instance).
+/// In-memory cache backed by `DashMap`, for single-instance OSS.
 ///
-/// Expired entries are evicted lazily on read — no background reaper.
-/// Acceptable for the gateway's bounded key space (one entry per
-/// agent×host pair), but not suitable for unbounded key sets.
+/// Expired entries are evicted lazily on read — no background reaper — which
+/// suits the gateway's bounded key space but not an unbounded key set.
 struct InMemoryCacheStore {
     map: DashMap<String, CachedEntry>,
 }
@@ -141,7 +130,6 @@ impl CacheStore for InMemoryCacheStore {
             expires_at: now + ttl,
         });
 
-        // Reset if expired
         if entry.expires_at <= now {
             entry.data = "0".to_string();
             entry.expires_at = now + ttl;
@@ -160,7 +148,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    /// Helper: create a store as `Arc<dyn CacheStore>` to test the dyn path.
+    /// Create a store as `Arc<dyn CacheStore>` to exercise the dyn path.
     fn new_store() -> Arc<dyn CacheStore> {
         Arc::new(InMemoryCacheStore::new())
     }

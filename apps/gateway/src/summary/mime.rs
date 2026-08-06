@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn attachments_only_come_from_part_headers() {
-        // A body mentioning `filename=` must NOT register as an attachment.
+        // A body mentioning `filename=` must not register as an attachment.
         let msg = "Content-Type: text/plain\n\nplease save as filename=secret.txt thanks\n";
         assert!(parse(msg.as_bytes()).attachments.is_empty());
 

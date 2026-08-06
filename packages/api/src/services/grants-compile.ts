@@ -4,13 +4,10 @@ import type { PolicyRuleRow } from "./policy-service";
 import type { ConnectionGrantInput } from "../validations/grants";
 
 /**
- * The PURE half of the step-2 grants compiler: desired-stack computation and
- * stack comparison, with no database access. Extracted from `grants-service`
- * so the step-5 one-shot converter (`policy-grant-conversion/`) compiles the
- * identical row shapes inside its own per-project transaction — one publish
- * per project — instead of round-tripping through the per-stack service
- * writes. `grants-service` re-imports everything here; the two must never
- * drift, so neither duplicates a rule shape the other owns.
+ * The pure half of the grants compiler: desired-stack computation and stack
+ * comparison, with no database access. Shared by `grants-service` and the
+ * one-shot converter in `policy-grant-conversion/` so both write identical row
+ * shapes; neither should duplicate a rule shape defined here.
  */
 
 /** Origin marker of every grant-compiled rule row (`source` column). */

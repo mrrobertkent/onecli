@@ -126,13 +126,12 @@ describe("getRequestLogs — org matched-rule redaction", () => {
       },
     );
 
-    // The load-bearing assertion: the serialized payload the client receives
-    // (incl. the raw extra_data dump) carries NO org rule identifiers…
+    // The serialized payload the client receives, raw extra_data included,
+    // carries no org rule identifiers…
     const serialized = JSON.stringify(page);
     expect(serialized).not.toContain(ORG_BAIT);
     expect(serialized).not.toContain("org-l1");
-    // …but keeps the scope so the UI can say "an organization rule", and the
-    // project-scoped attribution stays fully visible.
+    // …but keeps the scope, and project-scoped attribution stays visible.
     const [orgLog, projectLog] = page.logs;
     expect(orgLog?.matchedRuleLogicalId).toBeNull();
     expect(
@@ -157,8 +156,8 @@ describe("getRequestLogs — org matched-rule redaction", () => {
         },
         matchedRuleLogicalId: "org-l1",
       }),
-      // A LEGACY block (no matched_rule_scope) keeps its name — old-model
-      // rules are project-level.
+      // A block with no matched_rule_scope keeps its name — those rules are
+      // project-level.
       logRow({
         id: "log-3",
         status: 403,

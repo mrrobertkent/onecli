@@ -80,7 +80,7 @@ export type EffectiveCredentialEntry =
       label: string | null;
       provider: string;
       status: CredentialAccessStatus;
-      /** The ORGANIZATION blocks every tool of this connection for this agent.
+      /** The organization blocks every tool of this connection for this agent.
        * Distinct from `status: "blocked"`, which doesn't say who blocked: a
        * project can lift its own block, but not the organization's. */
       orgBlocked: boolean;
@@ -89,7 +89,6 @@ export type EffectiveCredentialEntry =
 
 export interface EffectiveCredentialsResult {
   agentId: string;
-  /** Demoted to a footnote in the UI — never the headline (the user decision). */
   mode: "all" | "selective";
   secrets: EffectiveCredentialEntry[];
   connections: EffectiveCredentialEntry[];
@@ -124,7 +123,7 @@ class ProvenanceMap {
     let redactedEmitted = false;
     for (const ref of refs) {
       if (ref.scope === "organization" && !viewerSeesOrgRules) {
-        // Collapse ALL org refs to ONE redacted marker — their count is org
+        // Collapse every org ref to one marker — their count is org
         // information too.
         if (!redactedEmitted) {
           out.push({ kind: "rule", scope: "organization", redacted: true });
@@ -154,19 +153,13 @@ interface EngineCtx {
   viewerSeesOrgRules: boolean;
 }
 
-/** A connection's effective status = its provider's per-tool decision rollup
- * (the shared `rollupToolStatus`, so it matches the connection→agents dialog),
- * plus whether the ORGANIZATION is what blocks it.
+/** A connection's effective status: its provider's per-tool decision rollup,
+ * plus whether the organization is what blocks it.
  *
  * The connection id is threaded as the winning connection so per-account rules
- * bind exactly as the gateway would — without it, an org rule targeting THIS
- * specific connection matches nothing here and the row reads "usable" while
- * every request 403s.
- *
- * `orgBlocked` comes from the same engine run: `orgCeiling` is the org-alone
- * verdict already computed per tool, so attributing the block costs nothing
- * extra. It is what lets the UI say "Blocked by your organization" — and stop
- * offering a toggle that could only grant more of nothing.
+ * bind as the gateway would — without it, an org rule targeting this specific
+ * connection matches nothing here and the row reads "usable" while every
+ * request 403s.
  */
 const connectionAccessStatus = (
   provider: string,
@@ -189,13 +182,10 @@ const connectionAccessStatus = (
   };
 };
 
-/** A secret's effective status = the decision on a REPRESENTATIVE request to its
- * host (GET /), with the secret assumed attached (the injecting credential). A
- * whole-host block and an allowlist (project-default Block) both read "blocked"
- * correctly. HONESTY LIMIT (same as `effective-tools`' per-tool view): a
- * method- or path-SPECIFIC block (e.g. only POST, or only `/admin/*`) is not
- * exercised by the representative GET /, so such a secret reads "usable" — an
- * over-optimistic summary a secret (a raw host, no catalog) can't refine. */
+/** A secret's effective status: the decision on a representative `GET /` to its
+ * host, with the secret assumed attached. Limit: a method- or path-specific
+ * block is not exercised by that request, so such a secret reads "usable" — a
+ * secret is a raw host with no catalog to refine the summary with. */
 const secretAccessStatus = (
   hostPattern: string,
   engine: EngineCtx,
@@ -229,8 +219,8 @@ export const effectiveCredentials = async (
   agentId: string,
   ctx: EffectiveCredentialsCtx,
 ): Promise<EffectiveCredentialsResult> => {
-  // The agent must belong to the caller's project — a foreign id is simply not
-  // found (existence is never revealed across the fence).
+  // The agent must belong to the caller's project — a foreign id is not found,
+  // never revealed.
   const agent = await db.agent.findFirst({
     where: { id: agentId, projectId: ctx.projectId },
     select: { id: true },
@@ -273,14 +263,11 @@ export const effectiveCredentials = async (
     connectionProviders,
   ] = await Promise.all([
     resolvePrincipalSet(ctx.projectId, ctx.organizationId),
-    // DECISION rules — equipment dropped, as the gateway's assembler drops them.
+    // Decision rules — equipment dropped, as the gateway's assembler drops them.
     loadRulesForSimulation(orgBase, "published"),
     loadRulesForSimulation(projectBase, "published"),
-    // INJECTION rules — equipment KEPT, as `inject_select` keeps them. These
-    // are what an agent's credentials actually come from since step 10 (and
-    // the ONLY source since step 7 — there is no all-mode pool arm left); the
-    // frozen per-agent grant tables are no longer consulted, so a revoked
-    // grant stops being listed instead of lingering as "assigned".
+    // Injection rules — equipment kept, as `inject_select` keeps them. These
+    // are the only source of an agent's credentials.
     loadInjectionRules(orgBase, "published"),
     loadInjectionRules(projectBase, "published"),
     loadSecretHosts(ctx.organizationId, ctx.projectId),
@@ -294,12 +281,6 @@ export const effectiveCredentials = async (
   const connectionById = new Map<string, ConnectionResolved>();
 
   {
-    // Exactly the rule grants (step 7: every agent is rule-selected; the
-    // all-mode whole-pool arm is gone). The old per-agent grant tables became
-    // `source="equipment"` rules at the cutover and are carried by the injection
-    // load below, so nothing is lost by not reading them — and a grant the user
-    // has since revoked correctly disappears instead of lingering as "assigned".
-    //
     // Walk the published allow rules whose identity explicitly names the agent
     // (inject_select.rs `collect`) and gather the injection targets.
     const ruleSecretIds = new Map<string, RuleRef[]>();
@@ -454,10 +435,8 @@ export const effectiveCredentials = async (
   );
   const engineRules = simRules.map((s) => s.rule);
 
-  // The injectable-host predicate = the agent's OWN resolved credentials (their
-  // hosts / providers). We resolved the full injectable set above, so the probe
-  // is that set directly — equivalent to the gateway's connect-time selection
-  // for this agent, and self-consistent with the credentials we're listing.
+  // The injectable-host predicate is the agent's own resolved credentials,
+  // already gathered above — self-consistent with the list being returned.
   const providersInjected = [...new Set(connectionRows.map((c) => c.provider))];
   const probe = (host: string) =>
     secretRows.some((s) => hostMatches(host, s.hostPattern)) ||
@@ -491,8 +470,7 @@ export const effectiveCredentials = async (
 
   return {
     agentId: agent.id,
-    // Constant since step 7 — the union's "all" arm stays for wire compat and
-    // narrows away with the column in step 8.
+    // Constant; the union's "all" arm stays for wire compatibility.
     mode: "selective",
     secrets,
     connections,

@@ -17,9 +17,8 @@ describe("configuredAppUrl", () => {
     }
   });
 
-  // The load-bearing case: `undefined` is what lets call sites fall back to the
-  // request origin. If this ever returned the lib/env.ts default instead, every
-  // consumer would silently pin self-hosters to localhost again.
+  // `undefined` is what lets call sites fall back to the request origin; the
+  // `lib/env.ts` default would pin self-hosters to localhost.
   it("is undefined when nothing is configured", () => {
     delete process.env.APP_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
@@ -46,8 +45,8 @@ describe("configuredAppUrl", () => {
     expect(configuredAppUrl()).toBe("https://public.example.com");
   });
 
-  // An APP_URL that is present but blank must not shadow a real
-  // NEXT_PUBLIC_APP_URL — otherwise a stray `APP_URL=` line silently wins.
+  // A blank APP_URL must not shadow a real NEXT_PUBLIC_APP_URL, or a stray
+  // `APP_URL=` line wins.
   it("skips a blank APP_URL in favor of NEXT_PUBLIC_APP_URL", () => {
     process.env.APP_URL = "";
     process.env.NEXT_PUBLIC_APP_URL = "https://public.example.com";
@@ -72,8 +71,8 @@ describe("normalizeOrigin", () => {
     );
   });
 
-  // Non-strings reach here whenever a state was signed by another release, or
-  // simply never carried an origin — `undefined` is the normal, expected answer.
+  // A state signed without an origin reaches here as a non-string, so
+  // `undefined` is the expected answer.
   it("is undefined for anything that is not a string", () => {
     for (const bad of [undefined, null, 42, {}, ["https://x.example"]]) {
       expect(normalizeOrigin(bad)).toBeUndefined();
@@ -93,15 +92,15 @@ describe("normalizeOrigin", () => {
     }
   });
 
-  // Same host rules as originFromHeaders, so a value that would be rejected
-  // coming from a header cannot sneak in via the state instead.
+  // Same host rules as `originFromHeaders`, so a value rejected from a header
+  // cannot arrive via the state instead.
   it("rejects hosts that aren't syntactically hosts", () => {
     for (const bad of [
       "https://evil</script><script>alert(1)</script>",
       'https://evil"+alert(1)+"',
       "https://evil.com/path",
       "https://evil com",
-      // userinfo — the classic "looks like our host" phishing shape
+      // userinfo: the "looks like our host" phishing shape
       "https://onecli.example.com@evil.com",
       "https://user:pass@evil.com",
       // a query or fragment would otherwise ride along into the redirect
@@ -154,7 +153,7 @@ describe("originFromHeaders", () => {
     expect(originFromHeaders(headers({ host: "box.local" }), "https")).toBe(
       "https://box.local",
     );
-    // A forwarded host ignores fallbackProto — preserved legacy behavior.
+    // A forwarded host ignores fallbackProto.
     expect(
       originFromHeaders(
         headers({ "x-forwarded-host": "proxy.local" }),
@@ -177,9 +176,8 @@ describe("originFromHeaders", () => {
   });
 
   // These origins reach `Location` headers and, on the OAuth fragment-bridge
-  // path, the inside of a <script> block that escapes with JSON.stringify —
-  // which does not neutralize "</script>". Rejecting non-host characters here
-  // closes that sink for every consumer at once.
+  // path, the inside of a <script> block, so rejecting non-host characters here
+  // closes that sink for every consumer.
   it("rejects hosts that aren't syntactically hosts", () => {
     for (const bad of [
       "evil</script><script>alert(1)</script>",
@@ -212,9 +210,8 @@ describe("originFromHeaders", () => {
     ).toBe("http://box.local");
   });
 
-  // The one intentional departure from the logic this replaced, which returned
-  // a hostless "http://" here. Falling through keeps a misconfigured proxy from
-  // producing a redirect target that goes nowhere.
+  // Falling through keeps a misconfigured proxy from producing a hostless
+  // "http://" redirect target.
   it("falls through to Host when x-forwarded-host is blank", () => {
     expect(
       originFromHeaders(

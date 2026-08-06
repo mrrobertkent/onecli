@@ -7,17 +7,12 @@ import type {
 import type { SimRuleRow } from "./load-rules";
 import type { SecretHostSet } from "./secret-hosts";
 
-// Row → evaluator-rule mapper for the reflections. Mirrors
-// the gateway's row decode: identities decode all three
-// kinds (the verify path is agent-only by design and stays untouched), `secret`
-// targets resolve to their gated host patterns via the fenced `SecretHostSet`,
-// and `connection` targets resolve to their connection's provider via the
-// fenced provider map (→ an app target carrying the target's own tools — empty
-// = the provider's whole app, host-only; named = the tool fan-out), exactly as
-// the gateway's `assemble.rs::decode_row` does at connect. The rule's identity
-// metadata (row id, generation-stable logicalId) rides beside the engine rule
-// so the reflections can NAME the deciding rule without widening the shared
-// `NewRule` shape.
+// Row → evaluator-rule mapper for the reflections, mirroring the gateway's
+// `assemble.rs::decode_row`: `secret` targets resolve to their gated host
+// patterns via the fenced `SecretHostSet`, `connection` targets to their
+// provider via the fenced provider map. The rule's identity metadata rides
+// beside the engine rule so a reflection can name the deciding rule without
+// widening the shared `NewRule` shape.
 
 export interface SimRuleMeta {
   id: string;
@@ -48,10 +43,10 @@ const decodeIdentities = (row: SimRuleRow): NewIdentity[] =>
     if (i.agentId != null) return { type: "agent", id: i.agentId };
     if (i.userId != null) return { type: "user", id: i.userId };
     if (i.groupId != null) return { type: "group", id: i.groupId };
-    // No principal (impossible per the DB `one_principal` CHECK) — mirror the
-    // gateway's `Identity::Unresolved`: keep a NEVER-matching entry so the row
-    // narrows the rule; dropping it would flip `identities: []` = "any agent".
-    // An agent id is never the empty string, so this can't match.
+    // No principal (the DB `one_principal` CHECK forbids it) — mirror the
+    // gateway's `Identity::Unresolved` and keep a never-matching entry, since
+    // dropping it would flip the rule to "any agent". An agent id is never the
+    // empty string.
     return { type: "agent", id: "" };
   });
 
@@ -94,11 +89,9 @@ const decodeTarget = (
             : null,
       };
     case "connection": {
-      // Mirror of the gateway's `assemble.rs` connection arm: resolve the
-      // connection via the fenced map and KEEP its id — decisions bind to the
-      // connection that wins injection (tools narrow the endpoints; empty =
-      // the provider's whole app). A missing/deleted/foreign id stays a
-      // provider-less connection target (unresolved — fail-closed).
+      // Keep the connection's id: decisions bind to the connection that wins
+      // injection (tools narrow the endpoints; empty = the provider's whole
+      // app). A missing/deleted/foreign id stays provider-less — fail-closed.
       const id = target.appConnectionId;
       const provider = id ? connectionProviders.get(id) : undefined;
       if (id && provider !== undefined) {
@@ -134,7 +127,7 @@ const decodeTarget = (
 };
 
 /** Mirror of the gateway's all-or-nothing `parse_conditions`: a non-array, or
- * any element missing target/operator/value strings, makes the WHOLE conditions
+ * any element missing target/operator/value strings, makes the whole conditions
  * match unconditionally (null). */
 const decodeConditions = (conditions: unknown): OldCondition[] | null => {
   if (!Array.isArray(conditions)) return null;

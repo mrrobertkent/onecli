@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { diffPolicyChanges, type DiffableRule } from "./policy-diff";
 
-// The staged-changes diff the policy editor renders (count badge, row chips,
-// the Review-changes dialog). Custom rules + the Default action only — derived
-// churn must be invisible.
+// The staged-changes diff the policy editor renders. User-changeable rules and
+// the Default action only; derived churn stays invisible.
 
 let seq = 0;
 const rule = (over: Partial<DiffableRule>): DiffableRule => ({
@@ -52,8 +51,8 @@ describe("diffPolicyChanges", () => {
   });
 
   it("ignores blocklist rows — written by their own surface in lockstep", () => {
-    // The app page's blocklist panel writes draft and published together and the
-    // console gives those rows no actions, so they can never be pending.
+    // Blocklist rows are written to draft and published together, so they can
+    // never be pending.
     const blocklist = rule({ logicalId: "d1", source: "blocklist" });
     const diff = diffPolicyChanges(
       [blocklist],

@@ -41,24 +41,18 @@ export interface AppTargetState {
 export interface AppTargetFieldsProps {
   value: AppTargetState;
   onChange: (next: AppTargetState) => void;
-  /** Connections available at the rule's scope (already level-filtered by the
-   * scope-aware `useConnections`). */
+  /** Connections available at the rule's scope, already level-filtered. */
   connections: Connection[];
-  /** An ORG rule may choose the injection level (org or project); a PROJECT rule
-   * is fixed to its own project. */
+  /** An org rule may choose the injection level; a project rule is fixed to
+   * its own project. */
   isOrgRule: boolean;
-  /** The rule's action. Granular resource scoping only applies to an Allow (a
-   * Block injects nothing, so a session policy would be silently inert), so the
-   * Resources picker is shown only when this is `"allow"`. */
+  /** A Block injects nothing, so the Resources picker only shows on `"allow"`. */
   action: "allow" | "block";
-  /** Whether the rule carries behavioral (body-contains) conditions. A rule's
-   * `conditions` is EITHER behavioral OR a session policy — never both — so the
-   * Resources picker is hidden while behavioral conditions are present (else
-   * authoring a session policy would silently discard them). */
+  /** A rule's `conditions` is either behavioral or a session policy, so the
+   * Resources picker hides while behavioral conditions are present. */
   hasBehavioralConditions: boolean;
-  /** The selected provider is a cloud-only app this edition can't connect
-   * (OSS's EE-stub registry entries). The dead sub-fields (connections, tools,
-   * resources) are replaced by a locked callout, and the form locks the save. */
+  /** The provider is a cloud-only app this edition can't connect; the dead
+   * sub-fields are replaced by a locked callout. */
   cloudLocked: boolean;
   showError: boolean;
   error: string | null;
@@ -66,11 +60,8 @@ export interface AppTargetFieldsProps {
 
 /**
  * The App target authoring surface: pick a provider, then either specific
- * connection(s) of it, or "all connections" at a chosen level (an org rule can
- * reach down to project-level connections; a project rule is project-only).
- * On an allow rule the target permits the app's traffic (its catalog hosts)
- * and injects the chosen connections; on a block rule it blocks the app's
- * traffic. Mirrors {@link SecretTargetFields}.
+ * connections of it or "all connections" at a chosen level. Mirrors
+ * {@link SecretTargetFields}.
  */
 export const AppTargetFields = ({
   value,
@@ -83,15 +74,12 @@ export const AppTargetFields = ({
   showError,
   error,
 }: AppTargetFieldsProps) => {
-  // The provider picker (AppSelect) lists the app CATALOG, not existing
-  // connections — an "all connections at a level" rule must be authorable for an
-  // app with no connection at the current scope. Connections only feed the
-  // specific-mode checkboxes below.
+  // AppSelect lists the app catalog, not existing connections: an "all
+  // connections at a level" rule must be authorable for an app with none at the
+  // current scope. These only feed the specific-mode checkboxes below.
   const providerConnections = connections.filter(
     (c) => c.provider === value.provider,
   );
-  // Granular per-resource scoping is authored for a SINGLE specific connection
-  // (matches the per-connection session-policy model).
   const singleConnection =
     value.mode === "specific" && value.connectionIds.length === 1
       ? providerConnections.find((c) => c.id === value.connectionIds[0])
@@ -101,8 +89,8 @@ export const AppTargetFields = ({
     const next = checked
       ? [...value.connectionIds, id]
       : value.connectionIds.filter((c) => c !== id);
-    // Any change to the selection invalidates the session policy — it scopes ONE
-    // specific connection and is authored per-connection via ResourceScopeFields.
+    // The session policy scopes one specific connection, so any selection
+    // change invalidates it.
     onChange({ ...value, connectionIds: next, sessionPolicy: null });
   };
 
@@ -113,8 +101,7 @@ export const AppTargetFields = ({
         <AppSelect
           id="rule-app-provider"
           value={value.provider}
-          // Changing provider clears the connection + tool selections AND the
-          // session policy (all three are provider-specific).
+          // Connections, tools and session policy are all provider-specific.
           onChange={(provider) =>
             onChange({
               ...value,
@@ -128,13 +115,10 @@ export const AppTargetFields = ({
         />
       </div>
 
-      {/* A cloud-only app (this edition can't connect it): the sub-fields
-          below would author a dead rule, so they're replaced by the locked
-          callout and the form locks the save. House pattern: the
-          condition-builder OSS stub's dashed card. */}
+      {/* The sub-fields below would author a dead rule for a cloud-only app. */}
       {cloudLocked ? (
         // role="status": the callout appears dynamically when a cloud-only app
-        // is picked (and the Save button leaves the tab order), so announce it.
+        // is picked, so it needs announcing.
         <div
           role="status"
           className="flex items-center gap-2.5 rounded-md border border-dashed px-3 py-2.5"
@@ -163,8 +147,7 @@ export const AppTargetFields = ({
                 onChange({
                   ...value,
                   mode: mode === "all" ? "all" : "specific",
-                  // Session policy is per-connection; the connection context changes
-                  // with the mode, so drop it.
+                  // The connection context changes with the mode.
                   sessionPolicy: null,
                 })
               }
@@ -245,9 +228,6 @@ export const AppTargetFields = ({
             </div>
           )}
 
-          {/* Granular resource scoping applies only to an Allow (a Block injects
-          nothing) and is mutually exclusive with behavioral conditions (a rule's
-          `conditions` is one or the other), so it's hidden while those exist. */}
           {singleConnection &&
             action === "allow" &&
             !hasBehavioralConditions && (

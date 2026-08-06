@@ -32,15 +32,12 @@ pub const fn edition() -> Edition {
     }
 }
 
-/// Capabilities derived from the build edition — the seam for runtime branches
-/// as they migrate off `#[cfg]`. Extend with capability fields as consumers
-/// appear (e.g. tenancy, crypto backend).
+/// Capabilities derived from the build edition.
 #[derive(Debug, Clone, Copy)]
 pub struct Capabilities {
     pub edition: Edition,
     /// Whether demo-mode hard caps are baked in (the `demo` Cargo feature).
-    /// Orthogonal to `edition` — only ever combined with `onprem-slim` to build
-    /// the `slim-poc` image. A runtime env var cannot change it.
+    /// Build-time only — a runtime env var cannot change it.
     pub demo: bool,
 }
 

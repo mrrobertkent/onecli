@@ -1,7 +1,4 @@
 // ── Policy shapes: the first-match engine's rule / request / decision types ──
-// The surviving new-model shapes for the v2 evaluator, plus `OldCondition` (the
-// body-condition shape, unchanged across models — still read by the endpoint
-// matcher, app-catalog, and the simulator) and the shared enums.
 
 export type RateWindow = "minute" | "hour" | "day";
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -23,10 +20,9 @@ export interface PolicyRequest {
   /** Which agent the request is from (identity + shadowing). */
   agentId: string;
   /**
-   * The agent's resolved principal set (step 6): the human users + directory
-   * groups its project inherits via ProjectAccess.
-   * A directory-identity rule matches iff its principal is in the matching set.
-   * Optional/empty for pure-agent traffic → only agent/"any" rules match.
+   * The agent's resolved principal set: the users and directory groups its
+   * project inherits via ProjectAccess. Empty for pure-agent traffic, where
+   * only agent/"any" rules match.
    */
   userIds?: string[];
   groupIds?: string[];
@@ -35,20 +31,13 @@ export interface PolicyRequest {
   /** Host is a known LLM provider — bypasses deny-default. */
   isLlmHost: boolean;
   /**
-   * The app connection that won injection for this request; absent when no
-   * connection serves it (uncredentialed, secret-served, vault, or the
-   * gateway's non-serving wipe). A resolved `connection` target matches only
-   * against this id. Mirrors `PolicyRequest.winning_connection_id` (types.rs).
+   * The app connection that won injection for this request; absent when none
+   * serves it. A resolved `connection` target matches only against this id.
    */
   winningConnectionId?: string;
 }
 
-/**
- * The normalized decision produced by BOTH the oracle (old strictest-wins) and
- * the new first-match evaluator; the golden corpus asserts they agree. Old
- * actions collapse: Block→block, ManualApproval→allow+requireApproval,
- * RateLimit→allow+rateLimit, Allow→allow, BlockedByDefault→block+byDefault.
- */
+/** The normalized decision an evaluation produces. */
 export interface Decision {
   action: "allow" | "block";
   requireApproval?: boolean;
@@ -59,9 +48,9 @@ export interface Decision {
 }
 
 /**
- * The ATTRIBUTED result of an evaluation — which rule (or default) decided.
- * `evaluateNew` collapses this to a `Decision`; the reflections keep it
- * to name the deciding rule. Mirrors the gateway's `Outcome` (evaluate.rs).
+ * The attributed result of an evaluation — which rule (or default) decided.
+ * `evaluateNew` collapses this to a `Decision`; the reflections keep it to name
+ * the deciding rule.
  */
 export type PolicyOutcome =
   /** An explicit rule decided (its action/modifiers are the verdict). */
@@ -73,36 +62,26 @@ export type PolicyOutcome =
       rule: NewRule | null;
     }
   /** Nothing matched and no default blocks. `managed` = the deny-default carve
-   * was armed (credential-managed, non-LLM) but every default allows; false =
-   * the request is unmanaged (or an LLM host), so deny-defaults were disarmed. */
+   * was armed (credential-managed, non-LLM) but every default allows. */
   | { kind: "allow"; managed: boolean };
 
-// Internal new-model shapes for the evaluator. The TRANSLATOR only ever produces
-// agent or all-agents identities and app/network targets (the old model is
-// agent-only; equipment is step 7). The directory kinds (user/group, step 6)
-// are matched against the request's resolved principal set — they arrive
-// on direct `PolicyRuleV2` rows, not from translation. Step 5's backfill maps
-// translated rules to real `PolicyRuleV2` rows using the API's stricter enums in
-// validations/policy; here the looser `method: string | null` carries an old
-// row's method verbatim so the matcher stays byte-faithful.
+// Internal new-model shapes for the evaluator. The user/group kinds are matched
+// against the request's resolved principal set.
 export type NewIdentity =
   | { type: "agent"; id: string }
   | { type: "user"; id: string }
   | { type: "group"; id: string };
 
-/** Where a rule came from. The retired coherence bridge re-materialized only
- * the DERIVED sources (`app_permission`/`blocklist`/`equipment`) from their live
- * source-of-truth, leaving `custom`/`default` untouched. `equipment` (step 8) is
- * the injection allowlist derived from `secretMode`/`AgentSecret`/
- * `AgentAppConnection` — connection/secret-target allow rules. */
+/** Where a rule came from. `equipment` rules are the injection allowlist —
+ * connection/secret-target allow rules. */
 export type RuleSource =
   | "custom"
   | "app_permission"
   | "blocklist"
   | "default"
   | "equipment"
-  // Attach-model grant stacks (step 2): compiled per-(agent, credential) by the
-  // grants service; they DECIDE and inject like custom rules.
+  // Grant stacks, compiled per (agent, credential) by the grants service; they
+  // decide and inject like custom rules.
   | "grant";
 
 // A `connection` target names a credential to inject — AND binds decisions to

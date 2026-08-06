@@ -10,14 +10,12 @@ import type { OldCondition, PolicyRequest } from "./types";
  * Port of `apps/gateway/src/ee/condition_match.rs::matches`. Absent/empty
  * conditions match; each condition is AND-ed; only `(body, contains)` is
  * meaningful (case-insensitive substring, empty/absent body → false); any other
- * target/operator matches (the `_ => true` arm).
+ * target/operator matches.
  *
- * Caller contract (step 4/5): the gateway's `parse_conditions` fails as a WHOLE
- * on a non-array `conditions` OR any element missing target/operator/value, and
- * then the rule matches unconditionally. When mapping raw DB `conditions` into
- * `OldCondition[]`, coerce any such malformed value to `null` (→ match) — never
- * "clean up" partial elements, which would diverge from the all-or-nothing Rust
- * behavior. Absent body must map to `undefined` (→ false), empty body to `""`.
+ * Caller contract: malformed raw `conditions` must be coerced to `null` (→
+ * match) as a whole, never cleaned up element by element, or it diverges from
+ * the gateway's all-or-nothing `parse_conditions`. Absent body maps to
+ * `undefined`, empty body to `""`.
  */
 export const conditionsMatch = (
   conditions: OldCondition[] | null | undefined,

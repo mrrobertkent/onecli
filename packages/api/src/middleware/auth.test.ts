@@ -3,13 +3,10 @@ import { Hono } from "hono";
 import type { ApiEnv } from "../types";
 
 // The auth middleware bridges scope carried in the query string
-// (_token/_project/_org) into the request headers so browser navigations that
-// can't set headers — the app-connect → GET /v1/apps/:provider/authorize
-// redirect — still resolve the right project. The regression these guard: on
-// onprem-slim the session is ambient (no _token JWT), so before the fix the
-// _project param was ignored and the authorize fell back to the user's default
-// project. Pin to onprem-slim so CAPS.tenancy is single-org-shared (header-less
-// requests fall back to the default project) and CAPS.rbac is off.
+// (_token/_project/_org) into the request headers, so browser navigations that
+// cannot set headers still resolve the right project. Pinned to onprem-slim so
+// `CAPS.tenancy` is single-org-shared (header-less requests fall back to the
+// default project) and `CAPS.rbac` is off.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "onprem-slim";
 });
@@ -58,8 +55,8 @@ const makeApp = () => {
 
 describe("auth middleware — scope query-param bridge", () => {
   describe("ambient session (onprem-slim local auth, no _token)", () => {
-    // Mirrors the local-auth session provider: authenticated regardless of the
-    // request (it reads the ambient Next.js session, not the passed request).
+    // Mirrors the local-auth session provider, which reads the ambient session
+    // rather than the passed request.
     beforeEach(() =>
       initSession({
         getSession: async () => ({
@@ -88,9 +85,8 @@ describe("auth middleware — scope query-param bridge", () => {
     });
 
     it("degrades a malformed scope param to the default (no 500)", async () => {
-      // A non-Latin1 value (emoji, %F0%9F%98%80) makes Headers.set throw; the
-      // bridge must swallow it and authenticate as if the param were absent,
-      // not surface a 500.
+      // A non-Latin1 value makes `Headers.set` throw; the bridge authenticates
+      // as if the param were absent rather than surfacing a 500.
       const res = await makeApp().request("/echo?_project=%F0%9F%98%80");
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ projectId: DEFAULT_PROJECT });
@@ -99,7 +95,7 @@ describe("auth middleware — scope query-param bridge", () => {
 
   describe("query-token session (cloud browser navigation)", () => {
     // Mirrors a header-reading (JWT) provider: authenticated only when the
-    // bridged Authorization is present — proving _token → Authorization works.
+    // bridged Authorization header is present.
     beforeEach(() =>
       initSession({
         getSession: async (req) =>

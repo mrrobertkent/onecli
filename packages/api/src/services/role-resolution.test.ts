@@ -41,9 +41,8 @@ describe("readClaimPath (a PATH, not a name)", () => {
   });
 
   it("reads a NESTED claim — Keycloak keeps roles at realm_access.roles", () => {
-    // This is the case a claim NAME cannot express, and the reason Better
-    // Auth's own flat-key `mapping.extraFields` is not used for role
-    // resolution.
+    // A claim name cannot express this, which is why a flat-key mapping is not
+    // used for role resolution.
     const claims = { realm_access: { roles: ["admin"] } };
     expect(readClaimPath(claims, "realm_access.roles")).toEqual(["admin"]);
   });
@@ -72,9 +71,7 @@ describe("resolveRoleFromGroups", () => {
   });
 
   it("returns null when no group maps — NOT a default of member", async () => {
-    // An identity whose membership maps to nothing is not admitted.
-    // Substituting a default here would admit exactly the strangers the gate
-    // exists to keep out.
+    // A default here would admit exactly the strangers this gate keeps out.
     state.mappings = [];
     expect(await resolveRoleFromGroups("org-1", ["unmapped"])).toBeNull();
   });

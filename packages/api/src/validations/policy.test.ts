@@ -10,8 +10,8 @@ import {
 
 describe("policyTargetSchema — connection targets", () => {
   it("accepts `tools` on a connection target (narrows which endpoints match)", () => {
-    // A connection target's tools narrow which endpoints the rule matches
-    // (empty = the connection's whole app); injection is unaffected.
+    // A connection target's tools narrow which endpoints the rule matches;
+    // injection is unaffected.
     const parsed = policyTargetSchema.parse({
       kind: "connection",
       connectionId: "c1",
@@ -74,10 +74,7 @@ describe("sessionPolicySchema — granular per-resource scoping", () => {
 
   it("rejects an empty list — an unauthorable scope that used to mean the opposite", () => {
     // "Reach nothing" is expressed by clearing the policy (null), never by an
-    // empty list, and an empty list was historically mis-read as "no scoping
-    // requested" — which for GitHub mints a token for EVERY repository. The
-    // gateway now denies all access for a stored empty list; refusing it here
-    // stops new ones from ever being written.
+    // empty list, which the gateway reads as deny-all.
     expect(sessionPolicySchema.safeParse({ repositories: [] }).success).toBe(
       false,
     );
@@ -130,9 +127,8 @@ describe("createPolicyRuleSchema — conditions dual-use (behavioral | session p
   });
 
   it("rejects a session policy without any connection target", () => {
-    // A session policy scopes a connection's injected credential — meaningless
-    // (and rejected) without a connection target (the `sessionPolicyNeedsConnection`
-    // refine).
+    // A session policy scopes a connection's injected credential, so it is
+    // rejected without a connection target.
     const res = createPolicyRuleSchema.safeParse({
       ...base,
       targets: [
@@ -171,8 +167,8 @@ describe("createPolicyRuleSchema — conditions dual-use (behavioral | session p
   });
 
   it("still enforces the behavioral .max(10) through the dual-use union", () => {
-    // The union must not let the behavioral-array bound leak — 11 conditions is
-    // rejected (it's not a valid session-policy object either).
+    // The union must not let the behavioral-array bound leak: 11 conditions is
+    // rejected, and is not a valid session-policy object either.
     const many = Array.from({ length: 11 }, () => ({
       target: "body" as const,
       operator: "contains" as const,

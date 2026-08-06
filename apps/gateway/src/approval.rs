@@ -63,9 +63,8 @@ pub(crate) enum ApprovalDecision {
 
 /// A submitted decision plus the identity that made it.
 ///
-/// `approved_by` carries the deciding user (from the gateway `AuthUser`), or
-/// `None` for a system auto-deny on timeout/cleanup. It is delivered to the
-/// held request so it can be stamped onto the request log.
+/// `approved_by` is the deciding user, or `None` for a system auto-deny on
+/// timeout/cleanup. It is stamped onto the held request's log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct DecisionOutcome {
     pub decision: ApprovalDecision,
@@ -91,7 +90,6 @@ impl DecisionReceiver {
             return Some(outcome);
         }
 
-        // Wait for the value to change, with timeout.
         tokio::time::timeout(timeout, async {
             loop {
                 // `changed()` returns Err if the sender is dropped (cleanup).
@@ -112,10 +110,8 @@ impl DecisionReceiver {
 
 /// RAII guard that cleans up a pending approval if the request is cancelled.
 ///
-/// When an agent disconnects while waiting for approval, tokio drops the
-/// `forward_request` future. The guard's `Drop` impl spawns a cleanup task
-/// to remove the orphaned approval from the store immediately, instead of
-/// waiting for the 5-minute expiry.
+/// When an agent disconnects while waiting for approval, `Drop` spawns a task
+/// to remove the orphaned approval instead of leaving it until expiry.
 ///
 /// Call [`defuse`](Self::defuse) when the decision is handled normally
 /// (approve, deny, or timeout) to prevent double-cleanup.
@@ -217,8 +213,7 @@ pub(crate) trait ApprovalStore: Send + Sync {
     async fn list_pending(&self, org_id: &str, project_id: &str) -> Vec<PendingApproval>;
 
     /// List all non-expired pending approvals across every project in an org.
-    /// Backs the cloud + onprem org poll (`GET /v1/org/approvals/pending`); OSS
-    /// has no org scope, so the method is compiled out there.
+    /// OSS has no org scope, so the method is compiled out there.
     #[cfg(not(edition_oss))]
     async fn list_pending_for_org(&self, org_id: &str) -> Vec<PendingApproval>;
 
@@ -339,8 +334,8 @@ impl ApprovalStore for InMemoryApprovalStore {
 
     async fn wait_for_new(&self, org_id: &str, project_id: &str, timeout: Duration) -> bool {
         let notify_key = format!("{org_id}:{project_id}");
-        // Get or create broadcast sender, subscribe, then drop the guard
-        // before awaiting (critical: never hold DashMap guard across .await).
+        // Subscribe under the guard, then drop it: never hold a DashMap guard
+        // across an await.
         let mut rx = {
             let sender = self
                 .new_notify
@@ -426,8 +421,8 @@ fn start_cleanup_task(store: Arc<InMemoryApprovalStore>) {
                 debug!(count = expired.len(), "cleaned up expired approvals");
             }
 
-            // Prune notification channels for projects with no pending approvals.
-            // Prevents unbounded growth of the new_notify map over time.
+            // Prune notification channels for projects with no pending
+            // approvals, so the map cannot grow unboundedly.
             store
                 .new_notify
                 .retain(|project_id, _| store.pending.iter().any(|e| e.project_id == *project_id));

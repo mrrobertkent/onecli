@@ -1,16 +1,11 @@
 /**
- * Reading the frozen old model — see ./README.md. Two halves:
+ * Reads of the frozen old model — see ./README.md: the legacy `policy_rules`
+ * columns the translation needs, the inverse map back to `BackfillRuleInput`
+ * that lets the migration verify what it wrote, and a project's selective
+ * agents' per-agent credential grants (which become `source="equipment"` rules).
  *
- *  - `OSS_OLD_RULE_SELECT` + `reconstructOssRule`: the legacy `policy_rules`
- *    columns the translation reads, and the inverse map (a stored v2 row back
- *    to its `BackfillRuleInput` shape) that lets the migration verify what it
- *    just wrote.
- *  - `readOssEquipment`: a project's selective agents' per-agent credential
- *    grants (`agent_secrets` / `agent_app_connections`), which become
- *    `source="equipment"` rules.
- *
- * These are the ONLY reads of the deprecated tables outside the boot guard and
- * the FK cleanup on delete; they go when the tables do.
+ * Apart from the boot guard and the FK cleanup on delete, these are the only
+ * reads of the deprecated tables.
  */
 import { type Prisma } from "@onecli/db";
 import type { BackfillRuleInput, BackfillTargetInput } from "../policy-service";
@@ -107,12 +102,10 @@ const reconstructTarget = (
 };
 
 /**
- * A stored v2 row back to the `BackfillRuleInput` shape — the ordering view
- * the pinned merge compares (identities count + action/modifiers) and the
- * verify canon. Faithful for every shape the OSS translation emits; a
- * user-authored scope-form secret target degrades to its id form (targets
- * never influence ordering, and the boot verify only ever sees the
- * translation's own output).
+ * A stored v2 row back to the `BackfillRuleInput` shape — the ordering view the
+ * pinned merge compares, and the verify canon. A user-authored scope-form secret
+ * target degrades to its id form, which is harmless: targets never influence
+ * ordering.
  */
 export const reconstructOssRule = (row: StoredRuleRow): BackfillRuleInput => ({
   priority: row.priority,
@@ -135,13 +128,10 @@ export const reconstructOssRule = (row: StoredRuleRow): BackfillRuleInput => ({
   enabled: row.enabled,
 });
 
-/** Equipment can reference project- OR org-scoped resources in OSS (the
- * implicit org): the legacy gateway join injects both scope-blind, and OSS has
- * no org rules to carry the org-scoped ones — the project equipment rule is
- * their ONLY vehicle. This deliberately DIVERGES from the EE derivation's
- * project-only fence (cloud's org resources travel via org rules); the
- * gateway's fenced two-arm loaders resolve org-scoped ids fine. Partner scope
- * stays excluded (cloud-only). */
+/** OSS equipment can reference project- and org-scoped resources alike: the
+ * legacy gateway join injects both scope-blind, and OSS has no org rules to
+ * carry the org-scoped ones. This diverges from the EE derivation's
+ * project-only fence. Partner scope stays excluded. */
 const OSS_EQUIPMENT_SCOPES = new Set(["project", "organization"]);
 
 /**

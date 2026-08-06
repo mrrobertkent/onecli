@@ -1563,16 +1563,12 @@ pub(crate) async fn seed_app_injection_cache(
 
 // ── Host matching ───────────────────────────────────────────────────────
 
-/// Returns `true` when the credential's stored host does not match the
-/// request host, meaning injection must be skipped.
+/// Returns `true` when the credential's stored host does not match the request
+/// host, meaning injection must be skipped. Rules without
+/// `credential_host_field` are never gated.
 ///
-/// For rules with `credential_host_field` (e.g. JFrog's `*.jfrog.io`),
-/// injection is allowed ONLY when the request host equals the stored host.
-/// Returns `false` for rules without `credential_host_field` (no check
-/// needed) and for rules whose stored host matches the request host.
-///
-/// The comparison is on the FULL normalized host — never a single DNS label —
-/// so `nanos.jfrog.io` does not match `evil.jfrog.io`.
+/// The comparison is on the full normalized host, never a single DNS label, so
+/// `nanos.jfrog.io` does not match `evil.jfrog.io`.
 fn credential_host_mismatch(
     provider: &str,
     creds: Option<&serde_json::Value>,
@@ -1591,20 +1587,12 @@ fn credential_host_mismatch(
 
 /// Check if a requested hostname matches a secret or policy host pattern.
 ///
-/// Supports an exact match, or a single `*` wildcard anywhere in the pattern:
-/// - leading — `*.example.com` matches `api.example.com` (but not the apex
-///   `example.com`),
-/// - mid-string — `s3.*.amazonaws.com` matches `s3.us-east-1.amazonaws.com`
-///   (the region label).
+/// Exact match, or a single `*` wildcard anywhere in the pattern:
+/// `*.example.com` matches `api.example.com` but not the apex;
+/// `s3.*.amazonaws.com` matches `s3.us-east-1.amazonaws.com`.
 ///
-/// The length guard keeps the prefix and suffix from overlapping, so the `*`
-/// must stand in for at least one character: the apex is still excluded for
-/// `*.example.com`, and a region is still required for `s3.*.amazonaws.com`.
-///
-/// Matching is case-insensitive, since DNS host names are.
-///
-/// `pub(crate)` so the policy engine reuses the exact host matcher for its
-/// network targets. Behavior is unchanged.
+/// The length guard keeps prefix and suffix from overlapping, so the `*` must
+/// stand in for at least one character. Matching is case-insensitive, as DNS is.
 pub(crate) fn host_matches(request_host: &str, pattern: &str) -> bool {
     match pattern.split_once('*') {
         None => request_host.eq_ignore_ascii_case(pattern),
@@ -1631,15 +1619,9 @@ mod tests {
         crate::cache::create_store().await.unwrap()
     }
 
-    // ── Injection pool (attach-model step 7) ────────────────────────────
-    // The v2 selection is the WHOLE story for the ORG/PROJECT tiers: the old
-    // per-agent grant tables became unread in step 10 and the all-mode merge
-    // died in step 7, so there is nothing left to fall back to. The
-    // load-bearing property is that an agent with nothing selected draws
-    // NOTHING from those tiers — anything else would hand a deliberately
-    // restricted agent every credential in the project and org. (The partner
-    // secret tier is grant-independent and rides outside this classification —
-    // see `resolve_secret_injections`.)
+    // ── Injection pool ──────────────────────────────────────────────────
+    // The load-bearing property: an agent with nothing selected draws nothing
+    // from the org/project tiers.
 
     fn selection_with_secret(id: &str) -> db::InjectSelection {
         db::InjectSelection {
@@ -1671,9 +1653,8 @@ mod tests {
     }
 
     // ── Plan resolution (subscription_status to quota plan label) ────────
-    // The free-tier integration-call quota keys off this label, so a real paid
-    // tier must never collapse to "free". Regression guard for the `scale` plan
-    // being throttled as free, and for any future tier.
+    // The free-tier quota keys off this label, so a paid tier must never
+    // collapse to "free".
     #[test]
     fn plan_resolution_only_treats_free_as_free() {
         assert_eq!(plan_for_subscription_status("free"), "free");
@@ -1789,9 +1770,8 @@ mod tests {
             )
             .await;
 
-        // resolve_from_cache should hit using the same key format.
-        // On cache hit it never touches PolicyEngine, so we can't pass one —
-        // but we can verify the key is correct by checking the cache directly.
+        // On a cache hit it never touches PolicyEngine, so we can't pass one —
+        // the key is verified against the cache directly instead.
         let cached: Option<ConnectResponse> = store
             .get(&format!(
                 "connect:{}:{}:{}:{}",
@@ -1937,7 +1917,7 @@ mod tests {
 
     #[test]
     fn credential_host_mismatch_other_tenant() {
-        // A malicious dependency hitting evil.jfrog.io must NOT receive the
+        // A malicious dependency hitting evil.jfrog.io must not receive the
         // token stored for nanos.jfrog.io.
         let creds = serde_json::json!({ "subdomain": "nanos.jfrog.io" });
         assert!(credential_host_mismatch(
@@ -1973,7 +1953,7 @@ mod tests {
 
     #[test]
     fn credential_host_mismatch_similar_subdomain() {
-        // The gate compares the FULL host, so a stored host must not be matched
+        // The gate compares the full host, so a stored host must not be matched
         // by a similarly-named subdomain on the same suffix.
         let creds = serde_json::json!({ "subdomain": "nanos.jfrog.io" });
         assert!(credential_host_mismatch(
@@ -2001,7 +1981,7 @@ mod tests {
         conns.iter().map(|c| c.id.as_str()).collect()
     }
 
-    // ── serves-path metadata gating (#428) ──────────────────────────────
+    // ── serves-path metadata gating ─────────────────────────────────────
 
     fn bearer_rule(pattern: &str, token: &str) -> InjectionRule {
         InjectionRule {
@@ -2224,9 +2204,9 @@ mod tests {
 
     #[test]
     fn narrow_calendar_request_selects_calendar_connection() {
-        // The bug: with two Gmail accounts, every www.googleapis.com path was
-        // ambiguous. A Calendar request must narrow to the single Calendar
-        // connection so it injects without an x-onecli-connection-id header.
+        // With two Gmail accounts, a Calendar request must still narrow to the
+        // single Calendar connection so it injects without a connection-id
+        // header.
         let conns = vec![
             conn("gmail1", "gmail"),
             conn("gmail2", "gmail"),
@@ -2261,7 +2241,7 @@ mod tests {
     #[test]
     fn narrow_falls_back_to_full_set_when_nothing_serves_path() {
         // No connection serves the path → return the full set unchanged rather
-        // than an empty set, preserving prior behavior for that edge case.
+        // than an empty one.
         let conns = vec![conn("gmail1", "gmail"), conn("gmail2", "gmail")];
         let narrowed =
             narrow_connections_by_path(&conns, "www.googleapis.com", Some("/calendar/v3"));
@@ -2298,9 +2278,8 @@ mod tests {
 
     #[test]
     fn narrow_single_connection_is_returned_borrowed_unchanged() {
-        // A single connection can't be disambiguated: it is returned as-is and
-        // without a clone (Borrowed), even on a path-scoped host it does not
-        // serve — the common single-account case stays on the zero-copy path.
+        // A single connection can't be disambiguated: returned borrowed, without
+        // a clone, even on a path-scoped host it does not serve.
         let conns = vec![conn("gmail1", "gmail")];
         let narrowed =
             narrow_connections_by_path(&conns, "www.googleapis.com", Some("/calendar/v3"));
@@ -2343,17 +2322,16 @@ mod stamp_resource_scopes_tests {
         }
     }
 
-    /// The whole truth table of what a connection may reach, by how it was
-    /// granted and whether the organization bounds it. EE only: composing a
-    /// boundary is what the EE seam does, and OSS never produces one.
+    /// What a connection may reach, by how it was granted and whether the
+    /// organization bounds it. EE only: OSS never produces a boundary.
     #[cfg(not(edition_oss))]
     #[test]
     fn stamps_the_scope_each_connection_may_actually_reach() {
         let mut rows = vec![conn("named"), conn("by-provider"), conn("unbounded")];
         let sel = selection(
             &[
-                // Named grant: its own selection (the fold already composed the
-                // boundary in, so re-applying must not change it).
+                // Named grant: the fold already composed the boundary in, so
+                // re-applying must not change it.
                 (
                     "named",
                     Some(serde_json::json!({ "repositories": ["org/a"] })),
@@ -2390,9 +2368,8 @@ mod stamp_resource_scopes_tests {
         );
     }
 
-    /// OSS enforces no resource boundaries — it has no guard that could — so
-    /// the seam leaves a selection untouched even if one were planted. Pinned
-    /// so the composition can never leak into an edition that cannot honour it.
+    /// OSS enforces no resource boundaries, so the seam leaves a planted
+    /// selection untouched.
     #[cfg(edition_oss)]
     #[test]
     fn oss_leaves_the_selection_untouched() {
@@ -2442,8 +2419,7 @@ mod deferred_injection_tests {
     }
 
     /// A GitHub App connection carrying real (test-key) encrypted credentials:
-    /// the deferral decision happens after decryption, because the decrypted
-    /// payload is what the deferred mint will consume.
+    /// the deferral decision happens after decryption.
     async fn github_conn(
         engine: &PolicyEngine,
         session_policy: Option<serde_json::Value>,

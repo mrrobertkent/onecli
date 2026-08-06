@@ -590,10 +590,8 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("an allow connection-target rule is never a shadow victim (injection-bearing shape)", () => {
-    // Its provider resolves only at connect (statically unknowable) AND the
-    // shape names a credential to inject — both reasons to stay silent under a
-    // catch-all. (The fence is shape+action-based: whether THIS rule's
-    // identities inject for a given agent is a runtime question.)
+    // Its provider resolves only at connect, and the shape names a credential to
+    // inject — both reasons to stay silent under a catch-all.
     const all = rule({ logicalId: "a", priority: 1, targets: [net("*")] });
     const conn = rule({
       logicalId: "i",
@@ -604,8 +602,8 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
   });
 
   it("a tools-named app target never covers a whole-app one (narrower)", () => {
-    // The whole-app later rule matches EVERY catalog host of the provider on
-    // any path/method — a single tool's fan-out cannot cover that.
+    // The whole-app later rule matches every catalog host of the provider on any
+    // path or method, which a single tool's fan-out cannot cover.
     const tooled = rule({
       logicalId: "t",
       priority: 1,
@@ -630,16 +628,16 @@ describe("findPolicyOverlaps — must NOT warn (undecidable or not dead)", () =>
       priority: 2,
       targets: [app("github", [])],
     });
-    // Even overlapping real-world host sets (shared provider hosts) are not
-    // assumed — provider equality is the only sound app↔app bridge.
+    // Overlapping real-world host sets are not assumed; provider equality is the
+    // only sound app↔app bridge.
     expect(findPolicyOverlaps([gmail, github])).toEqual([]);
   });
 });
 
 describe("findPolicyOverlaps — soundness guards (review pass)", () => {
   it("does not fold Unicode hosts — ASCII-distinct patterns never claim cover", () => {
-    // KELVIN SIGN (U+212A) lowercases to ASCII "k" under JS toLowerCase, but
-    // the real matcher folds ASCII-only — these two hosts are DISJOINT live.
+    // The Kelvin sign (U+212A) lowercases to ASCII "k" under `toLowerCase`, but
+    // the real matcher folds ASCII only, so these two hosts are disjoint.
     const ascii = rule({
       logicalId: "a",
       priority: 1,
