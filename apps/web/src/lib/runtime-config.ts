@@ -16,12 +16,11 @@ import {
 interface RuntimeConfig {
   authMode: "cloud" | "oauth" | "local";
   oauthConfigured: boolean;
-  // NextAuth id + login-button label of the active provider (Google when both
-  // Google and OIDC are set). Empty when no provider is configured.
+  // Id and login-button label of the active provider; Google wins when both
+  // Google and OIDC are set. Empty when none is configured.
   authProviderId: string;
   authProviderName: string;
-  // Optional OIDC button branding. Older instances wrote a runtime-config.json
-  // without these keys, so they are optional and read through `?? ""`.
+  // Optional OIDC button branding; a runtime-config.json may omit these keys.
   authProviderLogo?: string;
   authProviderColor?: string;
   authProviderTextColor?: string;

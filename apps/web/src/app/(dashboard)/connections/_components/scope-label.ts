@@ -1,11 +1,7 @@
 /**
- * Generic scope → display-label mapping for inherited connections/secrets.
- *
- * Feature-neutral: the defaults cover the scopes that exist in OSS
- * (`organization`/`project`); any other scope falls back to a capitalized form,
- * and callers may pass an `overrides` map to label additional tiers (e.g. a
- * cloud "partner" tier supplies `{ partner: "Partner" }`). OSS callers pass no
- * overrides, so behavior is unchanged.
+ * Scope → display-label mapping for inherited connections and secrets. Unknown
+ * scopes fall back to a capitalized form; callers may pass `overrides` to label
+ * additional tiers.
  */
 export type ScopeLabelMap = Record<string, string>;
 

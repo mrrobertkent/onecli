@@ -3,12 +3,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "@onecli/api/testing/pg-proof";
 
 /**
- * The bootstrap administrator against real PostgreSQL.
- *
- * The central claim — "two concurrent claims cannot yield two admins, nor
- * zero" — is a statement about row locking and transaction rollback. A mocked
- * database cannot settle it in either direction, so it is asserted here by
- * actually racing transactions against Postgres.
+ * The bootstrap administrator against real PostgreSQL. The central claim is
+ * about row locking and transaction rollback, which a mocked database cannot
+ * settle, so these race real transactions.
  *
  * Env-gated like the other proof suites; see pg-proof.ts.
  */

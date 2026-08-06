@@ -17,16 +17,11 @@ interface UseConnectParamOptions {
 }
 
 /**
- * Reads `?connect=<provider>` from the URL and triggers the appropriate action:
- * - Has credentials (env defaults available or BYOC configured): `onConnect`
- * - No credentials and not already connected: `onConfigure`
+ * Reads `?connect=<provider>` and calls `onConnect` when credentials exist,
+ * else `onConfigure`. An accompanying `?agent_name=` is passed through so the
+ * dialog can show agent-specific context.
  *
- * When `?source=agent&agent_name=<name>` is also present, the agent name is
- * passed to `onConnect` so the dialog and popup can show agent-specific context.
- *
- * Mirrors the same logic as the manual Connect button click handler.
- * Removes the search param from the URL after handling.
- * Only fires once per mount (guarded by ref).
+ * Strips the param afterwards, and fires at most once per mount.
  */
 export const useConnectParam = ({
   loading,

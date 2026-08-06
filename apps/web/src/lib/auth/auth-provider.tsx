@@ -40,8 +40,7 @@ const OAuthInner = ({
   children: ReactNode;
   authProvider: AuthProviderInfo;
 }) => {
-  // Better Auth returns `{data, isPending}` rather than next-auth's `status`
-  // string. `data` is the session or null once settled.
+  // `data` is the session, or null once settled.
   const { data: session, isPending } = useSession();
 
   const user = useMemo<AuthUser | null>(() => {
@@ -116,8 +115,7 @@ export const AuthProviderImpl = ({
     return <LocalAuthProvider>{children}</LocalAuthProvider>;
   }
 
-  // No provider wrapper: Better Auth's `useSession` reads from a nanostores
-  // atom held by the client singleton, so there is no React context to mount
-  // (next-auth's `<SessionProvider>` had no equivalent here).
+  // No provider wrapper: `useSession` reads from an atom held by the client
+  // singleton, so there is no React context to mount.
   return <OAuthInner authProvider={authProvider}>{children}</OAuthInner>;
 };

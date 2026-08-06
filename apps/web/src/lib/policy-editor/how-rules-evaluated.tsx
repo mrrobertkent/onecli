@@ -7,17 +7,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@onecli/ui/components/popover";
-// Alias key on purpose (the edition seam): EE reads `true` and gets the
-// two-level explainer; OSS reads `false` and gets the single-list one.
+// Alias key on purpose: EE gets the two-level explainer, OSS the single-list
+// one.
 import { ORG_GUARDRAILS_AVAILABLE } from "@/lib/policy-editor/editor-chrome";
 
 /**
- * A quiet "how rules are evaluated" affordance for the policy console. It spells
- * out the top-down first-match model precisely — the part the subtitle can't
- * carry without becoming a paragraph, and the two things people otherwise get
- * wrong: the Default Rule catch-all, and that modifiers don't stack. The EE
- * editions describe the two-level (org guardrails + project) model; OSS has no
- * organization level, so it describes the single project list.
+ * The policy console's "how rules are evaluated" popover: the top-down
+ * first-match model, the Default Rule catch-all, and that modifiers don't
+ * stack. EE describes the two-level model; OSS the single project list.
  */
 export const HowRulesEvaluated = () => (
   <Popover>

@@ -4,9 +4,8 @@ import { useEffect, useRef } from "react";
 
 export interface AppConnectedEvent {
   provider?: string;
-  /** Set only when the popup CREATED a connection — absent on reconnects, so a
-   * listener can tell "there is a new account to set up" from "credentials
-   * were refreshed". */
+  /** Set only when the popup created a connection, so a listener can tell a
+   * new account from refreshed credentials. */
   connectionId?: string;
 }
 
@@ -16,12 +15,11 @@ interface UseAppMessagesOptions {
 }
 
 /**
- * Listens for `postMessage` events from the app-connect popup.
- * Dispatches to `onConnected` or `onConfigure` based on message type.
+ * Listens for `postMessage` events from the app-connect popup and dispatches to
+ * `onConnected` or `onConfigure`.
  *
- * Handlers are read through refs so the `message` listener is attached once for
- * the component's lifetime, instead of re-subscribing on every render when
- * callers pass inline (non-memoized) callbacks.
+ * Handlers are read through refs so the listener attaches once per lifetime
+ * rather than re-subscribing on every render for inline callbacks.
  */
 export const useAppMessages = ({
   onConnected,

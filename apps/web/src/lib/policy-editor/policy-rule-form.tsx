@@ -481,8 +481,8 @@ export const PolicyRuleForm = ({
 
     try {
       if (isEdit) {
-        // Update accepts null to clear a previously-set modifier. Omitting
-        // `targets` leaves the locked rule's existing rows untouched.
+        // Update accepts null to clear a set modifier. Omitting `targets`
+        // leaves the locked rule's existing rows untouched.
         const input: UpdatePolicyRuleInput = {
           name: name.trim(),
           action,

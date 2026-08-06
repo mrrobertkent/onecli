@@ -4,13 +4,11 @@ import { CAPS } from "@/lib/env";
 import { AppsTab } from "@/app/(dashboard)/connections/_components/apps-tab";
 
 /**
- * Connect-only home (onprem-slim). The rest of the dashboard is gated off by the
- * middleware, so this is the landing: pick an app and connect it. Reuses the shared
- * app picker in `connectOnly` mode (no detail-page navigation). Auth is enforced by
- * the surrounding `(connect)/layout.tsx`.
+ * Connect-only home. The middleware gates off the rest of the dashboard, so
+ * this is the landing: pick an app and connect it. Auth is enforced by the
+ * surrounding `(connect)/layout.tsx`.
  *
- * Connect-only editions only — full editions have the picker at `/connections`, so this
- * index 404s there (it was a 404 before this landing existed; keeps behavior unchanged).
+ * 404s in full editions, which have the picker at `/connections`.
  */
 export default function ConnectHomePage() {
   if (CAPS.webSurface !== "connect-only") notFound();

@@ -26,9 +26,8 @@ export interface ResolveOptions {
  * server action.
  *
  * Delegates to the same `resolveProjectId` and session enforcer the `/v1/*`
- * middleware uses. Server actions bypass the API app, so anything checked only
- * there is not checked at all here — and `x-project-id` is client-supplied on
- * any request whose path carries no `/p/<id>` prefix.
+ * middleware uses: server actions bypass the API app, and `x-project-id` is
+ * client-supplied on any path without a `/p/<id>` prefix.
  */
 export const resolveProjectContext = async (
   options?: ResolveOptions,

@@ -1,12 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * Server actions bypass the API app, so `createApiApp` never runs for them and
- * its provider registrations are absent unless this module repeats them.
- *
- * Not a soft failure either way: with no role resolver
- * `canAccessProjectAsUser` denies everyone, and with no enforcer the access
- * gate is not applied on that path at all.
+ * Server actions bypass the API app, so `createApiApp`'s provider registrations
+ * are absent unless this module repeats them. Neither is a soft failure: with
+ * no role resolver `canAccessProjectAsUser` denies everyone, and with no
+ * enforcer the access gate is skipped entirely.
  */
 
 type Providers = typeof import("@onecli/api/providers");

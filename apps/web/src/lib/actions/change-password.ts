@@ -13,12 +13,10 @@ export interface ChangePasswordResult {
 }
 
 /**
- * Rotate the signed-in user's password.
- *
- * Written directly rather than through the auth library's own change-password
- * endpoint so clearing `mustChangePassword` is part of the same transaction —
- * a rotation that succeeded but left the flag set would trap the user in the
- * redirect it exists to drive.
+ * Rotate the signed-in user's password. Written directly rather than through
+ * the auth library's endpoint so clearing `mustChangePassword` is part of the
+ * same transaction — a rotation that left the flag set would trap the user in
+ * the redirect it drives.
  */
 export const changePassword = async (
   currentPassword: string,
@@ -69,8 +67,7 @@ export const changePassword = async (
   ]);
 
   // The old password may have been shared or logged, so every other session
-  // holding it is revoked. Database-backed sessions make that a real
-  // revocation rather than a cookie the client is asked to discard.
+  // holding it is revoked.
   await db.authSession.deleteMany({ where: { userId: user.id } });
 
   await auth.api.signInEmail({

@@ -17,11 +17,10 @@ export const useProjectsList = (
     enabled: options.enabled ?? true,
   });
 
-// Project rename/delete go through the audited `/v1/projects/:id` routes. Delete
-// flushes the gateway cache for the removed keys server-side, so there is
-// nothing to flush client-side. The projects list is server-rendered, so
-// callers handle the on-success refresh/redirect themselves (as the old actions
-// did) rather than invalidating a query cache.
+// Project rename/delete go through the audited `/v1/projects/:id` routes,
+// which flush the gateway cache server-side. The projects list is
+// server-rendered, so callers handle the on-success refresh themselves rather
+// than invalidating a query cache.
 
 export const useRenameProject = () =>
   useMutation({

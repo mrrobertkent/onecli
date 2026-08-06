@@ -3,12 +3,9 @@
 import { useEffect } from "react";
 
 /**
- * Global error boundary for the entire app.
- *
- * Handles ChunkLoadError gracefully — after a deployment, cached HTML may
- * reference old JS chunks that no longer exist. A single reload fetches
- * the new HTML with correct chunk references. Session storage prevents
- * infinite reload loops.
+ * Global error boundary. A ChunkLoadError means cached HTML is pointing at
+ * chunks a deploy replaced, so one reload fixes it; session storage guards
+ * against a reload loop.
  */
 export default function GlobalError({
   error,

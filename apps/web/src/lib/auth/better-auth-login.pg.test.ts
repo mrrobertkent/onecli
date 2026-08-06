@@ -6,16 +6,8 @@ import { proofDatabaseUrl } from "@onecli/api/testing/pg-proof";
 
 /**
  * The Better Auth instance against real PostgreSQL, using the real
- * `betterAuth()` object, Prisma client and schema.
- *
- * The other auth tests mock `@onecli/db`, so none of them executes an insert —
- * which cannot settle NOT NULL constraints or which routes create a user.
- *
- * Proven here:
- *  - a sign-up inserts, landing `external_auth_id` equal to the row's own id;
- *  - `signupMode: "closed"` stops new accounts without touching sign-in or
- *    OAuth initiation;
- *  - an unrecognised mode fails closed.
+ * `betterAuth()` object, Prisma client and schema. The other auth tests mock
+ * `@onecli/db` and so never execute an insert.
  *
  * Env-gated like the other proof suites; see pg-proof.ts.
  */

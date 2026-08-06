@@ -14,14 +14,12 @@ import { AppIcon } from "@/app/(dashboard)/connections/_components/app-icon";
 import { TeamBadge } from "@/lib/components/team-badge";
 
 /**
- * True when the registry knows the app but this edition can't connect it —
- * the same `available` key the Connections list locks on. Only the OSS
- * edition's registry (the shared EE-stub list) carries `available: false`;
- * cloud registers the real EE definitions (all available) and onprem excludes
- * its non-connectable apps outright, so this is false everywhere but OSS.
- * Deliberately ignores plan-gating (`teamOnly`) — that's a billing concern the
- * Connections page enforces at connect time; this lock is edition-capability
- * only, which is what keeps it byte-inert in cloud.
+ * True when the registry knows the app but this edition can't connect it, the
+ * same `available` key the Connections list locks on. Only OSS carries
+ * `available: false`, so this is false in every other edition.
+ *
+ * Ignores plan-gating: that is a billing concern the Connections page enforces
+ * at connect time.
  */
 export const isCloudOnlyApp = (id: string): boolean =>
   getApp(id)?.available === false;
@@ -36,9 +34,8 @@ export interface AppSelectProps {
 }
 
 /**
- * A single-select, searchable combobox over the app catalog — the provider a
- * rule targets. Mirrors the app-availability multi-select's search dropdown, but
- * picks exactly one app: clicking a row selects it and closes the popover.
+ * A single-select, searchable combobox over the app catalog. Clicking a row
+ * selects it and closes the popover.
  */
 export const AppSelect = ({ value, onChange, id, invalid }: AppSelectProps) => {
   const [open, setOpen] = useState(false);
@@ -62,11 +59,8 @@ export const AppSelect = ({ value, onChange, id, invalid }: AppSelectProps) => {
   };
 
   return (
-    // `modal`: this combobox opens inside the rule-form Sheet (a modal Radix
-    // dialog), whose scroll-lock only lets wheel/touch scrolling through inside
-    // the sheet's own subtree — and PopoverContent portals to <body>, outside
-    // it, so the list's overflow-y-auto could never scroll. A modal popover
-    // mounts its own scroll layer that allowlists the popover content.
+    // `modal`: PopoverContent portals to <body>, outside the rule-form Sheet's
+    // scroll-lock subtree, so without it the list could never scroll.
     <Popover
       modal
       open={open}

@@ -10,14 +10,10 @@ import {
 import type { GrantsSummaryEntry } from "@/lib/api";
 import { AppIcon } from "@/app/(dashboard)/connections/_components/app-icon";
 
-// What an agent can reach, as an overlapping avatar stack. This replaces a row
-// of full-text badges (`guy@chartdb.io`, `ronsm0987@gmail.com`, …) that ate the
-// card's width and stopped scaling after about three credentials — a list is
-// meant to be scannable down the names column, not across the chips.
+// What an agent can reach, as an overlapping avatar stack.
 //
-// The stack is decorative: the labels live in the tooltips for pointer users
-// and in one `sr-only` sentence for everyone else, so a card with six
-// credentials adds six hover targets but ZERO tab stops.
+// The stack is decorative: labels live in the tooltips for pointer users and in
+// one `sr-only` sentence for everyone else, so it adds no tab stops.
 
 const MAX_AVATARS = 5;
 /** Names listed inside the "+N" tooltip before it summarizes the rest. */
@@ -33,9 +29,9 @@ const keyOf = (entry: GrantsSummaryEntry): string =>
     ? `app:${entry.connectionId}`
     : `${entry.kind}:${entry.id}`;
 
-/** The glyph inside one avatar: the app's own logo when we know the provider,
- * otherwise a kind-appropriate icon (never a bare letter — a monogram beside
- * real product logos reads as a broken image). */
+/** The app's own logo when the provider is known, otherwise a
+ * kind-appropriate icon; a monogram beside real logos reads as a broken
+ * image. */
 const Glyph = ({ entry }: { entry: GrantsSummaryEntry }) => {
   if (entry.kind !== "app") {
     return <KeyRound className="text-muted-foreground size-3.5" />;

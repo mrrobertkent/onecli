@@ -4,15 +4,12 @@ import { createAuthClient } from "better-auth/react";
 import { genericOAuthClient } from "better-auth/client/plugins";
 
 /**
- * Browser-side Better Auth client.
+ * Browser-side Better Auth client. `genericOAuthClient()` is what surfaces
+ * `signIn.oauth2({providerId})`; the generic-OIDC provider is not reachable
+ * through `signIn.social()`.
  *
- * `genericOAuthClient()` is what surfaces `signIn.oauth2({providerId})`. The
- * generic-OIDC provider is NOT reachable through `signIn.social({provider})` —
- * that only addresses Better Auth's closed built-in registry, which has no
- * generic OIDC entry.
- *
- * No `baseURL`: the client defaults to the current origin, which is correct for
- * a self-hosted instance behind any hostname the operator chooses.
+ * No `baseURL`, so the client defaults to the current origin — correct for a
+ * self-hosted instance behind any hostname.
  */
 export const authClient = createAuthClient({
   plugins: [genericOAuthClient()],

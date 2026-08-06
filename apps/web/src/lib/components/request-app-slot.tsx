@@ -1,17 +1,11 @@
 import { Plus } from "lucide-react";
 
 /**
- * OSS default "Request an app" slot — links to the OSS repo's issue form
- * pre-labeled `app-request`.
- *
- * Cloud aliases this module to `@/ee/apps/request-app-slot` via
- * turbopack `resolveAlias` in `next.config.js`. The EE override opens
- * an in-app dialog that collects the request and emails the user an
- * acknowledgment via Resend.
+ * OSS default "Request an app" slot, linking to the repo's issue form. Cloud
+ * aliases this module to an in-app request dialog.
  *
  * Both variants accept optional controlled props so the parent can open the
- * request dialog programmatically (e.g., via `?request=` URL param). OSS
- * ignores them; cloud wires them to the in-app dialog.
+ * dialog programmatically; OSS ignores them.
  */
 
 export interface RequestAppSlotProps {

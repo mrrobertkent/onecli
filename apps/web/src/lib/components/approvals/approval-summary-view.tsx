@@ -16,12 +16,9 @@ const Field = ({
 );
 
 /**
- * Renders the gateway's structured approval summary (`{action, details}`) as a
- * stacked field list — label above the value, value left-aligned and full
- * width — so long fields like an email body read naturally. Falls back to the
- * flat `bodyPreview` when no structured summary is present. With `showMeta`
- * (default) it also appends method/host/path. Reused by the popover details
- * dialog and the Activity detail dialog.
+ * Renders the gateway's structured approval summary as a stacked field list, so
+ * long fields like an email body read naturally. Falls back to the flat
+ * `bodyPreview` when no structured summary is present.
  */
 export const ApprovalSummaryView = ({
   approval,
