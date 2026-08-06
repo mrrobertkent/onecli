@@ -211,13 +211,21 @@ describe.skipIf(!PROOF_URL)("GET /v1/auth/session on real PostgreSQL", () => {
     const { status, body } = await callSessionRoute();
 
     expect(status).toBe(401);
+    // The code is what the dashboard reads to send them somewhere terminal
+    // rather than back through the IdP into the same 401.
     expect(body.code).toBe("NOT_AUTHORISED");
     // The gate must close on the side effects too, not just the response.
+    await expect(
+      db.organizationMember.count({ where: { userId: user.id } }),
+    ).resolves.toBe(0);
     await expect(
       db.project.count({ where: { createdByUserId: user.id } }),
     ).resolves.toBe(0);
     await expect(db.apiKey.count({ where: { userId: user.id } })).resolves.toBe(
       0,
     );
+    await expect(
+      db.agent.count({ where: { project: { createdByUserId: user.id } } }),
+    ).resolves.toBe(0);
   });
 });

@@ -880,8 +880,6 @@ mod access_proof_tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
 
-    const P: &str = "gwacc-";
-
     fn proof_database_url() -> Option<String> {
         match std::env::var("POLICY_PROOF_DATABASE_URL") {
             Ok(url) if !url.is_empty() => Some(url),
@@ -897,7 +895,15 @@ mod access_proof_tests {
         }
     }
 
-    async fn reset(pool: &PgPool) -> Result<()> {
+    async fn connect(url: &str) -> PgPool {
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(url)
+            .await
+            .expect("connect to proof database")
+    }
+
+    async fn reset(pool: &PgPool, p: &str) -> Result<()> {
         for stmt in [
             "DELETE FROM project_access WHERE project_id LIKE $1",
             "DELETE FROM projects WHERE id LIKE $1",
@@ -906,7 +912,7 @@ mod access_proof_tests {
             "DELETE FROM organizations WHERE id LIKE $1",
         ] {
             sqlx::query(stmt)
-                .bind(format!("{P}%"))
+                .bind(format!("{p}%"))
                 .execute(pool)
                 .await?;
         }
@@ -915,14 +921,17 @@ mod access_proof_tests {
 
     /// One org, two users with a project each, plus an org admin who owns none.
     /// Each project carries its creator's binding, as provisioning writes it.
-    async fn seed(pool: &PgPool) -> Result<()> {
-        reset(pool).await?;
+    ///
+    /// `p` prefixes every row: cargo runs these tests concurrently against the
+    /// one database, so a shared fixture would have them collide.
+    async fn seed(pool: &PgPool, p: &str) -> Result<()> {
+        reset(pool, p).await?;
 
         sqlx::query(
             "INSERT INTO organizations (id, name, slug, updated_at)
              VALUES ($1, 'proof', $1, NOW())",
         )
-        .bind(format!("{P}org"))
+        .bind(format!("{p}org"))
         .execute(pool)
         .await?;
 
@@ -931,21 +940,23 @@ mod access_proof_tests {
                 "INSERT INTO users (id, email, name, external_auth_id, updated_at)
                  VALUES ($1, $2, $1, $1, NOW())",
             )
-            .bind(format!("{P}{who}"))
-            .bind(format!("{P}{who}@proof.test"))
+            .bind(format!("{p}{who}"))
+            .bind(format!("{p}{who}@proof.test"))
             .execute(pool)
             .await?;
         }
 
+        // Alice's project is inserted first, so it is the org's oldest — which
+        // is what an unfiltered default-project lookup would hand to Bob.
         for who in ["alice", "bob"] {
             sqlx::query(
                 "INSERT INTO projects
                    (id, name, slug, organization_id, created_by_user_id, updated_at)
                  VALUES ($1, $1, $1, $2, $3, NOW())",
             )
-            .bind(format!("{P}{who}-proj"))
-            .bind(format!("{P}org"))
-            .bind(format!("{P}{who}"))
+            .bind(format!("{p}{who}-proj"))
+            .bind(format!("{p}org"))
+            .bind(format!("{p}{who}"))
             .execute(pool)
             .await?;
 
@@ -953,9 +964,9 @@ mod access_proof_tests {
                 "INSERT INTO project_access (id, project_id, user_id, role, updated_at)
                  VALUES ($1, $2, $3, 'owner', NOW())",
             )
-            .bind(format!("{P}{who}-binding"))
-            .bind(format!("{P}{who}-proj"))
-            .bind(format!("{P}{who}"))
+            .bind(format!("{p}{who}-binding"))
+            .bind(format!("{p}{who}-proj"))
+            .bind(format!("{p}{who}"))
             .execute(pool)
             .await?;
         }
@@ -963,7 +974,7 @@ mod access_proof_tests {
         Ok(())
     }
 
-    async fn add_member(pool: &PgPool, who: &str, role: &str, status: &str) -> Result<()> {
+    async fn add_member(pool: &PgPool, p: &str, who: &str, role: &str, status: &str) -> Result<()> {
         sqlx::query(
             "INSERT INTO organization_members
                (organization_id, user_id, user_email, role, status)
@@ -971,9 +982,9 @@ mod access_proof_tests {
              ON CONFLICT (organization_id, user_id)
              DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status",
         )
-        .bind(format!("{P}org"))
-        .bind(format!("{P}{who}"))
-        .bind(format!("{P}{who}@proof.test"))
+        .bind(format!("{p}org"))
+        .bind(format!("{p}{who}"))
+        .bind(format!("{p}{who}@proof.test"))
         .bind(role)
         .bind(status)
         .execute(pool)
@@ -981,11 +992,11 @@ mod access_proof_tests {
         Ok(())
     }
 
-    async fn can(pool: &PgPool, who: &str, project_owner: &str) -> bool {
+    async fn can(pool: &PgPool, p: &str, who: &str, project_owner: &str) -> bool {
         user_can_manage_project(
             pool,
-            &format!("{P}{who}"),
-            &format!("{P}{project_owner}-proj"),
+            &format!("{p}{who}"),
+            &format!("{p}{project_owner}-proj"),
         )
         .await
         .expect("access check")
@@ -996,39 +1007,43 @@ mod access_proof_tests {
         let Some(url) = proof_database_url() else {
             return;
         };
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&url)
-            .await
-            .expect("connect to proof database");
+        const P: &str = "gwkey-";
+        let pool = connect(&url).await;
 
-        seed(&pool).await.expect("seed");
+        seed(&pool, P).await.expect("seed");
 
-        add_member(&pool, "alice", "member", "active")
+        add_member(&pool, P, "alice", "member", "active")
             .await
             .unwrap();
-        add_member(&pool, "bob", "member", "active").await.unwrap();
-        add_member(&pool, "admin", "admin", "active").await.unwrap();
+        add_member(&pool, P, "bob", "member", "active")
+            .await
+            .unwrap();
+        add_member(&pool, P, "admin", "admin", "active")
+            .await
+            .unwrap();
 
-        assert!(can(&pool, "alice", "alice").await, "own project");
+        assert!(can(&pool, P, "alice", "alice").await, "own project");
         // Alice and Bob share one org, so membership alone would admit her; the
         // binding check is what refuses.
-        assert!(!can(&pool, "alice", "bob").await, "another user's project");
         assert!(
-            can(&pool, "admin", "bob").await,
+            !can(&pool, P, "alice", "bob").await,
+            "another user's project"
+        );
+        assert!(
+            can(&pool, P, "admin", "bob").await,
             "org admin reaches any project"
         );
 
         // Suspension revokes immediately, binding or not.
-        add_member(&pool, "alice", "member", "suspended")
+        add_member(&pool, P, "alice", "member", "suspended")
             .await
             .unwrap();
-        assert!(!can(&pool, "alice", "alice").await, "suspended member");
+        assert!(!can(&pool, P, "alice", "alice").await, "suspended member");
 
-        add_member(&pool, "admin", "admin", "suspended")
+        add_member(&pool, P, "admin", "admin", "suspended")
             .await
             .unwrap();
-        assert!(!can(&pool, "admin", "bob").await, "suspended admin");
+        assert!(!can(&pool, P, "admin", "bob").await, "suspended admin");
 
         // Removal from the org revokes too.
         sqlx::query("DELETE FROM organization_members WHERE user_id = $1")
@@ -1036,8 +1051,54 @@ mod access_proof_tests {
             .execute(&pool)
             .await
             .unwrap();
-        assert!(!can(&pool, "alice", "alice").await, "removed member");
+        assert!(!can(&pool, P, "alice", "alice").await, "removed member");
 
-        reset(&pool).await.expect("cleanup");
+        reset(&pool, P).await.expect("cleanup");
+    }
+
+    #[cfg(not(edition_cloud))]
+    #[tokio::test]
+    async fn session_default_project_is_the_caller_s_own() {
+        let Some(url) = proof_database_url() else {
+            return;
+        };
+        const P: &str = "gwdflt-";
+        let pool = connect(&url).await;
+
+        seed(&pool, P).await.expect("seed");
+
+        add_member(&pool, P, "alice", "member", "active")
+            .await
+            .unwrap();
+        add_member(&pool, P, "bob", "member", "active")
+            .await
+            .unwrap();
+        add_member(&pool, P, "admin", "admin", "active")
+            .await
+            .unwrap();
+
+        let default_for = |who: &'static str| {
+            let pool = pool.clone();
+            async move {
+                find_default_project_id_by_user(&pool, &format!("{P}{who}"))
+                    .await
+                    .expect("default project lookup")
+            }
+        };
+
+        assert_eq!(default_for("alice").await, Some(format!("{P}alice-proj")));
+        // Bob's session must not land on Alice's older project, which is what
+        // an unfiltered lookup returns for everyone in the shared org.
+        assert_eq!(default_for("bob").await, Some(format!("{P}bob-proj")));
+        // An org admin owns no project; reaching one is a binding decision, not
+        // a default.
+        assert_eq!(default_for("admin").await, None);
+
+        add_member(&pool, P, "alice", "member", "suspended")
+            .await
+            .unwrap();
+        assert_eq!(default_for("alice").await, None, "suspended member");
+
+        reset(&pool, P).await.expect("cleanup");
     }
 }
