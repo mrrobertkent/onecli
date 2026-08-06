@@ -20,6 +20,10 @@ export const AUDIT_ACTIONS = {
   // EE-only (identity): a claimed resource passed its ownership proof
   // (e.g. an org domain's DNS TXT check).
   VERIFY: "verify",
+  // Emergency recovery: a host-minted key redeemed to regain access without the
+  // identity provider. Recorded on failure too — an unusable key being
+  // presented is the signal worth seeing.
+  RECOVER: "recover",
 } as const;
 
 export const AUDIT_SERVICES = {
@@ -43,7 +47,7 @@ export const AUDIT_SERVICES = {
   PARTNER_SECRET: "partner-secret",
   // EE-only (budget module): per-(secret, org) spend caps
   BUDGET: "budget",
-  // EE-only (identity linking): auth-identity relink decisions
+  // Auth-identity events: emergency recovery in OSS, relink decisions in EE.
   AUTH: "auth",
   // EE-only (identity): org email domains (claim / verify / remove)
   DOMAIN: "domain",
@@ -79,6 +83,9 @@ export const AUDIT_SOURCE = {
   // EE-only (directory): writes pushed by the customer's IdP through the
   // SCIM endpoint (attributed to the org owner — SCIM has no acting user).
   SCIM: "scim",
+  // Emergency recovery: a key minted on the host, redeemed without the IdP.
+  // Its own source because the trust is host access, not a signed-in actor.
+  RECOVERY: "recovery",
 } as const;
 
 // ─── Types (derived from constants) ───────────────────────────────────────────

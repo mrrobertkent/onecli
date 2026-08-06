@@ -15,6 +15,9 @@ import { isConnectOnlyAllowed } from "@/lib/connect-surface";
 
 type SetupErrorCode = "oauth-misconfigured" | "missing-encryption-key";
 
+/** Kept in step with `app/auth/recovery/` and the gateway's printed link. */
+const RECOVERY_PATH = "/auth/recovery";
+
 /**
  * Returns the first configuration error found, or null if setup is valid.
  */
@@ -51,7 +54,11 @@ export const proxy = (request: NextRequest) => {
     return NextResponse.next();
   }
 
-  if (error) {
+  // Recovery is exempt from the configuration gate. Clearing OIDC_* is the
+  // obvious reaction to a broken identity provider, and that is precisely what
+  // raises "oauth-misconfigured" — so gating this path would send the operator
+  // to /setup-error during the outage recovery exists for.
+  if (error && !pathname.startsWith(RECOVERY_PATH)) {
     return NextResponse.redirect(
       new URL(`/setup-error?code=${error}`, request.url),
     );

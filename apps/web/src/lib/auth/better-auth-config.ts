@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 import { genericOAuth } from "better-auth/plugins/generic-oauth";
@@ -16,6 +16,11 @@ import {
   OIDC_ISSUER,
 } from "@/lib/env";
 import { hashPassword, verifyPassword } from "@/lib/auth/password-hash";
+import {
+  checkAccountThrottle,
+  recordAccountFailure,
+  clearAccountThrottle,
+} from "@/lib/auth/account-throttle";
 
 /**
  * Better Auth's `user` model maps onto OneCLI's existing `users` table; its
@@ -117,6 +122,43 @@ export const auth = betterAuth({
     // Survives a container restart, unlike the default in-memory store.
     storage: "database",
     modelName: "authRateLimit",
+  },
+
+  hooks: {
+    /**
+     * The per-account half of login throttling. The library's own limiter is
+     * keyed on address and path, which one attacker with many addresses walks
+     * straight through.
+     */
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email") return;
+      const email = (ctx.body as { email?: string } | undefined)?.email;
+      if (!email) return;
+
+      const { allowed, retryAfterSeconds } = await checkAccountThrottle(email);
+      if (allowed) return;
+
+      throw new APIError("TOO_MANY_REQUESTS", {
+        message: "Too many attempts. Wait a moment and try again.",
+        code: "ACCOUNT_THROTTLED",
+        retryAfter: retryAfterSeconds,
+      });
+    }),
+
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email") return;
+      const email = (ctx.body as { email?: string } | undefined)?.email;
+      if (!email) return;
+
+      // The endpoint throws on a bad credential, so reaching `after` with a
+      // returned session is the success case.
+      const returned = ctx.context.returned;
+      if (returned instanceof APIError) {
+        await recordAccountFailure(email);
+        return;
+      }
+      await clearAccountThrottle(email);
+    }),
   },
 
   advanced: {

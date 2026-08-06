@@ -235,6 +235,7 @@ model User {
 
   authSessions                  AuthSession[]
   authAccounts                  AuthAccount[]
+  recoveryTokens                RecoveryToken[]
   bootstrapAdminOf              InstanceSetting?              @relation("BootstrapAdmin")
   organizationMemberships       OrganizationMember[]
   sentInvitations               Invitation[]                  @relation("InvitationCreator")
@@ -1068,4 +1069,26 @@ model AuthRateLimit {
   lastRequest BigInt @map("last_request")
 
   @@map("auth_rate_limits")
+}
+
+// ── Emergency recovery ──────────────────────────────────────────────────
+
+/// A single-use, short-lived key minted on the host, admitting one user
+/// without the identity provider.
+///
+/// Only the SHA-256 of the key is stored: a database copy then carries nothing
+/// replayable. `usedAt` is set by a conditional update, which is what makes
+/// redemption single-use under concurrency.
+model RecoveryToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique @map("token_hash")
+  userId    String    @map("user_id")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("recovery_tokens")
 }

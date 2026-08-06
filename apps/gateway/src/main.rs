@@ -122,13 +122,16 @@ mod policy_engine;
 #[path = "ee/policy_engine.rs"]
 mod policy_engine;
 
+#[cfg(not(edition_cloud))]
+mod recovery;
+
 mod vault;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -152,6 +155,44 @@ struct Cli {
     /// Data directory for CA certificates and persistent state.
     #[arg(long, default_value = default_data_dir())]
     data_dir: PathBuf,
+
+    #[cfg(not(edition_cloud))]
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// Absent means "run the gateway", so the container's CMD is unchanged.
+#[cfg(not(edition_cloud))]
+#[derive(Subcommand)]
+enum Command {
+    /// Mint a single-use link that signs a user in without the identity
+    /// provider. Needs only DATABASE_URL, so it works while the web app is
+    /// down.
+    CreateRecoveryKey {
+        /// Email of the user to admit.
+        email: String,
+
+        /// Minutes the link stays valid.
+        #[arg(long, default_value = "10")]
+        ttl: i32,
+    },
+}
+
+/// `DATABASE_URL` (OSS) or the individual `DB_*` vars (cloud ECS, from Secrets
+/// Manager). Shared so the recovery subcommand resolves it identically.
+fn resolve_database_url() -> Result<String> {
+    match std::env::var("DATABASE_URL") {
+        Ok(url) => Ok(url),
+        Err(_) => {
+            let host =
+                std::env::var("DB_HOST").context("DATABASE_URL or DB_HOST env var must be set")?;
+            let port = std::env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
+            let user = std::env::var("DB_USERNAME").context("DB_USERNAME env var must be set")?;
+            let pass = std::env::var("DB_PASSWORD").context("DB_PASSWORD env var must be set")?;
+            let name = std::env::var("DB_NAME").unwrap_or_else(|_| "onecli".to_string());
+            Ok(format!("postgresql://{user}:{pass}@{host}:{port}/{name}"))
+        }
+    }
 }
 
 /// Cap on the final telemetry flush, inside the overall shutdown budget.
@@ -195,6 +236,13 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Before any server setup: recovery runs against a broken deployment, so it
+    // must not depend on the CA, the data directory, or a listening port.
+    #[cfg(not(edition_cloud))]
+    if let Some(Command::CreateRecoveryKey { email, ttl }) = &cli.command {
+        return recovery::create_recovery_key(&resolve_database_url()?, email, *ttl).await;
+    }
+
     // Before anything that can block: as PID 1 the kernel discards SIGTERM
     // until a handler is installed, so until this runs only SIGKILL stops us.
     shutdown::install();
@@ -227,19 +275,7 @@ async fn main() -> Result<()> {
     info!("CA certificate loaded");
 
     // Connect to PostgreSQL
-    // Support both DATABASE_URL (OSS) and individual DB_* vars (cloud ECS from Secrets Manager)
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            let host =
-                std::env::var("DB_HOST").context("DATABASE_URL or DB_HOST env var must be set")?;
-            let port = std::env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
-            let user = std::env::var("DB_USERNAME").context("DB_USERNAME env var must be set")?;
-            let pass = std::env::var("DB_PASSWORD").context("DB_PASSWORD env var must be set")?;
-            let name = std::env::var("DB_NAME").unwrap_or_else(|_| "onecli".to_string());
-            format!("postgresql://{user}:{pass}@{host}:{port}/{name}")
-        }
-    };
+    let database_url = resolve_database_url()?;
     let pool = db::create_pool(&database_url).await?;
     info!("database pool created");
     let telemetry_pool = pool.clone();

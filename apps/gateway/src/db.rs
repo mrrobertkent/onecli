@@ -161,6 +161,39 @@ pub(crate) async fn find_default_project_id_by_user(
     Ok(row.map(|(id,)| id))
 }
 
+/// Persist a recovery key for the user with this email, returning false when no
+/// such user exists.
+///
+/// Only the hash reaches the database, so a copy of the table admits nobody.
+/// `expires_at` is written as `NOW() AT TIME ZONE 'UTC'` for the same reason
+/// [`find_auth_session_user_id`] reads it that way: the column is a zone-less
+/// `timestamp(3)` holding a UTC instant.
+#[cfg(not(edition_cloud))]
+pub(crate) async fn insert_recovery_token(
+    pool: &PgPool,
+    email: &str,
+    token_hash: &str,
+    ttl_minutes: i32,
+) -> Result<bool> {
+    let result = sqlx::query(
+        r#"INSERT INTO recovery_tokens (id, token_hash, user_id, expires_at, created_at)
+           SELECT $1, $2, u.id,
+                  (NOW() AT TIME ZONE 'UTC') + make_interval(mins => $3),
+                  (NOW() AT TIME ZONE 'UTC')
+           FROM users u
+           WHERE u.email = $4"#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(token_hash)
+    .bind(ttl_minutes)
+    .bind(email)
+    .execute(pool)
+    .await
+    .context("inserting recovery token")?;
+
+    Ok(result.rows_affected() == 1)
+}
+
 /// Look up an API key (`oc_...`) and return its user_id and project_id.
 pub(crate) async fn find_api_key(pool: &PgPool, key: &str) -> Result<Option<ApiKeyRow>> {
     sqlx::query_as::<_, ApiKeyRow>(
