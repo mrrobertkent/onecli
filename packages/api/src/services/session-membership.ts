@@ -16,25 +16,20 @@ import { readClaimPath, resolveRoleFromGroups } from "./role-resolution";
 import type { SessionDenial, SessionUser } from "../providers/types";
 
 /**
- * The login-time role writer (design D-3), registered on the sanctioned
- * `ensureSessionMembership` hook.
+ * The login-time role writer, registered on the `ensureSessionMembership` hook.
  *
- * D-3 forbids a group-aware `RoleResolver`: authorization reads a PERSISTED
- * role, and the IdP's groups are consulted here instead, once per session sync.
- * That is also what upstream's enterprise edition does — resolve at SSO login
- * and materialise the result (`AUDIT_SOURCE.SSO_LOGIN`).
+ * Authorization reads a persisted role, so the IdP's groups are resolved here —
+ * once per session sync — rather than by a group-aware `RoleResolver`.
  *
- * WHERE THE CLAIM COMES FROM: not the session cookie. Better Auth persists the
- * OIDC `id_token` on `auth_accounts` at login, so the groups are read from our
- * own database rather than carried in a cookie that cannot be refreshed
- * (NFR-3). The token is not re-verified here — Better Auth verified it against
- * the provider's JWKS before storing it, and re-verifying a row we wrote
- * ourselves would only add a network call to the login path.
+ * The groups come from the OIDC `id_token` Better Auth persists on
+ * `auth_accounts`, not from the session cookie, which cannot be refreshed. The
+ * token is not re-verified: Better Auth checked it against the provider's JWKS
+ * before storing it, so re-verifying a row we wrote ourselves would only add a
+ * network call to the login path.
  *
- * CONTRACT: this hook must be idempotent and MUST NOT THROW. Membership is
- * best-effort; session resolution is not. Denying an unmapped identity is the
- * `SessionEnforcer`'s job, not this one's — a throw here would surface as a 500
- * rather than a denial.
+ * Contract: idempotent, and MUST NOT THROW. Membership is best-effort; session
+ * resolution is not, and a throw here surfaces as a 500 rather than a denial.
+ * Denying an unmapped identity belongs to the `SessionEnforcer`.
  */
 export const ossSessionMembership = async (
   _session: SessionUser,
@@ -53,9 +48,9 @@ export const ossSessionMembership = async (
     if (groups.length === 0) return;
 
     const role = await resolveRoleFromGroups(org.id, groups);
-    // Null means no group mapped. Deliberately NOT treated as "member": under
-    // US-4 an unmapped identity is not admitted at all, and that decision
-    // belongs to the enforcer. Silently downgrading here would admit them.
+    // Null means no group mapped. Deliberately NOT treated as "member" — an
+    // unmapped identity is not admitted at all, and that decision belongs to
+    // the enforcer. Downgrading here would silently admit them.
     if (!role) return;
 
     const member = await db.organizationMember.findFirst({
@@ -113,7 +108,7 @@ export const ossSessionMembership = async (
 /**
  * Group names from the most recent OIDC `id_token` this user signed in with.
  *
- * Read by PATH, not by name (D-4): Authentik and Okta emit a flat `groups`,
+ * Read by path, not by name: Authentik and Okta emit a flat `groups` while
  * Keycloak keeps roles at `realm_access.roles`, and a configuration storing a
  * claim NAME cannot express the second.
  */
@@ -149,22 +144,20 @@ const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
 };
 
 /**
- * The OSS `SessionEnforcer` — the server-side half of US-1's gate.
+ * The OSS `SessionEnforcer` — the server-side access gate.
  *
- * Runs on EVERY authenticated session, after the role writer above and before
- * any project resolution, so it cannot be skipped by a client that goes
- * straight to a `/v1/*` route: no session resolves without passing here.
+ * Runs on every authenticated session, after the role writer above and before
+ * project resolution, so a client that goes straight to a `/v1/*` route cannot
+ * skip it.
  *
- * The rule is simply "does this identity hold an active membership of the
- * shared organization". The writer above creates one for any identity whose
- * IdP groups map to a role, so the two together mean: authenticate at the IdP
- * AND map to a role, or you are not admitted (US-4). Authenticating alone is
- * not sufficient, which was the whole problem this spec started from.
+ * The rule is "does this identity hold an active membership of the shared
+ * organization". The writer above creates one for any identity whose IdP groups
+ * map to a role, so together they mean: authenticate at the IdP AND map to a
+ * role. Authenticating alone is not sufficient.
  *
- * FAIL-CLOSED. A database error denies rather than admits — US-1's
- * "misconfiguration denies; it does not admit". That is also why this returns a
- * denial instead of throwing: a throw lands in the route's catch as a 500,
- * which some clients treat as retryable.
+ * Fail-closed — a database error denies rather than admits. That is also why it
+ * returns a denial instead of throwing: a throw lands in the route's catch as a
+ * 500, which some clients treat as retryable.
  */
 export const ossSessionEnforcer = async (
   _session: SessionUser,

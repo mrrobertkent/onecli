@@ -2,7 +2,7 @@ import { toNextJsHandler } from "better-auth/next-js";
 import { auth } from "@/lib/auth/better-auth-config";
 
 /**
- * Better Auth's catch-all mount (design D-9), replacing next-auth's
+ * Better Auth's catch-all mount, replacing next-auth's
  * `[...nextauth]`.
  *
  * DEPLOYMENT-FACING: the generic-OIDC callback path CHANGES. next-auth used

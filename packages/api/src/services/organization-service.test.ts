@@ -208,7 +208,7 @@ describe("joinSharedOrganization", () => {
     expect(store.projects).toHaveLength(1);
   });
 
-  // ── Design D-11 regression ────────────────────────────────────────────
+  // ── Shared-org role regression ────────────────────────────────────────
   //
   // This path used to create EVERY shared-org membership with `role: "owner"`,
   // unconditionally. Under `single-org-shared` that made every user who logged
@@ -236,7 +236,7 @@ describe("joinSharedOrganization", () => {
 
   it("preserves an existing role when the same user joins again", async () => {
     // Re-entry must not re-grade anyone: role changes belong to the login-time
-    // role writer (D-3) or an admin, never to a bootstrap helper.
+    // role writer or an admin, never to a bootstrap helper.
     await joinSharedOrganization("user-aaaaaaaa", "a@example.com", "member");
     await joinSharedOrganization("user-aaaaaaaa", "a@example.com", "owner");
 

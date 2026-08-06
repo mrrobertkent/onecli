@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../providers/types";
 
-// The enforcer is US-1's gate — "authentication is insufficient on its own for
-// provisioning", with a failure mode that is CLOSED. These tests are what hold
+// The enforcer is the access gate: authentication alone is not sufficient to
+// be provisioned, and its failure mode is CLOSED. These tests are what hold
 // that up, so they lean on the denial paths rather than the happy one.
 
 const state = vi.hoisted(() => ({
@@ -55,8 +55,7 @@ describe("ossSessionEnforcer", () => {
   });
 
   it("DENIES when the membership check throws", async () => {
-    // Fail-closed: a database problem must not become an open door. US-1 —
-    // "misconfiguration denies; it does not admit".
+    // Fail-closed: a database problem must not become an open door.
     state.throwOnMembership = true;
     const denial = await ossSessionEnforcer(SESSION, USER);
     expect(denial?.code).toBe("AUTHORISATION_UNAVAILABLE");

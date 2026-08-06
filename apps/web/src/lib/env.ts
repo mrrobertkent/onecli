@@ -70,7 +70,7 @@ export const IS_CLOUD = EDITION_INFO.edition === "cloud";
 
 /**
  * Signing key for session cookies and OAuth state. Renamed from
- * `NEXTAUTH_SECRET` when next-auth was removed (design D-9) — the old name
+ * `NEXTAUTH_SECRET` when next-auth was removed — the old name
  * described a library that is no longer here. DEPLOYMENT-FACING: operators must
  * set `AUTH_SECRET`.
  */

@@ -171,17 +171,16 @@ const findOrCreateSharedOrg = async (): Promise<{ id: string }> => {
  * Ensure the single shared organization exists and the user is a member of it
  * with the GIVEN role — WITHOUT any project. Idempotent and concurrency-safe.
  *
- * `role` IS DELIBERATELY REQUIRED AND HAS NO DEFAULT (design D-11). This
- * function previously created every membership with `role: "owner"`
- * unconditionally, which under `single-org-shared` made every user who ever
- * logged in an owner of the shared organization. A `RoleResolver` reading
- * `organization_members.role` then returned `owner` for everyone — a correct
- * answer to poisoned data, which is worse than an obviously broken one. Callers
- * must now state the role, so the compiler makes that decision visible.
+ * `role` is deliberately required and has no default. This function once
+ * created every membership as `owner` unconditionally, which under shared
+ * tenancy made every user who ever logged in an owner of the one organization;
+ * a `RoleResolver` reading `organization_members.role` then answered `owner`
+ * for everyone — correct, against poisoned data. Callers must state the role,
+ * so the compiler keeps that decision visible.
  *
  * The existing role is preserved on re-entry (`update: {}`): membership is
- * created once, and later role changes belong to the login-time role writer
- * (D-3) or an admin, not to a bootstrap helper.
+ * created once, and later role changes belong to the login-time role writer or
+ * an admin, not to a bootstrap helper.
  */
 export const ensureSharedOrgMembership = async (
   userId: string,
@@ -217,8 +216,8 @@ export const ensureSharedOrgMembership = async (
  * the eager boot-time init so the instance is usable via the org key before
  * anyone opens the web.
  *
- * Split out from the membership helper above per design D-11. The key seeding
- * is what makes this owner-shaped: `ApiKey.user` is `ON DELETE RESTRICT`, so
+ * Split out from the membership helper above. The key seeding is what makes
+ * this owner-shaped: `ApiKey.user` is `ON DELETE RESTRICT`, so
  * whoever owns the bootstrap key cannot be deleted while it exists. That is
  * correct for a bootstrap admin and wrong for an ordinary joiner, which is
  * exactly why the two paths must not share one function.
@@ -243,7 +242,7 @@ export const ensureSharedOrgBootstrap = async (
  * shape — the project apiKey + default agent are seeded by the caller's
  * `ensureProjectSeeds`.
  *
- * `role` is required with no default (design D-11). It does NOT seed the
+ * `role` is required with no default. It does NOT seed the
  * bootstrap org API key: that belongs to `ensureSharedOrgBootstrap` and to the
  * bootstrap admin alone, because owning the key makes a user undeletable.
  */

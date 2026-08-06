@@ -4,15 +4,14 @@ import type { OrgRole, RoleResolver } from "../providers/types";
 import { activeMembershipWhere } from "./organization-service";
 
 /**
- * Role resolution, split the way design D-3 requires: a login-time WRITER that
- * reads the IdP claim once and persists the result, and a flat per-request
- * READER that only ever looks at what was persisted.
+ * Role resolution, split in two: a login-time WRITER that reads the IdP claim
+ * once and persists the result, and a flat per-request READER that only ever
+ * looks at what was persisted.
  *
- * The split is forced by the session model, not chosen for tidiness. A claim
- * carried in a session is captured at sign-in and never refreshed, so it can be
- * stale without bound; authorization must therefore never read it. It is also
- * what upstream's enterprise edition does (`AUDIT_SOURCE.SSO_LOGIN`), which is
- * why `RoleResolver` is deliberately NOT group-aware.
+ * The session model forces the split. A claim carried in a session is captured
+ * at sign-in and never refreshed, so it can be stale without bound, and
+ * authorization must never read it. Hence `RoleResolver` is deliberately not
+ * group-aware.
  */
 
 // ── The reader ───────────────────────────────────────────────────────────
@@ -44,13 +43,12 @@ const isOrgRole = (value: string): value is OrgRole =>
 // ── The writer ───────────────────────────────────────────────────────────
 
 /**
- * Read a claim by PATH, not by name (design D-4).
+ * Read a claim by path, not by name.
  *
  * Authentik and Okta put groups at a flat `groups`; Keycloak puts roles at
- * `realm_access.roles`. A configuration that stores a claim NAME cannot express
- * the second, which is why this walks a dotted path. Better Auth's own
- * `mapping.extraFields` is flat-key only for exactly this reason and is not
- * used for role resolution.
+ * `realm_access.roles`. A configuration storing a claim NAME cannot express the
+ * second, so this walks a dotted path. Better Auth's `mapping.extraFields` is
+ * flat-key only and is not used for role resolution.
  */
 export const readClaimPath = (
   claims: Record<string, unknown>,
@@ -71,9 +69,9 @@ export const readClaimPath = (
  * Resolve the IdP's group names to a role via the persisted group→role
  * mappings, highest `priority` wins.
  *
- * Returns `null` when nothing matches. That is NOT the same as "member": under
- * US-4 an identity whose membership maps to nothing is not admitted at all, so
- * the caller must treat null as a denial rather than substituting a default.
+ * Returns `null` when nothing matches. That is not the same as "member": an
+ * identity mapping to nothing is not admitted at all, so the caller must treat
+ * null as a denial rather than substituting a default.
  *
  * Mapped roles are `admin | member` only — never `owner`. Owner is the
  * bootstrap admin's, and letting an IdP group confer it would mean anyone who
@@ -110,8 +108,8 @@ export const resolveRoleFromGroups = async (
  * Persist a resolved role onto an existing membership.
  *
  * Never promotes to or demotes FROM `owner`: the bootstrap admin's authority
- * does not answer to the directory, so an owner whose groups change keeps the
- * instance reachable. This is the "do not lock yourself out" arm of US-7.
+ * does not answer to the directory, so an owner whose groups change in the IdP
+ * keeps the instance reachable.
  */
 export const writeResolvedRole = async (
   organizationId: string,

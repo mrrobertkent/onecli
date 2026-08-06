@@ -1,7 +1,7 @@
 import { hash, verify } from "@node-rs/argon2";
 
 /**
- * Password hashing, isolated from the auth library per design D-6.
+ * Password hashing, isolated from the auth library.
  *
  * This module deliberately imports NOTHING from `better-auth`. Authentication
  * is the library's job; the choice of KDF and its parameters is ours, and it

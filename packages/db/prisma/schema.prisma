@@ -218,12 +218,10 @@ model User {
   id                    String    @id @default(uuid())
   email                 String    @unique
   name                  String?
-  // Better Auth core `user` fields (design D-10). Better Auth maps its `user`
-  // model onto THIS table — there is no second user table. `emailVerified`
-  // also finally populates `SessionUser.emailVerified`, which packages/api has
-  // declared and never written. `name` deliberately stays nullable: Better
-  // Auth enforces `required` on create only and filters (not validates) on
-  // read, so an existing null is safe.
+  // Better Auth core `user` fields. Better Auth maps its `user` model onto
+  // THIS table — there is no second user table. `name` deliberately stays
+  // nullable: Better Auth enforces `required` on create only and filters
+  // (rather than validates) on read, so an existing null is safe.
   emailVerified         Boolean   @default(false) @map("email_verified")
   image                 String?
   // Cloud-only (inert in OSS): the SCIM `name` object (formatted/givenName/
@@ -1022,7 +1020,7 @@ model CliAuthSession {
 }
 
 /// Instance-wide settings that an administrator can change at runtime, as
-/// opposed to container configuration that needs a restart (design D-15).
+/// opposed to container configuration that needs a restart.
 ///
 /// Singleton: exactly one row, pinned by `id = "instance"`. A key/value table
 /// would push type-checking to the call site for no gain at this size.
@@ -1045,7 +1043,7 @@ model InstanceSetting {
   ///
   /// Read per-request by the sign-up gate, which DENIES on any unrecognised
   /// value — so a typo or a future value this build does not know closes the
-  /// door rather than opening it (US-1: misconfiguration denies).
+  /// door rather than opening it.
   signupMode String @default("closed") @map("signup_mode")
 
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -1054,7 +1052,7 @@ model InstanceSetting {
   @@map("instance_settings")
 }
 
-// ── Better Auth (design D-9 / D-10) ─────────────────────────────────────
+// ── Better Auth ─────────────────────────────────────────────────────────
 //
 // Better Auth's `user` model is mapped onto `User` above; these are its three
 // remaining core tables plus its rate-limit store. Prisma FIELD names must

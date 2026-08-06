@@ -32,7 +32,7 @@ beforeEach(() => {
   state.mappings = [];
 });
 
-describe("readClaimPath (design D-4: a PATH, not a name)", () => {
+describe("readClaimPath (a PATH, not a name)", () => {
   it("reads a flat claim — Authentik and Okta", () => {
     expect(readClaimPath({ groups: ["eng", "ops"] }, "groups")).toEqual([
       "eng",
@@ -72,7 +72,7 @@ describe("resolveRoleFromGroups", () => {
   });
 
   it("returns null when no group maps — NOT a default of member", async () => {
-    // US-4: an identity whose membership maps to nothing is not admitted.
+    // An identity whose membership maps to nothing is not admitted.
     // Substituting a default here would admit exactly the strangers the gate
     // exists to keep out.
     state.mappings = [];

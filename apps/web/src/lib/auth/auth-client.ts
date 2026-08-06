@@ -4,7 +4,7 @@ import { createAuthClient } from "better-auth/react";
 import { genericOAuthClient } from "better-auth/client/plugins";
 
 /**
- * Browser-side Better Auth client (design D-9).
+ * Browser-side Better Auth client.
  *
  * `genericOAuthClient()` is what surfaces `signIn.oauth2({providerId})`. The
  * generic-OIDC provider is NOT reachable through `signIn.social({provider})` —

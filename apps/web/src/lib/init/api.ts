@@ -18,7 +18,7 @@ import {
  *   capability the OSS gateway does not enforce) with a loud 422.
  *
  * The two auth registrations are load-bearing for tenant isolation, not
- * optional wiring (design D-2 as amended by D-11):
+ * optional wiring:
  *
  * - `roleResolver` — with `CAPS.rbac` now true, `canAccessProjectAsUser`
  *   returns false for EVERYONE if no resolver is registered
@@ -34,12 +34,12 @@ export const eeOverrides: CreateApiAppOptions | undefined = {
   policyValidator: ossPolicyValidator,
   roleResolver: ossRoleResolver,
   sessionHooks: { ensureSessionMembership: ossSessionMembership },
-  // US-1's gate: authenticating is not sufficient to be provisioned. Runs on
-  // every authenticated session, so it cannot be bypassed by going straight to
-  // a `/v1/*` route.
+  // The access gate: authenticating is not sufficient to be provisioned. Runs
+  // on every authenticated session, so going straight to a `/v1/*` route does
+  // not bypass it.
   //
-  // CONSEQUENCE, deliberately: until a bootstrap admin exists (D-12) and group
-  // mappings are configured, NOBODY is admitted. That is the correct
-  // fail-closed posture and it is why D-12 must ship in the same release.
+  // Deliberate consequence: until a bootstrap admin exists and group mappings
+  // are configured, NOBODY is admitted. That is the fail-closed posture, and
+  // why the bootstrap admin has to ship alongside this.
   sessionEnforcer: ossSessionEnforcer,
 };

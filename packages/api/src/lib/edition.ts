@@ -79,16 +79,15 @@ export interface Capabilities {
 }
 
 const CAPABILITIES: Record<Edition, Capabilities> = {
-  // Design D-1: OSS is single-org, MULTI-USER. `org-per-user` gave every account
-  // its own isolated organization and project, which on a self-hosted instance
-  // means strangers who authenticate get their own tenant on your hardware and
-  // nothing is shared with the people you actually want to collaborate with.
+  // OSS is single-org, MULTI-USER. `org-per-user` gave every account its own
+  // isolated organization and project, which on a self-hosted instance means
+  // strangers who authenticate get their own tenant on your hardware and
+  // nothing is shared with the people you meant to collaborate with.
   //
-  // D-2 as amended by D-11: `single-org-shared` is only safe as a FOUR-part unit
-  // — this tenancy value, `rbac: true`, a registered OSS `RoleResolver`, and
-  // role-resolved membership creation (`ensureSharedOrgMembership` taking an
-  // explicit role). Any three of the four is a privilege-escalation hole. Do not
-  // flip one of these back on its own.
+  // `single-org-shared` is only safe as a FOUR-part unit: this tenancy value,
+  // `rbac: true`, a registered OSS `RoleResolver`, and role-resolved membership
+  // creation (`ensureSharedOrgMembership` taking an explicit role). Any three
+  // of the four is a privilege-escalation hole. Do not flip one back alone.
   oss: {
     auth: "local",
     tenancy: "single-org-shared",

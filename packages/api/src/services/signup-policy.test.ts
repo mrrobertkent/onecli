@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The sign-up gate's whole value is that it FAILS CLOSED (design D-15). Better
+// The sign-up gate's whole value is that it FAILS CLOSED. Better
 // Auth's own `disableSignUp` is fail-closed by construction; moving the gate
 // into our code to make it admin-configurable moved that property here, so
 // these tests are what now hold it up. Every "cannot establish the setting"

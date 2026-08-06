@@ -2,18 +2,16 @@ import { db } from "@onecli/db";
 import { logger } from "../lib/logger";
 
 /**
- * The instance sign-up gate (design D-15).
+ * The instance sign-up gate.
  *
- * US-1's acceptance criterion is that the gate's failure mode is CLOSED —
- * "misconfiguration denies; it does not admit". Better Auth's own
- * `disableSignUp` is fail-closed by construction but is read once at
- * `betterAuth()` construction, so it cannot express a setting an admin changes
- * from the GUI. Moving the gate here buys that, and the cost is that
- * fail-closed becomes a property of THIS code rather than of the library.
+ * The gate must fail CLOSED: misconfiguration denies, it does not admit.
+ * Better Auth's own `disableSignUp` is fail-closed by construction but is read
+ * once when `betterAuth()` is built, so it cannot express a setting an admin
+ * changes from the GUI. Moving the gate here buys that, at the cost of making
+ * fail-closed a property of this code rather than of the library.
  *
- * Every path out of this module that is not an explicit, recognised permission
- * therefore denies: unreadable row, database error, unknown value, all denied.
- * That is the whole point of the file and is what its tests assert.
+ * So every path out of this module that is not an explicit, recognised
+ * permission denies: unreadable row, database error, unknown value, all denied.
  */
 
 export const SIGNUP_MODES = ["closed", "sso-only", "open"] as const;
@@ -70,9 +68,8 @@ export const isSignupAllowed = async (kind: SignupKind): Promise<boolean> => {
 };
 
 /**
- * Set the mode. Returns the previous value so the caller can audit both sides —
- * this is the one setting whose audit entry is uninterpretable without the old
- * value (design D-15).
+ * Set the mode. Returns the previous value so the caller can audit both sides:
+ * this setting's audit entry is uninterpretable without the old value.
  */
 export const setSignupMode = async (
   mode: SignupMode,

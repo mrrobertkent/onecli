@@ -45,10 +45,10 @@ export default function DashboardLayout({
         const res = await apiFetch("/v1/auth/session");
         if (res.status === 401) {
           // A 401 carrying a denial code means the identity authenticated but
-          // was not AUTHORISED (design D-3). Signing out and returning to the
+          // was not AUTHORISED. Signing out and returning to the
           // login page loops forever in that case: the IdP session is still
           // live, so the next click silently re-authenticates back into the
-          // same 401. Send them somewhere terminal instead (US-1).
+          // same 401. Send them somewhere terminal instead.
           let code: string | undefined;
           try {
             ({ code } = (await res.json()) as { code?: string });

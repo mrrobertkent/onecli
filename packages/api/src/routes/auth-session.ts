@@ -170,7 +170,7 @@ export const authSessionRoutes = () => {
       if (bootstrappedOrg) {
         const result =
           CAPS.tenancy === "single-org-shared"
-            ? // "member", never "owner" (design D-11). `ensureSessionMembership`
+            ? // "member", never "owner". `ensureSessionMembership`
               // runs above and is where a claim-resolved role is written; if it
               // already created the membership this call preserves that role.
               // This literal is the floor for a joiner it did not cover — under

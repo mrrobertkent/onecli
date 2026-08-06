@@ -1,0 +1,6 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "rust-analyzer-onecli",
+  "version": "1.0.0",
+  "description": "rust-analyzer for this repo's nested apps/gateway crate"
+}

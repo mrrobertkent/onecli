@@ -3,8 +3,7 @@ import { ShieldX } from "lucide-react";
 
 /**
  * Terminal page for a session that authenticated but was NOT authorised
- * (design D-3 / US-1: "a denied user sees a terminal explanation, not a
- * redirect loop").
+ *.
  *
  * The loop this exists to prevent: `/v1/auth/session` returns 401, the
  * dashboard signs the user out and sends them to the login page, they are still

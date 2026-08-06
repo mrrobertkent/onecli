@@ -30,7 +30,7 @@ export const ensureOnpremInstance = async (): Promise<void> => {
   });
 
   // Owner + bootstrap org API key. This is the ONLY path that should mint an
-  // owner of the shared organization (design D-11).
+  // owner of the shared organization.
   const org = await ensureSharedOrgBootstrap(user.id, user.email);
 
   // Operators need the org id for org-scoped API calls (e.g. the authorize

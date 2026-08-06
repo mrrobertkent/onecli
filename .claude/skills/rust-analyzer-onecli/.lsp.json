@@ -1,0 +1,10 @@
+{
+  "rust-analyzer": {
+    "command": "rust-analyzer",
+    "extensionToLanguage": { ".rs": "rust" },
+    "initializationOptions": {
+      "linkedProjects": ["apps/gateway/Cargo.toml"]
+    },
+    "startupTimeout": 180000
+  }
+}

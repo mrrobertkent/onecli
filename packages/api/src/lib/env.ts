@@ -51,7 +51,7 @@ export const IS_CLOUD = EDITION_INFO.edition === "cloud";
 // ── Auth & Encryption ───────────────────────────────────────────────────
 
 /**
- * Dotted PATH to the IdP claim carrying the user's groups (design D-4).
+ * Dotted PATH to the IdP claim carrying the user's groups.
  *
  * A path, not a name, because Authentik and Okta emit a flat `groups` while
  * Keycloak keeps roles at `realm_access.roles` — a claim NAME cannot express

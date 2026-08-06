@@ -18,11 +18,11 @@ import {
 import { hashPassword, verifyPassword } from "@/lib/auth/password-hash";
 
 /**
- * The Better Auth instance (design D-9).
+ * The Better Auth instance.
  *
- * D-10: Better Auth's `user` model is mapped onto OneCLI's EXISTING `users`
- * table. There is no second user table and no email-keyed mirror — one user row
- * per human. Its other three tables are additive (`Auth*` in the Prisma schema).
+ * Better Auth's `user` model is mapped onto OneCLI's EXISTING `users` table.
+ * There is no second user table and no email-keyed mirror — one user row per
+ * human. Its other three tables are additive (`Auth*` in the Prisma schema).
  *
  * Cloud aliases this file's consumers away (`next.config.js` →
  * `@/ee/auth/cognito-*`), so nothing here reaches the cloud edition.
@@ -70,7 +70,7 @@ export const auth = betterAuth({
 
   database: prismaAdapter(db, { provider: "postgresql" }),
 
-  // Better Auth's `user` is OneCLI's `users` (D-10). `name` stays nullable in
+  // Better Auth's `user` is OneCLI's `users`. `name` stays nullable in
   // the schema: Better Auth enforces `required` on create only, and reads go
   // through `filterOutputFields`, which filters rather than validates.
   user: {
@@ -107,7 +107,7 @@ export const auth = betterAuth({
     password: {
       hash: hashPassword,
       // Better Auth calls this with `{hash, password}`; our service takes them
-      // positionally so it owes nothing to the library's shape (D-6).
+      // positionally so it owes nothing to the library's shape.
       verify: ({ hash, password }) => verifyPassword(hash, password),
     },
   },
