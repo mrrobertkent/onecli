@@ -84,15 +84,11 @@ export type RuleSource =
   // decide and inject like custom rules.
   | "grant";
 
-// A `connection` target names a credential to inject — AND binds decisions to
-// that specific account: a RESOLVED one (provider present, set by the gateway's
-// `assemble.rs` decode / the sim-rule mapper) matches only when it is the
-// request's winning injected connection AND its provider/tools fan-out hits
-// (empty tools = the whole app). One that reaches the evaluator provider-less
-// is UNRESOLVED (deleted/foreign connection) and never matches (fail-closed).
-// A `secret` target (step 8) gates its resolved host(s) by host. Both arrive on
-// v2-authored custom rules and the equipment backfill, never from the
-// old-policy translators (network/app).
+// A `connection` target names a credential to inject and binds decisions to
+// that account: it matches only when it is the request's winning injected
+// connection and its provider/tools fan-out hits. Provider-less means
+// unresolved (deleted or foreign) and never matches. `method` stays looser than
+// the API's enum so an old row's method carries verbatim to the matcher.
 export type NewTarget =
   | {
       kind: "network";
@@ -103,36 +99,30 @@ export type NewTarget =
   | {
       kind: "app";
       provider: string;
-      // Named tools → the exact per-tool (host, path, method) fan-out. EMPTY →
-      // the WHOLE app: host-only against all the provider's catalog tool hosts
-      // (permit on allow / block on block — the secret mirror). Authored as the
-      // dialog's "All connections" shape.
+      // Named tools → the per-tool (host, path, method) fan-out; empty → the
+      // whole app, host-only against every catalog tool host.
       tools: string[];
-      // Step 8: "all connections at a level" injection scope; null = no
-      // injection. Injection-only (the evaluator ignores it — the level picks
-      // the injection pool, never the host set).
+      // "All connections at a level" injection scope; null = no injection. The
+      // evaluator ignores it — the level picks the pool, never the host set.
       connectionScope: "organization" | "project" | null;
     }
   | {
       kind: "connection";
       connectionId: string;
-      /** The connection's provider — present iff RESOLVED (fenced-map hit);
-       * absent = unresolved → never matches. */
+      /** The connection's provider; present iff resolved, absent means the
+       * target never matches. */
       provider?: string;
       tools: string[];
     }
-  // Step 8: a secret target gates its host — resolved (at the gateway, at connect)
-  // to the secret's host pattern(s): a specific secret → its one host; a level
-  // scope → the union of the org/project secrets' hosts. Permits on allow / blocks
-  // on block, like `app`. Empty = unresolved (deleted) → never matches.
+  // A secret target gates its resolved host pattern(s): a specific secret → its
+  // one host, a level scope → the union. Empty = unresolved, never matches.
   | { kind: "secret"; hostPatterns: string[] };
 
 /**
- * A translated new-model rule (a projected `PolicyRuleV2` + its identities +
- * targets). `priority` is assigned so per-level first-match reproduces
- * strictest-wins; empty identities = "any", but a non-default rule with empty
- * targets matches NOTHING (fail-closed). `isDefault` marks the org posture rule
- * (the deny/allow fallback) — the only target-less match-all.
+ * A `PolicyRuleV2` projected for the evaluator, with its identities and
+ * targets. Empty identities mean "any", but a non-default rule with empty
+ * targets matches nothing. `isDefault` marks the posture rule — the only
+ * target-less match-all.
  */
 export interface NewRule {
   scope: "organization" | "project";

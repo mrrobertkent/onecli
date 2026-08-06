@@ -64,11 +64,8 @@ describe("diffPolicyChanges", () => {
   });
 
   it("COUNTS a staged revoke of a legacy app_permission rule", () => {
-    // The App Permissions editor is gone and the adoption pass that re-tagged
-    // these to `custom` retired with it, so on an un-adopted instance such a row
-    // still DECIDES and the policy console is the only place to switch it off.
-    // If the diff ignored it, "Apply Changes" would stay greyed out and the
-    // change could never reach the gateway.
+    // The policy console is the only place to switch an app-permission row off,
+    // so the diff has to count it or "Apply Changes" stays greyed out.
     const legacy = rule({ logicalId: "ap1", source: "app_permission" });
     const diff = diffPolicyChanges(
       [{ ...legacy, enabled: false }],
@@ -81,10 +78,8 @@ describe("diffPolicyChanges", () => {
   });
 
   it("COUNTS a staged revoke of a credential grant", () => {
-    // Equipment rows are the credential grants, revocable from the console since
-    // step 10. If the diff ignored them, "Apply Changes" would stay greyed out
-    // and a revoke could never reach the gateway — it would look done and do
-    // nothing.
+    // Equipment rows are the credential grants, revocable only from the console,
+    // so a staged revoke has to count as a change.
     const granted = rule({ logicalId: "eq1", source: "equipment" });
     const diff = diffPolicyChanges(
       [{ ...granted, enabled: false }],
@@ -145,8 +140,8 @@ describe("diffPolicyChanges", () => {
   });
 
   it("does not call an insertion between rules a reorder", () => {
-    // A new rule lands between two kept ones — the KEPT rules' relative order
-    // is unchanged, so this is an add, not a reorder.
+    // A new rule lands between two kept ones; their relative order is unchanged,
+    // so this is an add, not a reorder.
     const a = rule({ logicalId: "a", priority: 0 });
     const b = rule({ logicalId: "b", priority: 1 });
     const inserted = rule({ logicalId: "mid", priority: 1 });

@@ -21,18 +21,17 @@ export interface CompiledRule {
   /** Tool narrowing for the connection target; empty = the whole app. */
   tools: string[];
   /**
-   * Session-policy conditions, carried on EVERY allow-action row of a stack —
-   * not just the first: the gateway's session-policy assembly is last-match-
-   * wins per matching allow row (`inject_select`), so a condition-less ask-row
-   * after a conditioned allow-row would clobber the policy with "unrestricted".
-   * Block rows never carry conditions (they are decision-only).
+   * Session-policy conditions, carried on every allow-action row of a stack,
+   * not just the first: the gateway's assembly is last-match-wins per matching
+   * allow row, so a condition-less ask row after a conditioned allow row would
+   * clobber the policy with "unrestricted". Block rows never carry conditions.
    */
   conditions?: Prisma.JsonValue | null;
 }
 
 export const sorted = (ids: string[]): string[] => [...ids].sort();
 
-/** The §4.2 stack for one (agent, connection) grant. Order is load-bearing:
+/** The stack for one (agent, connection) grant. Order is load-bearing:
  * first-match walks allow → ask → blocked → everything-else. */
 export const compileConnectionStack = (
   nameBase: string,
@@ -101,12 +100,10 @@ export const compileSecretGrant = (nameBase: string): CompiledRule[] => [
 ];
 
 /**
- * Semantic conditions equality across the storage forms: a DRAFT row without
- * conditions holds SQL NULL, while a PUBLISHED snapshot of it holds jsonb
- * `null` (`snapshotDraftRules` writes `Prisma.JsonNull`) — both mean "none".
- * Objects compare key-sorted, because Postgres jsonb does NOT preserve key
- * order: a round-tripped session policy would otherwise miscompare against
- * the freshly compiled one and defeat idempotence.
+ * Semantic conditions equality across the storage forms: a draft row without
+ * conditions holds SQL NULL while a published snapshot holds jsonb `null`, and
+ * both mean "none". Objects compare key-sorted, since jsonb does not preserve
+ * key order and a round-tripped policy would otherwise defeat idempotence.
  */
 export const conditionsEqual = (a: unknown, b: unknown): boolean =>
   canonicalJson(a) === canonicalJson(b);
@@ -130,10 +127,8 @@ const sortKeysDeep = (value: unknown): unknown => {
 
 /**
  * Draft-row write form of a stack row's conditions: omitted (SQL NULL) when
- * absent — matching every hand-authored draft row — and the single unknown →
- * InputJsonValue boundary cast when present (already-validated Zod output or
- * a value copied straight from the DB; the same law as `policy-service`'s
- * `jsonInput`).
+ * absent, matching a hand-authored draft row, and the unknown → InputJsonValue
+ * boundary cast when present.
  */
 export const conditionsCreateInput = (
   conditions: Prisma.JsonValue | null | undefined,

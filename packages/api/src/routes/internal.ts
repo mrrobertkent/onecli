@@ -1,7 +1,6 @@
 /**
- * Internal endpoints the gateway calls to delegate 1Password SDK work.
- * Guarded by the shared-secret middleware (not user auth). Served at
- * `/v1/internal/*`. Errors propagate to the root app's error handler.
+ * Internal endpoints the gateway calls to delegate 1Password SDK work, served
+ * at `/v1/internal/*` behind the shared-secret middleware, not user auth.
  */
 import { Hono } from "hono";
 import { z } from "zod";

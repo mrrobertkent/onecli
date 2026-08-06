@@ -2463,11 +2463,9 @@ mod deferred_injection_tests {
         ]))));
     }
 
-    /// The point of the deferral: a resource-scoped connection yields no rules
-    /// during resolution — the credential is minted only once the request is
-    /// allowed — while still reporting that it WILL inject, so the request
-    /// stays managed and the deny-defaults keep applying. EE editions only:
-    /// the deferral exists exactly where a token scoper does.
+    /// A resource-scoped connection yields no rules during resolution — the
+    /// credential is minted only once the request is allowed — while still
+    /// reporting that it will inject. EE only: deferral needs a token scoper.
     #[cfg(not(edition_oss))]
     #[tokio::test]
     async fn a_resource_scoped_connection_defers_its_credential() {
@@ -2502,9 +2500,8 @@ mod deferred_injection_tests {
         }
     }
 
-    /// OSS never defers — it has no token scoper, so a session policy on a
-    /// connection (only plantable by hand there) changes nothing about WHEN the
-    /// credential resolves. Pinned so the deferral can never leak into OSS.
+    /// OSS has no token scoper, so a session policy on a connection changes
+    /// nothing about when the credential resolves.
     #[cfg(edition_oss)]
     #[tokio::test]
     async fn oss_never_defers_a_credential() {
@@ -2540,7 +2537,7 @@ mod deferred_injection_tests {
         }
     }
 
-    /// A connection with no resource scope mints as it always did — deferral is
+    /// A connection with no resource scope is never deferred: deferral is
     /// narrowly for the live, never-persisted scoped credential.
     #[tokio::test]
     async fn an_unscoped_connection_is_not_deferred() {
@@ -2572,10 +2569,8 @@ mod deferred_injection_tests {
         }
     }
 
-    /// The fail-closed law: when a scoped credential is REQUIRED but cannot be
-    /// minted, nothing is injected. The stored credential is the unrestricted
-    /// one — handing it over would grant exactly the access the policy exists
-    /// to withhold, and it would do so silently.
+    /// Fail closed: when a scoped credential is required but cannot be minted,
+    /// nothing is injected — the stored one is the unrestricted credential.
     #[cfg(not(edition_oss))]
     #[tokio::test]
     async fn a_scoped_credential_that_cannot_be_minted_injects_nothing() {
@@ -2608,10 +2603,9 @@ mod deferred_injection_tests {
         );
     }
 
-    /// A REQUEST-LEVEL provider (Dropbox's folder guard) keeps its plain stored
-    /// credential: the guard is what restricts each call, so withholding the
-    /// token would not tighten anything — it would break granular access
-    /// altogether. Only token-scoped providers withhold when the mint fails.
+    /// A request-guarded provider (Dropbox's folder guard) keeps its plain
+    /// stored credential: the guard restricts each call, so withholding the
+    /// token would break granular access rather than tighten anything.
     #[cfg(not(edition_oss))]
     #[tokio::test]
     async fn a_request_guarded_provider_keeps_its_credential_under_a_scope() {

@@ -1,10 +1,8 @@
 //! AES-256-GCM decryption for secrets.
 //!
-//! Decrypts values encrypted by the Node.js `CryptoService` (in `lib/crypto.ts`).
-//! Format: `{iv_b64}:{authTag_b64}:{ciphertext_b64}` (all base64-encoded).
-//!
-//! Uses `ring::aead` (already a transitive dependency via rustls).
-//! The key comes from the `SECRET_ENCRYPTION_KEY` env var (base64-encoded, 32 bytes).
+//! Decrypts values encrypted by the Node.js `CryptoService`. Format:
+//! `{iv_b64}:{authTag_b64}:{ciphertext_b64}` (all base64-encoded). The key comes
+//! from the `SECRET_ENCRYPTION_KEY` env var (base64-encoded, 32 bytes).
 
 use anyhow::{bail, Context, Result};
 use base64::Engine;
@@ -50,8 +48,8 @@ impl CryptoService {
 
     /// Decrypt a value in the format `{iv_b64}:{authTag_b64}:{ciphertext_b64}`.
     ///
-    /// Note: `ring` expects ciphertext || tag concatenated (not separate).
-    /// Node.js outputs them separately, so we concatenate before decrypting.
+    /// Node.js emits the tag separately, so it is concatenated onto the
+    /// ciphertext before decrypting.
     pub async fn decrypt(&self, encrypted: &str) -> Result<String> {
         let parts: Vec<&str> = encrypted.splitn(3, ':').collect();
         if parts.len() != 3 {
@@ -77,7 +75,6 @@ impl CryptoService {
         let nonce = aead::Nonce::try_assume_unique_for_key(&iv)
             .map_err(|_| anyhow::anyhow!("invalid nonce"))?;
 
-        // ring expects ciphertext || tag concatenated
         let mut in_out = Vec::with_capacity(ciphertext.len() + auth_tag.len());
         in_out.extend_from_slice(&ciphertext);
         in_out.extend_from_slice(&auth_tag);
@@ -90,9 +87,8 @@ impl CryptoService {
         String::from_utf8(plaintext.to_vec()).context("decrypted value is not valid UTF-8")
     }
 
-    /// Encrypt a plaintext string using AES-256-GCM.
-    /// Returns a string in the format `{iv_b64}:{authTag_b64}:{ciphertext_b64}`,
-    /// compatible with the Node.js `CryptoService` and this struct's `decrypt`.
+    /// Encrypt a plaintext string as `{iv_b64}:{authTag_b64}:{ciphertext_b64}`,
+    /// the format the Node.js `CryptoService` and `decrypt` both read.
     pub async fn encrypt(&self, plaintext: &str) -> Result<String> {
         let rng = SystemRandom::new();
         let mut iv = [0u8; IV_LEN];

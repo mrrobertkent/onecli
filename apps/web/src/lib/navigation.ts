@@ -19,13 +19,9 @@ export const ORG_PATH_RE = /^\/org\/([^/]+)(?=\/|$)/;
 
 /**
  * Prefix an absolute dashboard path with `/p/<projectId>` if the current
- * pathname is already inside a project scope. Used by shared dashboard
- * components (connections tabs, overview cards, app detail) so a "Secrets"
- * tab click inside `/p/<id>/connections` keeps the project prefix instead of
- * jumping to the OSS top-level `/connections/secrets`.
- *
- * In OSS the regex never matches (no `/p/<id>/` URLs exist) so the input
- * path is returned unchanged — this is a no-op for self-hosted users.
+ * pathname is already inside a project scope, so shared dashboard components
+ * keep the prefix instead of jumping to the bare top-level path. A no-op in
+ * OSS, where no `/p/<id>/` URLs exist.
  */
 export const withProjectPrefix = (
   currentPathname: string,
@@ -36,14 +32,13 @@ export const withProjectPrefix = (
   return `/p/${match[1]}${targetPath}`;
 };
 
-/** The agent detail page, scoped to the current edition (OSS `/agents/<id>`,
- * cloud `/p/<projectId>/agents/<id>` — the bare path 404s there). */
+/** The agent detail page, scoped to the current edition. The bare path 404s in
+ * cloud. */
 export const agentPath = (currentPathname: string, agentId: string): string =>
   withProjectPrefix(currentPathname, `/agents/${agentId}`);
 
-/** The last-visited org, written client-side on org pages (EE) and read by the
- * Get Started button on account routes (shared, inert in OSS — no account
- * paths exist there). One definition so writer and reader can't drift. */
+/** The last-visited org, written on org pages and read by the Get Started
+ * button on account routes. Inert in OSS, which has no account paths. */
 export const DEFAULT_ORG_COOKIE = "onecli-default-org";
 
 export const readDefaultOrgCookie = (): string | undefined =>
@@ -53,16 +48,15 @@ export const readDefaultOrgCookie = (): string | undefined =>
     ?.split("=")[1];
 
 /**
- * Resolve a path inside the connections section, scoped to the current edition
- * and page. Single source of truth so callers never hardcode the bare OSS
- * `/connections...` path (which 404s in the cloud edition under `/p` or `/org`).
+ * Resolve a path inside the connections section for the current edition and
+ * page, so callers never hardcode the bare `/connections...` path, which 404s
+ * in cloud.
  *
  * - OSS:           `/connections{sub}`
- * - Cloud project: `/p/<id>/connections{sub}`   (derived from `pathname`)
- * - Cloud org:     `<basePath>{sub}`            (basePath = `/org/<id>/global-connections`)
+ * - Cloud project: `/p/<id>/connections{sub}`
+ * - Cloud org:     `<basePath>{sub}`
  *
- * `sub` is the path under the connections root, e.g. "" (root),
- * `/apps/<provider>`, or `/vaults/<provider>`.
+ * `sub` is the path under the connections root, e.g. `/apps/<provider>`.
  */
 export const connectionsPath = (
   { pathname, basePath }: { pathname: string; basePath?: string },

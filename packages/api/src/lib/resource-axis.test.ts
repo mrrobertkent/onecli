@@ -7,10 +7,9 @@ import {
   intersectPolicies,
 } from "./resource-axis";
 
-// The parity suite: these cases mirror the gateway's Rust tests
-// (ee/granular_access{,/github,/dropbox}.rs) case for case. The gateway
-// enforces; this side only reflects and validates — a divergence would show an
-// operator one scope while another is applied.
+// These cases mirror the gateway's Rust tests case for case. The gateway is what
+// enforces, so a divergence would show an operator one scope while another is
+// applied.
 
 describe("axisOf", () => {
   it("recognizes each axis and nothing else", () => {
@@ -30,8 +29,8 @@ describe("deniesEverything", () => {
     // Absent axis, empty object, behavioral conditions: not a restriction.
     expect(deniesEverything({})).toBe(false);
     expect(deniesEverything(null)).toBe(false);
-    // A root folder is a real (widest) scope, not an empty one — normalization
-    // would drop it, which is why the check reads the raw entries.
+    // A root folder is the widest scope, not an empty one; normalization would
+    // drop it, which is why the check reads the raw entries.
     expect(deniesEverything({ folders: ["/"] })).toBe(false);
   });
 });
@@ -120,8 +119,7 @@ describe("intersectPolicies", () => {
 
 describe("parity with the gateway's value semantics", () => {
   it("folds case ASCII-only, exactly as `to_ascii_lowercase` does", () => {
-    // Full `toLowerCase()` would call these covered; the gateway would not, and
-    // the gateway is what enforces.
+    // Full `toLowerCase()` would call these covered; the gateway would not.
     expect(coveredBy("/Ärende", { folders: ["/ärende"] })).toBe(false);
     expect(coveredBy("ORG/A", { repositories: ["org/a"] })).toBe(true);
   });
@@ -144,7 +142,7 @@ describe("parity with the gateway's value semantics", () => {
   });
 
   it("a non-list axis value is not a restriction", () => {
-    // Rust's `raw_entries` returns None for these, so they deny nothing.
+    // The gateway reads these as no entries at all, so they deny nothing.
     expect(deniesEverything({ repositories: "org/a" })).toBe(false);
     expect(deniesEverything(undefined)).toBe(false);
     expect(deniesEverything([{ type: "body_contains" }])).toBe(false);
@@ -164,8 +162,7 @@ describe("entriesOutside", () => {
     ).toEqual([]);
     // No boundary: nothing is outside.
     expect(entriesOutside({ repositories: ["org/z"] }, null)).toEqual([]);
-    // Axes that disagree overlap in nothing, so everything is outside — the
-    // same fail-closed reading `intersectPolicies` applies.
+    // Mismatched axes overlap in nothing, so everything is outside.
     expect(
       entriesOutside({ repositories: ["org/a"] }, { folders: ["org"] }),
     ).toEqual(["org/a"]);
