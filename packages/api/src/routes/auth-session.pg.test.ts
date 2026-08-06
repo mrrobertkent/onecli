@@ -3,14 +3,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "../testing/pg-proof.js";
 
 /**
- * `GET /v1/auth/session` against real PostgreSQL — the endpoint that decides
- * whether a logged-in identity gets a project, and so whether the gateway
- * works at all.
- *
- * `auth-session.test.ts` mocks `@onecli/db`, which makes `existingUser`
- * whatever the test chose to return. Every case here instead starts from the
- * state the auth library actually produces: the user row already committed,
- * this endpoint seeing it for the first time.
+ * `GET /v1/auth/session` against real PostgreSQL. Unlike `auth-session.test.ts`,
+ * which mocks `@onecli/db`, every case starts from the state the auth library
+ * produces: the user row committed, this endpoint seeing it for the first time.
  *
  * Env-gated like the other proof suites; see pg-proof.ts.
  */

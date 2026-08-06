@@ -26,22 +26,21 @@ pub(crate) fn compose_resource_scope(
     selected.cloned()
 }
 
-/// Whether a resource scope reaches NOTHING. OSS stores no scopes.
+/// Whether a resource scope reaches nothing. OSS stores no scopes.
 pub(crate) fn scope_reaches_nothing(_policy: Option<&serde_json::Value>) -> bool {
     false
 }
 
-/// Whether this provider enforces a resource scope per REQUEST. OSS has no
-/// request guards, so nothing is enforced that way.
+/// Whether this provider enforces a resource scope per request. OSS has no
+/// request guards.
 pub(crate) fn has_request_guard(_provider: &str) -> bool {
     false
 }
 
-/// Whether this credential type mints a RESOURCE-SCOPED credential from the
-/// provider (e.g. a GitHub installation token limited to specific repos).
-/// Such a credential is minted live per request and never persisted, so the
-/// caller defers it until the request is known to be allowed. OSS scopes no
-/// credentials, so it never defers.
+/// Whether this credential type mints a resource-scoped credential from the
+/// provider (e.g. a GitHub installation token limited to specific repos). Such a
+/// credential is minted per request and never persisted, so the caller defers it
+/// until the request is known to be allowed. OSS scopes no credentials.
 pub(crate) fn has_token_scoper(_cred_type: &str) -> bool {
     false
 }

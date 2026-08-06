@@ -23,23 +23,18 @@ export const allGroupTools = <T>(group: { tools: T[]; wildcard?: T }): T[] => [
 const methodsOf = (tool: AppTool): string[] =>
   tool.methods ?? (tool.method ? [tool.method] : []);
 
-// The gateway treats a pattern ending in "*" as a prefix match; tool patterns
-// reuse the wildcard's leading "*" segments verbatim, so comparing the literal
-// text before the trailing "*" with `startsWith` mirrors the matcher — and
-// fails closed (a tool that doesn't share the prefix is simply not covered).
+// Tool patterns reuse the wildcard's leading "*" segments verbatim, so a
+// `startsWith` on the text before the trailing "*" mirrors the gateway's prefix
+// match and fails closed.
 const prefixOf = (pattern: string): string =>
   pattern.endsWith("*") ? pattern.slice(0, -1) : pattern;
 
 /**
- * Is a group's `wildcard` a TRUE superset of every tool in the group — same
- * host, a path prefix covering each tool's paths (+ aliases), and a method set
- * containing each tool's methods? Only then does the "All read/write
- * operations" umbrella genuinely mean "all of them". Some read wildcards are
- * NOT supersets (e.g. Jira's `read_all` is GET-only but JQL search is POST;
- * Confluence's search lives on a different path prefix), so the tools picker
- * offers the umbrella only where this returns true — an incomplete umbrella
- * would author a misleading "all reads" that silently misses those endpoints.
- * Mirrors the coverage check pinned by `write-wildcard-coverage.test.ts`.
+ * Whether a group's `wildcard` is a true superset of every tool in the group:
+ * same host, a path prefix covering each tool's paths and aliases, and a method
+ * set containing each tool's methods. Not every wildcard qualifies (Jira's
+ * `read_all` is GET-only while JQL search is POST), so the tools picker offers
+ * the umbrella only where this returns true.
  */
 export const wildcardCoversGroup = (
   wildcard: AppTool,
@@ -83,9 +78,8 @@ export interface AppPermissionDefinition {
   groups: AppToolGroup[];
 }
 
-// The public projection of the catalog: tool identity only. The endpoint
-// mapping (hostPattern/pathPattern/method/aliasPatterns) is server-internal
-// and must never be serialized into an API response or a client bundle.
+// The public projection of the catalog: tool identity only. The endpoint mapping
+// is server-internal and must never reach an API response or a client bundle.
 export interface AppToolSummary {
   id: string;
   name: string;
@@ -97,9 +91,7 @@ export interface AppToolGroupSummary {
   tools: AppToolSummary[];
   wildcard?: AppToolSummary;
   /** Whether `wildcard` is a true superset of the group's tools (see
-   * {@link wildcardCoversGroup}) — computed server-side, where the endpoint
-   * patterns live. The tools picker offers the umbrella only when true; absent
-   * when the group has no wildcard. */
+   * {@link wildcardCoversGroup}). Absent when the group has no wildcard. */
   wildcardComplete?: boolean;
 }
 

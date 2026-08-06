@@ -1,13 +1,10 @@
 //! Gateway authentication for browser requests.
 //!
-//! Supports two modes controlled by the `AUTH_MODE` env var:
-//! - `local`: no session mechanism at all (single-user dev, no login) — the
-//!   only accepted credential is an `Authorization: Bearer oc_...` API key,
-//!   checked by `validate_api_key` before mode-specific logic even runs.
+//! Two modes, set by the `AUTH_MODE` env var:
+//! - `local`: no session mechanism — the only accepted credential is an
+//!   `Authorization: Bearer oc_...` API key.
 //! - `oauth` (default): resolves a Better Auth session cookie against the
-//!   `auth_sessions` row it names. The gateway shares the web app's database,
-//!   so it reads the session table Better Auth writes rather than re-deriving
-//!   anything from the cookie — see `validate_oauth`.
+//!   `auth_sessions` row it names, in the database shared with the web app.
 
 use std::sync::OnceLock;
 
@@ -117,10 +114,8 @@ async fn validate_api_key(pool: &PgPool, headers: &HeaderMap) -> Option<AuthUser
         .map_err(|e| warn!(error = %e, "api key auth: db error"))
         .ok()??;
 
-    // The key row alone is not authorization. Re-check on every request so a key
-    // stops working once its user loses access — suspension, removal, demotion,
-    // or a revoked project binding — rather than proxying traffic indefinitely.
-    // Mirrors the web API, which re-checks for the same reason.
+    // The key row alone is not authorization: re-check on every request so a key
+    // stops working once its user loses access to the project.
     let allowed = db::user_can_manage_project(pool, &api_key.user_id, &api_key.project_id)
         .await
         .map_err(|e| warn!(error = %e, "api key auth: access check failed"))
@@ -148,12 +143,9 @@ async fn validate_api_key(pool: &PgPool, headers: &HeaderMap) -> Option<AuthUser
 /// The caller resolves the project ID from the user's membership.
 async fn validate_request(pool: &PgPool, headers: &HeaderMap) -> Result<String, AuthError> {
     match auth_mode() {
-        // Local mode has no cookie/session mechanism to fall back to (no
-        // login flow exists). A request reaching here already failed the API
-        // key check above, so it is unauthenticated — reject it rather than
-        // auto-trusting it as local-admin. This is the only credential path
-        // in local mode, so it must hold even when the gateway is bound to
-        // loopback: anything else on the same host could otherwise reach it.
+        // Local mode has no session fallback: a request reaching here already
+        // failed the API key check, so it is unauthenticated. That holds on
+        // loopback too — anything else on the host could otherwise reach it.
         "local" => Err(AuthError(
             "missing API key (Authorization: Bearer oc_...)".to_string(),
         )),
@@ -165,14 +157,10 @@ async fn validate_request(pool: &PgPool, headers: &HeaderMap) -> Result<String, 
 
 /// Resolve a Better Auth session cookie to the user it belongs to.
 ///
-/// The cookie carries no claims to decode: Better Auth stores the session
-/// server-side and the cookie is only a pointer to that row. So the row IS the
-/// decision — a lookup that finds a live session is proof the session exists and
-/// has not expired or been revoked, which no self-contained token could tell us.
-/// The token is 32 CSPRNG characters, so it cannot be guessed into existence.
-///
-/// The HMAC signature the cookie also carries is deliberately NOT verified —
-/// see [`session_token_value`].
+/// The cookie is only a pointer to a server-side session row, so the lookup is
+/// the decision: finding a live session proves it has not expired or been
+/// revoked. The HMAC signature the cookie also carries is not verified — see
+/// [`session_token_value`].
 async fn validate_oauth(pool: &PgPool, headers: &HeaderMap) -> Result<String, AuthError> {
     let cookie_header = headers
         .get(hyper::header::COOKIE)
@@ -187,8 +175,7 @@ async fn validate_oauth(pool: &PgPool, headers: &HeaderMap) -> Result<String, Au
         AuthError("missing session token".to_string())
     })?;
 
-    // `auth_sessions.user_id` is already `users.id` — Better Auth's user model is
-    // mapped onto the existing table, so there is no external-auth-id hop here.
+    // `auth_sessions.user_id` is already `users.id` — no external-auth-id hop.
     let user_id = db::find_auth_session_user_id(pool, session_token_value(cookie_value))
         .await
         .map_err(|e| {
@@ -209,17 +196,9 @@ async fn validate_oauth(pool: &PgPool, headers: &HeaderMap) -> Result<String, Au
 
 /// The Better Auth session cookie, under either spelling it may have been set with.
 ///
-/// Better Auth prefixes the cookie with `__Secure-` whenever it considers the
-/// deployment secure, which it decides from the scheme of the resolved
-/// `baseURL` (our `APP_URL`). Every instance reached over https therefore sends
-/// `__Secure-better-auth.session_token`, and a self-hosted one cannot opt out:
-/// the OAuth spec (and Google's redirect-URI validation) requires an https
-/// callback for anything but localhost, so the single variable that makes login
-/// work also renames this cookie. Matching only the bare name meant session auth
-/// could never succeed on a TLS deployment.
-///
-/// Bare name first: it is what an http/localhost install sends, and checking it
-/// first keeps that path a single comparison.
+/// Better Auth adds the `__Secure-` prefix whenever the resolved base URL is
+/// https, which any deployment but localhost must be, so both names have to be
+/// accepted. The bare name is what an http/localhost install sends.
 fn session_token_from_cookies(cookie_header: &str) -> Option<&str> {
     parse_cookie(cookie_header, "better-auth.session_token")
         .or_else(|| parse_cookie(cookie_header, "__Secure-better-auth.session_token"))
@@ -227,25 +206,14 @@ fn session_token_from_cookies(cookie_header: &str) -> Option<&str> {
 
 /// The stored token half of a Better Auth session cookie.
 ///
-/// The value is NOT a JWT. Better Auth writes it with `setSignedCookie`, which
-/// emits `encodeURIComponent("<token>.<base64 HMAC-SHA256>")` — only `<token>`
-/// is what `auth_sessions.token` holds. Split on the LAST `.` so a token that
-/// ever gains one of its own still resolves; percent-encoding cannot confuse
-/// that, since it never emits a `.` and never escapes one. The token's own
-/// alphabet is `[a-zA-Z0-9]`, so it survives the encoding unchanged and needs no
-/// decoding before the lookup.
+/// The cookie value is `encodeURIComponent("<token>.<base64 HMAC-SHA256>")` and
+/// only `<token>` is what `auth_sessions.token` holds. Split on the last `.` so
+/// a token carrying one of its own still resolves; percent-encoding never emits
+/// or escapes a `.`, and the token alphabet survives it unchanged. A value with
+/// no `.` is passed through whole and simply fails the lookup.
 ///
-/// A value with no `.` is passed through whole rather than rejected: it simply
-/// will not match a stored token, and letting the database be the only authority
-/// keeps one place able to say yes.
-///
-/// The signature is not verified. Doing so would buy nothing here — it proves
-/// the cookie was minted by something holding `AUTH_SECRET`, whereas the lookup
-/// already proves the stronger thing, that the session is real and live; and an
-/// attacker who cannot produce a signature cannot produce a valid token either.
-/// It would, however, add a second thing that must match the web app exactly
-/// (secret byte-for-byte, standard-base64 padding, percent-decoding first) whose
-/// failure mode is rejecting every valid session.
+/// The signature is not verified: the lookup already proves the stronger thing,
+/// that the session is real and live.
 fn session_token_value(cookie_value: &str) -> &str {
     match cookie_value.rsplit_once('.') {
         Some((token, _signature)) => token,

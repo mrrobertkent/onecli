@@ -1,10 +1,7 @@
 //! Shapes for the OSS project-level policy core: the decoded rule, the request
-//! context, and the evaluation outcome. Project scope only — OSS has no org
-//! layer, no directory identities, and no granular conditions; those live in
-//! the EE engine this module replaces under `edition_oss`.
+//! context, and the evaluation outcome.
 
-/// The rule verdict: the v2 binary. Approval and rate limits are modifiers on
-/// `Allow` (see `Rule`).
+/// The rule verdict. Approval and rate limits are modifiers on `Allow`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
     Allow,
@@ -30,24 +27,20 @@ impl RateWindow {
 }
 
 /// A rule identity. OSS rules target a specific agent or all agents (empty
-/// identity list = "any"). `Other` covers every non-agent identity row a
-/// permissive API client might have stored (user/group are OneCLI Cloud
-/// capabilities) — it NEVER matches, so such a row narrows to nothing
-/// instead of silently widening to "any" (fail-closed).
+/// identity list = "any"). `Other` covers stored non-agent identity rows and
+/// never matches, so such a row narrows to nothing rather than widening to
+/// "any".
 #[derive(Debug, Clone)]
 pub(super) enum Identity {
     Agent(String),
     Other,
 }
 
-/// A rule target. `Network` matches host/path/method verbatim; `App` names a
-/// provider and tool set the catalog expands to its endpoint fan-out (empty
-/// tools = the whole app, host-only); `Connection` binds one specific
-/// connection — winner-id equality plus the same catalog expansion; `Secret`
-/// gates its resolved host pattern(s); `Unresolved` is the fail-closed arm for
-/// anything that cannot be resolved (unknown kind, provider-less app row, a
-/// connection/secret id absent from the fenced connect-time maps) — it never
-/// matches.
+/// A rule target. `App` expands its provider/tool set through the catalog to an
+/// endpoint fan-out (empty tools = the whole app, host-only); `Secret` gates its
+/// resolved host pattern(s); `Unresolved` is the fail-closed arm for anything
+/// that cannot be resolved (unknown kind, provider-less app row, an id absent
+/// from the fenced connect-time maps) and never matches.
 #[derive(Debug, Clone)]
 pub(super) enum Target {
     Network {
@@ -59,9 +52,9 @@ pub(super) enum Target {
         provider: String,
         tools: Vec<String>,
     },
-    /// Matches only when this is the request's winning injected connection AND
-    /// the provider/tools fan-out hits; no winner → never matches (fail-closed
-    /// for allow AND block).
+    /// Matches only when this is the request's winning injected connection and
+    /// the provider/tools fan-out hits; no winner never matches, for allow as
+    /// well as block.
     Connection {
         id: String,
         provider: String,
@@ -73,8 +66,7 @@ pub(super) enum Target {
     Unresolved,
 }
 
-/// A decoded project rule the evaluator walks. No `scope` field — everything
-/// here is project scope (`MatchedRule.scope` is the constant "project").
+/// A decoded project rule the evaluator walks.
 #[derive(Debug, Clone)]
 pub(super) struct Rule {
     pub id: String,
@@ -90,9 +82,8 @@ pub(super) struct Rule {
     pub require_approval: bool,
     pub rate_limit: Option<u64>,
     pub rate_limit_window: Option<RateWindow>,
-    /// Carried for structural fidelity and routed through the edition-swapped
-    /// `condition_match` — which is the no-op arm in OSS, so conditions are
-    /// never evaluated here (matching the legacy OSS gateway exactly).
+    /// Routed through the edition-swapped `condition_match`, whose OSS arm is a
+    /// no-op — conditions are never evaluated here.
     pub conditions: Option<serde_json::Value>,
 }
 
@@ -115,15 +106,15 @@ pub(super) struct Request {
 
 impl Request {
     /// The deny-default carve: only credentialed, non-LLM traffic can be
-    /// blocked by the Default Rule. Mirrors `forward.rs`'s `enforce_deny`.
+    /// blocked by the Default Rule.
     pub(super) fn enforce_deny(&self) -> bool {
         self.has_injections && !self.is_llm_host
     }
 }
 
-/// The winning outcome of an evaluation: an explicit matching rule, the
-/// project Default Rule's enforced Block (carrying THAT rule, so telemetry can
-/// attribute it — always concrete, never anonymous), or a plain allow.
+/// The winning outcome of an evaluation: an explicit matching rule, the project
+/// Default Rule's enforced Block (carrying that rule so telemetry can attribute
+/// it), or a plain allow.
 pub(super) enum Outcome<'a> {
     Rule(&'a Rule),
     DenyDefault(&'a Rule),

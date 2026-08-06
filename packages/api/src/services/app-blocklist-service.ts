@@ -5,20 +5,13 @@ import { ServiceError } from "./errors";
 import { policyScope, lockScope, type PolicyScopeBase } from "./policy-service";
 
 /**
- * The per-app host blocklist, on the v2 policy model.
+ * The per-app host blocklist. A blocked host is a policy rule tagged
+ * `source="blocklist"`; a rule belongs to an app exactly when its host pattern
+ * is one the app registry declares, so no stored provenance is needed.
  *
- * A blocked host IS a policy rule: `action="block"` over a network target on the
- * host, tagged `source="blocklist"` so the console renders it as feature-owned
- * rather than hand-authored. The app registry declares which hosts belong to
- * which app (`AppDefinition.blocklist`), so no stored provenance is needed — a
- * rule belongs to an app exactly when its host pattern is one the app declares.
- * Blocking an arbitrary host is a policy rule authored in the console, not an
- * app-scoped concept.
- *
- * Writes are LOCKSTEP: each change lands in the scope's draft AND in the live
- * published generation, so a block takes effect immediately without publishing
- * whatever else the user has staged in the draft. Both rows share a `logicalId`,
- * which is how a draft row and its published twin find each other.
+ * Writes land in the scope's draft and in the live published generation at
+ * once, so a block takes effect without publishing whatever else the user has
+ * staged. A draft row and its published twin share a `logicalId`.
  */
 
 export interface BlocklistHostState {
@@ -41,8 +34,8 @@ const ANY_PATH = "/*";
 type Tx = Prisma.TransactionClient;
 
 /** The generation the gateway is currently enforcing, or null when the scope has
- * never published (a fresh or unseeded scope — nothing is enforced there yet, so
- * a draft-only write is consistent and the first publish carries it live). */
+ * never published — nothing is enforced there yet, so a draft-only write is
+ * consistent and the first publish carries it live. */
 const liveGeneration = async (
   tx: Tx,
   base: PolicyScopeBase,
@@ -207,7 +200,7 @@ export const getBlocklistState = async (
     string,
     { id: string; enabled: boolean; scope: "organization" | "project" }
   >();
-  // Own rules first, then the inherited org ones — an org-level block OVERRIDES
+  // Own rules first, then the inherited org ones — an org-level block overrides
   // the project's view of that host, because the project can't lift it.
   for (const [from, rules] of [
     [base, await listDraftRules(base)] as const,

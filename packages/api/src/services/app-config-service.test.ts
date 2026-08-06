@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Pin the edition before any import — lib/env captures env at first load and
-// CI runs the whole workflow with NEXT_PUBLIC_EDITION=cloud.
+// Pin the edition before any import — lib/env captures env at first load.
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "onprem-slim";
 });
@@ -71,8 +70,8 @@ vi.mock("@onecli/db", () => ({
         store.countWheres.push(where);
         return store.connections.filter((c) => matches(c, where)).length;
       },
-      // Step 8: the coherence pre-capture reads the doomed connections (via an
-      // OR of the two delete predicates) before deleting them.
+      // The coherence pre-capture reads the doomed connections before the
+      // delete, via an OR of the two delete predicates.
       findMany: async ({
         where,
       }: {
@@ -84,8 +83,8 @@ vi.mock("@onecli/db", () => ({
           .map((c) => ({ id: c.id }));
       },
     },
-    // No agents are assigned in these tests → no affected projects → the coherence
-    // trigger no-ops (empty Promise.all), so the delete sequence is unchanged.
+    // No agents assigned, so the coherence trigger no-ops and the delete
+    // sequence is unchanged.
     agentAppConnection: {
       findMany: async () => [] as { agent: { projectId: string } }[],
     },
@@ -155,7 +154,7 @@ describe("disconnectIfConnected via deleteAppConfig — org scope", () => {
         provider: "prov",
         appConfigId: "cfg-1",
       },
-      // a project connection with NO link (env-minted / legacy) — must survive
+      // a project connection with no link (env-minted / legacy) — must survive
       {
         id: "proj-unlinked",
         projectId: "p-2",
@@ -163,7 +162,7 @@ describe("disconnectIfConnected via deleteAppConfig — org scope", () => {
         provider: "prov",
         appConfigId: null,
       },
-      // a project connection minted by a DIFFERENT config — must survive
+      // a project connection minted by a different config — must survive
       {
         id: "proj-other",
         projectId: "p-3",

@@ -15,9 +15,9 @@ export interface RequestLogEntry {
   latencyMs: number;
   injectionCount: number;
   extraData: unknown;
-  /** The generation-stable logicalId of the v2 rule that decided this request
-   * (step 9) — the future filter/link key; the display name rides
-   * `extra_data.matched_rule_name` (see {@link getMatchedRuleName}). */
+  /** Generation-stable logicalId of the rule that decided this request; the
+   * display name rides `extra_data.matched_rule_name` (see
+   * {@link getMatchedRuleName}). */
   matchedRuleLogicalId: string | null;
   /** Display name of the user who approved/denied this request, if resolved. */
   approvedBy: string | null;
@@ -119,12 +119,10 @@ export const getConnectionLabel = (log: RequestLogEntry): string | null => {
   return typeof label === "string" ? label : null;
 };
 
-/** The display name of the v2 policy rule that decided this request (step 9
- * visibility) — a snapshot that survives rule deletion. Null pre-v2, for
- * legacy decisions, for plain allows, and for ORG rules redacted from a
- * non-admin viewer (the scope then still reads "organization" — see
- * {@link getMatchedRuleScope}). The typed `matched_rule_logical_id` column
- * rides the row itself. */
+/** Display name of the policy rule that decided this request — a snapshot that
+ * survives rule deletion. Null for legacy decisions, plain allows, and org
+ * rules redacted from a non-admin viewer (whose scope still reads
+ * "organization" — see {@link getMatchedRuleScope}). */
 export const getMatchedRuleName = (log: RequestLogEntry): string | null => {
   const data = log.extraData as Record<string, unknown> | null;
   const name = data?.matched_rule_name;
@@ -146,9 +144,8 @@ export interface RequestLogViewer {
   organizationId: string;
 }
 
-/** Org-rule details are org-admin-only.
- * A null resolver/role — OSS, or an unknown membership — fails SAFE to
- * non-admin; OSS rows never carry org-scoped matched rules anyway. */
+/** Whether the viewer may see org-rule details (org admins and owners only).
+ * A null resolver or role fails safe to non-admin. */
 const viewerSeesOrgRules = async (
   viewer: RequestLogViewer | undefined,
 ): Promise<boolean> => {
@@ -160,16 +157,12 @@ const viewerSeesOrgRules = async (
   return role === "admin" || role === "owner";
 };
 
-/** Strip an ORG-decided rule's identifying details for a non-admin viewer:
- * the display name leaves `extra_data` (this object IS the raw payload the
- * client receives, including the detail dialog's raw dump) and the logical id
- * leaves the row DTO; `matched_rule_scope` stays so the UI can render
- * "decided by an organization rule". A v2 BLOCK/RATE decision carries the SAME
- * org rule's name in `blocked_by_rule` too — scrubbed with it (Activity is a
- * browsable bulk surface, held to the stricter admin-only visibility even
- * though the one-shot live 403/429 names the rule to the caller). Legacy
- * (old-model) rows carry no `matched_rule_scope`, so their `blocked_by_rule`
- * — always project-level — is untouched, as are project-scoped attributions. */
+/** Strip an org-decided rule's identifying details for a non-admin viewer: the
+ * name leaves `extra_data` (the raw payload the client receives) and the
+ * logical id leaves the row DTO. `matched_rule_scope` stays so the UI can still
+ * say "decided by an organization rule". `blocked_by_rule` carries the same
+ * name, so it goes too. Legacy rows have no `matched_rule_scope` and are
+ * untouched, as are project-scoped attributions. */
 const redactOrgMatchedRule = (entry: RequestLogEntry): RequestLogEntry => {
   if (getMatchedRuleScope(entry) !== "organization") return entry;
   const data = { ...(entry.extraData as Record<string, unknown>) };

@@ -48,14 +48,10 @@ export const auth = (options?: AuthOptions) => {
   const minimumRole = options?.role;
 
   return createMiddleware<ApiEnv>(async (c, next) => {
-    // A browser navigation that can't set request headers — the app-connect →
-    // GET /v1/apps/:provider/authorize redirect — carries its scope in the query
-    // string (_token/_project/_org). Bridge it into the headers every auth path
-    // reads, ONCE up front, so the ambient local session (onprem-slim: no _token
-    // JWT) resolves the popup's project too — not only the query-token (cloud)
-    // path. Never override a real header/Authorization, so an API key or a
-    // header-scoped request keeps precedence; resolveProjectId still validates
-    // org membership before trusting x-project-id.
+    // A browser navigation cannot set request headers, so it carries its scope
+    // in the query string (_token/_project/_org). Bridge those into the headers
+    // every auth path reads. Real headers always win, so an API key or a
+    // header-scoped request keeps precedence.
     let request = c.req.raw;
     const queryToken = c.req.query("_token");
     const queryProject = c.req.query("_project");
@@ -72,14 +68,12 @@ export const auth = (options?: AuthOptions) => {
         if (queryOrg && !headers.has("x-organization-id")) {
           headers.set("x-organization-id", queryOrg);
         }
-        // Header-only clone for the auth resolvers; c.req (the route handler's
-        // request, incl. its body) is left untouched.
+        // Header-only clone for the auth resolvers; `c.req` and its body are
+        // left untouched.
         request = new Request(c.req.url, { headers });
       } catch {
-        // A scope param that isn't a valid Latin-1 header value (e.g. a
-        // non-Latin1 char) makes Headers.set throw; fall back to the original
-        // request (no bridge) rather than surfacing a 500 — auth then resolves
-        // as if the param were absent.
+        // A scope param that is not a valid header value makes `Headers.set`
+        // throw; resolve as if the param were absent rather than 500.
         request = c.req.raw;
       }
     }
@@ -89,12 +83,9 @@ export const auth = (options?: AuthOptions) => {
     let authResult: AuthContext | null =
       typeof apiKeyAuth === "string" ? null : apiKeyAuth;
 
-    // Strict API-key mode (EE editions): an `oc_` bearer commits to API-key
-    // auth — a failed key authentication 401s instead of falling through to
-    // session auth, where onprem's ambient local session would silently
-    // resolve the caller to the user's default project. OSS keeps the
-    // fallthrough (flag off), where both sentinels degrade to the plain null
-    // they always were.
+    // In strict mode an `oc_` bearer commits to API-key auth: a failed key 401s
+    // instead of falling through to session auth, where an ambient local session
+    // would silently resolve the caller to their default project.
     if (getStrictApiKeyAuth()) {
       if (apiKeyAuth === "missing-project") {
         return c.json(MISSING_PROJECT_HEADER, 401);
@@ -108,8 +99,8 @@ export const auth = (options?: AuthOptions) => {
     if (!authResult) {
       const sessionAuth = await authenticateSession(request, requireProject);
       if (sessionAuth && "denied" in sessionAuth) {
-        // The edition's session enforcer rejected a valid session (e.g.
-        // enterprise "require SSO") — explicit 401, never the generic one.
+        // The session enforcer rejected a valid session; surface its reason
+        // rather than the generic 401.
         return c.json(
           {
             error: {

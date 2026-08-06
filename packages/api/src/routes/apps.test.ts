@@ -8,8 +8,8 @@ import type { ApiEnv } from "../types";
 
 const ORG_KEY = "oc_org_test-key";
 
-// Hermetic to the ambient edition (CI runs with NEXT_PUBLIC_EDITION=cloud):
-// pin everything before any import evaluates (vi.hoisted runs first).
+// Pinned before any import evaluates so the suite is hermetic to the ambient
+// edition (CI runs with NEXT_PUBLIC_EDITION=cloud).
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "onprem-slim";
   process.env.SECRET_ENCRYPTION_KEY = "test-oauth-state-secret";
@@ -182,10 +182,9 @@ describe("app-permission catalog endpoints", () => {
   });
 });
 
-// Where the OAuth callback sends the browser when the dance ends. An unknown
-// provider is the cheapest way in: it short-circuits to the "Invalid provider"
-// error redirect, which is built from the same `appOrigin` as every success and
-// failure path in the handler.
+// An unknown provider is the cheapest way in: it short-circuits to the
+// "Invalid provider" error redirect, built from the same `appOrigin` as every
+// other path in the handler.
 describe("oauth callback redirect origin", () => {
   let app: Hono<ApiEnv>;
 
@@ -210,8 +209,6 @@ describe("oauth callback redirect origin", () => {
   const invalidProviderAt = (origin: string) =>
     `${origin}/app-connect/nosuchprovider?status=error&message=Invalid%20provider`;
 
-  // The reported bug (OSS #420): APP_URL is unset, so the handler used to read
-  // lib/env.ts's `http://localhost:10254` default and strand the user there.
   it("falls back to the request origin when APP_URL is unconfigured", async () => {
     delete process.env.APP_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
@@ -236,6 +233,6 @@ describe("oauth callback redirect origin", () => {
     );
   });
 
-  // The split-origin deployment shape is covered in
-  // apps-callback-origin.test.ts, which needs its own edition pin.
+  // Split-origin deployments are covered in apps-callback-origin.test.ts,
+  // which needs its own edition pin.
 });

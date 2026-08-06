@@ -24,10 +24,9 @@ export const listAgents = async (projectId: string) => {
       },
       orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
     }),
-    // Newest gateway request per agent, bounded to the last-seen window (a
-    // range scan on the (project_id, created_at) index — never a walk of the
-    // project's whole log history). Null = no request in-window; the client
-    // tells "never used" from "quiet" via agentLastSeen.
+    // Newest gateway request per agent, bounded to the last-seen window so the
+    // read stays a range scan on (project_id, created_at). Null means no
+    // request in-window, not "never used".
     db.requestLog.groupBy({
       by: ["agentId"],
       where: {
@@ -62,10 +61,8 @@ export const getDefaultAgent = async (projectId: string) => {
   });
 };
 
-/** Lookback for `recentRequestAt`: bounded so the RequestLog probe rides the
- * (project_id, created_at) index — unbounded, a zero-request agent would walk
- * the project's whole log history, and the Install page polls this read while
- * waiting for the agent's first request. */
+/** Lookback for `recentRequestAt`, bounded so the RequestLog probe rides the
+ * (project_id, created_at) index instead of scanning the whole log. */
 export const RECENT_REQUEST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const getAgentDetail = async (projectId: string, agentId: string) => {
@@ -140,14 +137,9 @@ export const createAgent = async (
   const accessToken = generateAccessToken();
 
   try {
-    // Every new agent starts SELECTIVE with nothing attached (attach-model
-    // step 5): credentials arrive through explicit grants — the agent page or
-    // the post-connect attach step — never through an implicit whole-pool
-    // mode. Deliberately NOT inherited from a parent agent: during the grace
-    // window an unconverted "all" parent would otherwise mint new all-mode
-    // agents and step 7's zero-"all" gate could never converge. The schema
-    // default stays "all" until the column retires in step 8, so this must be
-    // explicit (as at every other creation site).
+    // Every new agent starts selective with nothing attached; credentials
+    // arrive through explicit grants. Set explicitly because the schema default
+    // is still "all".
     const agent = await db.agent.create({
       data: {
         name: trimmed,

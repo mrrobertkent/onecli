@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Focused unit tests for step-8 TARGET authz: the connection/secret reference
-// ownership check (the IDOR guard) that mirrors `assertIdentitiesValid`. Every
-// referenced connection/secret must belong to the acting org — a project rule to
-// its project + org-level resources, an org rule to org-level resources. The
-// helper is DB-light, so we mock @onecli/db with the project lookup + the two
-// counts, capturing each `where` so the org/project fence itself is asserted (not
-// just the count-mismatch behavior).
+// Target authz: every referenced connection/secret must belong to the acting
+// org. @onecli/db is mocked with the project lookup and the two counts, and
+// each `where` is captured so the fence itself is asserted, not just the
+// count-mismatch behavior.
 const state = vi.hoisted(() => ({
   projectOrg: "org-1" as string | null,
   counts: { appConnection: 0, secret: 0 },
@@ -179,10 +176,9 @@ describe("assertTargetsValid — level scope + secret XOR (step 8)", () => {
   });
 
   it("allows an app target carrying BOTH tools and a connectionScope (the tools-picker shape)", async () => {
-    // The rule dialog's tools picker authors an "all connections" app target
-    // narrowed to specific tools: tools decide matching, connectionScope drives
-    // injection. Validation must accept the two together (no owned id to fence —
-    // the provider + level are not references).
+    // The tools picker authors an "all connections" app target narrowed to
+    // specific tools: tools decide matching, connectionScope drives injection.
+    // Neither is an owned reference, so there is nothing to fence.
     await expect(
       assertTargetsValid(projectScope, [
         {

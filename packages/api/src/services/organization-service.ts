@@ -14,12 +14,11 @@ export const slugify = (raw: string) =>
     .replace(/^-|-$/g, "");
 
 /**
- * Membership filter every ACCESS-GRANTING read applies: suspended members are
- * treated as non-members by all authorization checks (the write-side lives in
- * the EE team service; nothing sets "suspended" in OSS, so this is inert
- * there). Deliberately NOT applied to display lists, seat counts, or the
- * provisioning/JIT existence guards — filtering those would re-mint
- * memberships for suspended users.
+ * Membership filter for access-granting reads: suspended members are treated as
+ * non-members by authorization checks.
+ *
+ * Not for display lists, seat counts, or provisioning existence guards —
+ * filtering those would re-mint memberships for suspended users.
  */
 export const activeMembershipWhere = {
   status: { not: "suspended" },
@@ -27,10 +26,8 @@ export const activeMembershipWhere = {
 
 /**
  * Resolve the user's default project: first organization → first project.
- * Returns null when the user has no organization or no project (pre-bootstrap).
- *
- * Used by `resolveUser()`, `resolveApiAuth()`, and the session route to map
- * an authenticated user to a project without creating anything.
+ * Returns null when the user has no organization or no project. Creates
+ * nothing.
  */
 export const findUserDefaultProject = async (
   userId: string,
@@ -53,11 +50,9 @@ export const findUserDefaultProject = async (
 };
 
 /**
- * The nested-write seeds every user-facing project is born with: one API
- * key + the default agent. The single definition all provision sites
- * spread into their `project.create` data (bootstrap, project creation,
- * membership provisioning) — the guarded split-write variant for existing
- * projects is `ensureProjectSeeds` below.
+ * Nested-write seeds every new project is born with: one API key + the default
+ * agent. Spread into `project.create` data; `ensureProjectSeeds` below is the
+ * guarded variant for projects that already exist.
  */
 export const defaultProjectSeed = (userId: string, userEmail: string) => ({
   apiKeys: { create: { key: generateApiKey(), userId, userEmail } },
@@ -67,24 +62,16 @@ export const defaultProjectSeed = (userId: string, userEmail: string) => ({
       identifier: DEFAULT_AGENT_IDENTIFIER,
       accessToken: generateAccessToken(),
       isDefault: true,
-      // Attach-model step 5: every new agent starts selective with nothing
-      // attached — credentials arrive through explicit grants. Explicit at
-      // every creation site because the schema default stays "all" until the
-      // column retires (step 8).
+      // Set explicitly at every creation site: the schema default is still
+      // "all", but new agents start selective.
       secretMode: "selective",
     },
   },
 });
 
 /**
- * Create an organization with a default project, API key, and default agent
- * for a user who has no organization yet. Returns the created project.
- *
- * This is the single source of truth for the "first login" bootstrap flow.
- * Called by:
- *   - `GET /v1/auth/session` (cloud + OSS)
- *   - `ensureLocalUser()` (OSS local-auth mode)
- *   - `ensureUserDefaultOrgAndProject()` (EE project management)
+ * Create an organization with a default project, API key, and default agent for
+ * a user who has no organization yet. Returns the created project and org.
  */
 export const bootstrapOrganization = async (
   userId: string,
@@ -114,18 +101,15 @@ export const bootstrapOrganization = async (
       createdByUserId: userId,
       createdByUserEmail: userEmail,
       ...defaultProjectSeed(userId, userEmail),
-      // Creator's ProjectAccess binding (step 13), seeded owner (13c) with the
-      // project. Inert in OSS (nothing reads bindings without RBAC); load-bearing
-      // in cloud.
+      // Creator's ProjectAccess binding. Inert in OSS (nothing reads bindings
+      // without RBAC); load-bearing in cloud.
       accessBindings: { create: { userId, role: "owner" } },
     },
     select: { id: true, organizationId: true },
   });
 
-  // Seed the new org's initial published policy (cloud: an allow-posture org
-  // Default Rule). Best-effort — a hiccup must not fail onboarding; the org then
-  // has no published generation and the engine allows until one is authored. OSS
-  // default is a no-op.
+  // Best-effort: a failure must not fail onboarding. The org then has no
+  // published generation and the engine allows until one is authored.
   try {
     await getNewOrgPolicySeeder().seed(org.id, project.id);
   } catch (err) {
@@ -140,9 +124,8 @@ export const SHARED_ORG_SLUG = "default";
 export const SHARED_ORG_NAME = "Default";
 
 /**
- * Find-or-create the single shared organization. The slug is `@unique`, so a
- * concurrent first-login race resolves to one org — the create loser catches the
- * unique violation and re-reads.
+ * Find-or-create the single shared organization. Race-safe via the unique slug:
+ * the loser of a concurrent create catches the violation and re-reads.
  */
 export const findOrCreateSharedOrg = async (): Promise<{ id: string }> => {
   const existing = await db.organization.findUnique({
@@ -168,19 +151,12 @@ export const findOrCreateSharedOrg = async (): Promise<{ id: string }> => {
 };
 
 /**
- * Ensure the single shared organization exists and the user is a member of it
- * with the GIVEN role — WITHOUT any project. Idempotent and concurrency-safe.
+ * Ensure the shared organization exists and the user is a member of it at the
+ * given role, without any project. Idempotent and concurrency-safe.
  *
- * `role` is deliberately required and has no default. This function once
- * created every membership as `owner` unconditionally, which under shared
- * tenancy made every user who ever logged in an owner of the one organization;
- * a `RoleResolver` reading `organization_members.role` then answered `owner`
- * for everyone — correct, against poisoned data. Callers must state the role,
- * so the compiler keeps that decision visible.
- *
- * The existing role is preserved on re-entry (`update: {}`): membership is
- * created once, and later role changes belong to the login-time role writer or
- * an admin, not to a bootstrap helper.
+ * `role` is required with no default so no caller silently mints an owner.
+ * An existing role is preserved on re-entry — role changes belong to the
+ * login-time role writer or an admin, not to a bootstrap helper.
  */
 export const ensureSharedOrgMembership = async (
   userId: string,
@@ -195,9 +171,7 @@ export const ensureSharedOrgMembership = async (
     update: {},
   });
 
-  // Seed the shared org's initial published policy (step 9.5 — onprem rides
-  // the EE engine, so a fresh instance starts on v2 directly). Best-effort +
-  // idempotent, like the per-user-org bootstrap above.
+  // Best-effort and idempotent, like the per-user-org bootstrap above.
   try {
     await getNewOrgPolicySeeder().seed(org.id);
   } catch (err) {
@@ -211,16 +185,13 @@ export const ensureSharedOrgMembership = async (
 };
 
 /**
- * The ORG-LEVEL part of the instance bootstrap: the shared organization, its
- * OWNER, and the operator bootstrap org API key — WITHOUT any project. Used by
- * the eager boot-time init so the instance is usable via the org key before
- * anyone opens the web.
+ * The org-level part of the instance bootstrap: the shared organization, its
+ * owner, and the operator bootstrap org API key — no project. Run at boot so
+ * the instance is usable via the org key before anyone opens the web app.
  *
- * Split out from the membership helper above. The key seeding is what makes
- * this owner-shaped: `ApiKey.user` is `ON DELETE RESTRICT`, so
- * whoever owns the bootstrap key cannot be deleted while it exists. That is
- * correct for a bootstrap admin and wrong for an ordinary joiner, which is
- * exactly why the two paths must not share one function.
+ * Kept separate from the plain membership helper because `ApiKey.user` is
+ * `ON DELETE RESTRICT`: whoever owns the bootstrap key cannot be deleted. Right
+ * for a bootstrap admin, wrong for an ordinary joiner.
  */
 export const ensureSharedOrgBootstrap = async (
   userId: string,
@@ -237,14 +208,13 @@ export const ensureSharedOrgBootstrap = async (
 
 /**
  * Single-org first-login join: ensure the shared org + the user's membership at
- * the GIVEN role, then give the user their own default project inside it.
+ * the given role, then give the user their own default project inside it.
  * Idempotent and concurrency-safe. Mirrors `bootstrapOrganization`'s return
- * shape — the project apiKey + default agent are seeded by the caller's
+ * shape; the project's apiKey + default agent are seeded by the caller's
  * `ensureProjectSeeds`.
  *
- * `role` is required with no default. It does NOT seed the
- * bootstrap org API key: that belongs to `ensureSharedOrgBootstrap` and to the
- * bootstrap admin alone, because owning the key makes a user undeletable.
+ * Does not seed the bootstrap org API key — that belongs to
+ * `ensureSharedOrgBootstrap` alone, since owning it makes a user undeletable.
  */
 export const joinSharedOrganization = async (
   userId: string,
@@ -253,10 +223,8 @@ export const joinSharedOrganization = async (
 ) => {
   const org = await ensureSharedOrgMembership(userId, userEmail, role);
 
-  // Each user gets their own default project in the shared org. The project slug
-  // must be unique per org (`@@unique([organizationId, slug])`); since every user
-  // shares this one org (unlike the per-user orgs in `bootstrapOrganization`), use
-  // the full user id so the slug can never collide.
+  // Slugs are unique per org and every user shares this one org, so the slug
+  // carries the full user id rather than a prefix.
   let project = await db.project.findFirst({
     where: { organizationId: org.id, createdByUserId: userId },
     select: { id: true, organizationId: true },
@@ -271,14 +239,12 @@ export const joinSharedOrganization = async (
         organizationId: org.id,
         createdByUserId: userId,
         createdByUserEmail: userEmail,
-        // Creator's ProjectAccess binding (step 13), seeded owner (13c). Inert in OSS.
+        // Creator's ProjectAccess binding. Inert in OSS.
         accessBindings: { create: { userId, role: "owner" } },
       },
       select: { id: true, organizationId: true },
     });
-    // Seed the new project's initial published policy (step 9.5) — a no-op
-    // for the org-scope EE seeder (idempotent on the org's existing
-    // generation), load-bearing where the seeder is project-scoped.
+    // A no-op for an org-scoped seeder; load-bearing for a project-scoped one.
     try {
       await getNewOrgPolicySeeder().seed(org.id, project.id);
     } catch (err) {

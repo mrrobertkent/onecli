@@ -28,11 +28,9 @@ export const IDENTITY_CONFLICT_ERROR =
 export interface SessionHooks {
   getSessionAttributes(request: Request): SessionAttributes;
   /**
-   * Fires once when the session upsert created a new user row — for every
-   * flow, not just organic signups. `context.bootstrappedOrg` says whether
-   * the default org bootstrap ran for this user; editions use it (and the
-   * request) to tell organic signups apart from users who join an existing
-   * org (invitation, claim link, JIT membership).
+   * Fires once when the session upsert created a new user row, on every flow.
+   * `context.bootstrappedOrg` distinguishes an organic signup from a user
+   * joining an existing org by invitation, claim link or JIT membership.
    */
   onUserCreated(
     user: { email: string; name: string | null },
@@ -43,20 +41,17 @@ export interface SessionHooks {
   augmentSessionResponse(userId: string): Promise<Record<string, unknown>>;
   /**
    * Decide what happens when a session's email already belongs to a user with
-   * a DIFFERENT auth identity (`externalAuthId` mismatch): "link" re-points
-   * the user to the session's identity; "reject" refuses the sign-in (409).
-   * The default preserves the historical behavior (always link) — editions
-   * with untrusted identity sources override this with a real policy.
+   * a different `externalAuthId`: "link" re-points the user to the session's
+   * identity, "reject" refuses the sign-in with a 409. Defaults to "link".
    */
   resolveIdentityConflict(
     existing: ExistingIdentity,
     session: SessionUser,
   ): "link" | "reject" | Promise<"link" | "reject">;
   /**
-   * Ensure edition-specific org membership for the session's identity (e.g.
-   * enterprise-SSO JIT join) before the default org-bootstrap decision. Runs
-   * on every session and must be idempotent and non-throwing — membership is
-   * best-effort; session resolution is not. The default is a no-op.
+   * Ensure edition-specific org membership (e.g. SSO JIT join) before the
+   * org-bootstrap decision. Runs on every session, so it must be idempotent
+   * and must not throw. Defaults to a no-op.
    */
   ensureSessionMembership(
     session: SessionUser,
@@ -80,16 +75,11 @@ export const initSessionHooks = (hooks: Partial<SessionHooks>) => {
 };
 
 /**
- * GET /auth/session
- *
- * Single endpoint that handles the full auth -> DB sync flow:
- * 1. Reads the auth session (cookie/token)
- * 2. Upserts the user in the database
- * 3. Ensures the user has an Organization + Project + ApiKey + Agent
- * 4. Returns the user profile with projectId
+ * GET /auth/session — the full auth-to-DB sync: read the session, upsert the
+ * user, ensure they have an Organization + Project + ApiKey + Agent, and return
+ * the profile with its projectId. 401 when no valid session exists.
  *
  * Called by the login page after auth and by the dashboard layout on mount.
- * Returns 401 if no valid session exists.
  */
 export const authSessionRoutes = () => {
   const app = new Hono();

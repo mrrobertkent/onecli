@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Minimal in-memory `@onecli/db` mock — just the operations
-// `joinSharedOrganization` touches — so we can assert the single-org invariants
-// (one shared org, per-user projects, idempotency) without a real database.
+// In-memory `@onecli/db` mock covering only the operations
+// `joinSharedOrganization` touches.
 
 interface OrgRow {
   id: string;
@@ -164,7 +163,7 @@ describe("joinSharedOrganization", () => {
     expect(project.organizationId).toBe(organization.id);
     expect(store.members).toHaveLength(1);
     expect(store.projects).toHaveLength(1);
-    // The creator's ProjectAccess binding is seeded owner (step 13c) with the project.
+    // The creator's ProjectAccess binding is seeded owner with the project.
     expect(
       (store.projects[0] as { accessBindings?: unknown }).accessBindings,
     ).toEqual({ create: { userId: "user-aaaaaaaa", role: "owner" } });
@@ -209,15 +208,8 @@ describe("joinSharedOrganization", () => {
   });
 
   // ── Shared-org role regression ────────────────────────────────────────
-  //
-  // This path used to create EVERY shared-org membership with `role: "owner"`,
-  // unconditionally. Under `single-org-shared` that made every user who logged
-  // in an owner of the one organization, and a `RoleResolver` reading
-  // `organization_members.role` then returned `owner` for all of them — the
-  // resolver answering correctly from poisoned data.
-  //
-  // These assert on the PERSISTED role, not on behaviour, because a passing
-  // authorization check is exactly what hid the bug.
+  // These assert on the persisted role rather than on an authorization
+  // outcome: a passing authorization check is what hid the original bug.
   it("persists the role it was given, and never silently promotes to owner", async () => {
     await joinSharedOrganization("user-aaaaaaaa", "a@example.com", "member");
 
@@ -235,8 +227,8 @@ describe("joinSharedOrganization", () => {
   });
 
   it("preserves an existing role when the same user joins again", async () => {
-    // Re-entry must not re-grade anyone: role changes belong to the login-time
-    // role writer or an admin, never to a bootstrap helper.
+    // Role changes belong to the login-time role writer or an admin, never to
+    // a bootstrap helper.
     await joinSharedOrganization("user-aaaaaaaa", "a@example.com", "member");
     await joinSharedOrganization("user-aaaaaaaa", "a@example.com", "owner");
 

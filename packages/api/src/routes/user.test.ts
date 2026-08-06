@@ -1,16 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-// The identity routes' auth posture: GET /user must work without a project
-// header — `onecli auth login` verifies keys through it, and an ORG key
-// carries no project of its own (the regression read every org key as
-// invalid). The api-key sub-routes stay project-scoped via requireProjectId.
+// GET /user must work without a project header — an org key carries no project
+// of its own — while the api-key sub-routes stay project-scoped.
 //
-// Deliberately NOT pinning an edition: this runs under CI's cloud edition
-// (CAPS.rbac on) — the edition the bug lived in and where `onecli auth login`
-// with an org key matters. That means org-key auth performs the admin
-// role re-check (api-key.ts), so the test registers a roleResolver, exactly
-// as the real cloud stack does. Without it the org key would 401 at the role
-// gate — masking whether the requireProject fix works at all.
+// No edition is pinned: under CI's cloud edition org-key auth re-checks the
+// admin role, so a roleResolver is registered or the key would 401 at the role
+// gate before reaching what these tests measure.
 
 const ORG_KEY = "oc_org_test-key";
 

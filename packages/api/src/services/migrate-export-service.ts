@@ -34,15 +34,9 @@ export const exportToCloud = async (
 ): Promise<MigrateResult> => {
   // ── Gather data ───────────────────────────────────────────────
 
-  // Secrets + agents only. The legacy per-agent grant tables and the legacy
-  // `policy_rules` are frozen (step 10) — nothing enforces them here either, so
-  // carrying them across would migrate dead rows, and the cloud importer rejects
-  // them outright.
-  //
-  // The LIVE policy (`policy_rules_v2`) has no import contract yet, so it does
-  // not travel. It is counted below and reported in `skipped[]` rather than
-  // dropped in silence: a customer with rules would otherwise see a clean
-  // success and land on a destination that enforces nothing they authored.
+  // Secrets and agents only. The legacy grant tables and `policy_rules` are
+  // frozen, and `policy_rules_v2` has no import contract yet — so live policy
+  // is counted and reported in `skipped[]` rather than dropped in silence.
   const [secrets, agents, policyRuleCount] = await Promise.all([
     db.secret.findMany({
       where: { projectId },
@@ -66,9 +60,8 @@ export const exportToCloud = async (
         secretMode: true,
       },
     }),
-    // The project's own enabled draft rules — what the user authored, minus the
-    // Default Rule and the rows their own surface owns (blocklist) or that are
-    // credential grants rather than policy (equipment).
+    // What the user authored: the project's draft rules minus the Default Rule,
+    // the rows another surface owns, and credential grants.
     db.policyRuleV2.count({
       where: {
         scope: "project",

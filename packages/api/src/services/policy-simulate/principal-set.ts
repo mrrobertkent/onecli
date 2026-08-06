@@ -1,15 +1,11 @@
 import { db } from "@onecli/db";
 
-// The TS mirror of the gateway's connect-time `find_principal_set` CTE
-// (apps/gateway/src/db.rs) — the set of principals the policy engine matches an
-// agent's requests against: the humans the agent inherits from its project's
-// ProjectAccess (direct users + members of granted groups, ACTIVE org members
-// only), and every directory group those humans belong to. Role-agnostic
-// (presence-only) and ORG-FENCED on every arm — a granted group or a user's
-// membership in ANOTHER org's groups can never leak in. Agent-independent, so
-// one resolution covers every agent of the project. Off the hot path (backs
-// the read-only reflections); the gateway resolves its own
-// set at connect. Keep in lockstep with the CTE.
+// TS mirror of the gateway's `find_principal_set` CTE (apps/gateway/src/db.rs);
+// keep the two in lockstep. The principals an agent's requests are matched
+// against: the humans it inherits from its project's ProjectAccess (direct
+// users plus members of granted groups, active org members only) and every
+// directory group those humans belong to. Every arm is org-fenced, and the
+// result is agent-independent, so one resolution covers a whole project.
 
 export interface PrincipalSet {
   userIds: string[];
@@ -53,8 +49,8 @@ export const resolvePrincipalSet = async (
     ...new Set([...directUserIds, ...groupMemberUserIds]),
   ];
 
-  // all_users: only ACTIVE org members contribute — a suspended member is
-  // excluded, mirroring the people-gate `user_can_manage_project`.
+  // all_users: only active org members contribute — a suspended member is
+  // excluded, mirroring `user_can_manage_project`.
   const userIds = candidateUserIds.length
     ? (
         await db.organizationMember.findMany({

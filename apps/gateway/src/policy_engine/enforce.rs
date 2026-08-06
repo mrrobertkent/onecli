@@ -1,12 +1,9 @@
 //! The OSS enforce seam: load the published project rules at connection
-//! resolution and decide requests with the first-match core, producing the
-//! `policy::PolicyDecision` the forward/websocket act-path understands. The engine
-//! is authoritative — an empty rule set (a load error, or an unmigrated project
-//! with no Default Rule) decides `Allow`; there is no fallback.
+//! resolution and decide requests with the first-match core. The engine is
+//! authoritative — an empty rule set decides `Allow`, there is no fallback.
 //!
-//! HIGH PERFORMANCE: rules load ONCE at connection resolution (cached ~60s
-//! with the rest of the connect state); the per-request decision path never
-//! touches the DB.
+//! Rules load once at connection resolution (cached ~60s with the rest of the
+//! connect state); the per-request decision path never touches the DB.
 
 use anyhow::Context;
 use sqlx::PgPool;
@@ -23,27 +20,25 @@ use super::assemble::assemble;
 use super::evaluate::evaluate_outcome;
 use super::types::{Action, Outcome, Request, Rule};
 
-/// `false` always: OSS's `condition_match` arm cannot buffer bodies and never
-/// evaluates conditions (they match vacuously), so there is nothing to buffer for.
+/// Always `false`: OSS's `condition_match` arm never evaluates conditions, so
+/// there is nothing to buffer for.
 pub(crate) fn needs_body_buffer(_v2: &PolicyV2Rules) -> bool {
     false
 }
 
 /// Equipment rows are excluded: they are injection-only (dropped by the
 /// assembler), so their secret/connection targets never need host/provider
-/// resolution — mirroring the EE loader's lazy skip, which keeps the common
-/// selective-agent connect resolution free of the two extra queries.
+/// resolution.
 fn has_target_kind(rows: &[PolicyRuleV2Row], kind: &str) -> bool {
     rows.iter()
         .filter(|r| r.source != "equipment")
         .any(|r| r.targets.0.iter().any(|t| t.kind == kind))
 }
 
-/// Load the published project rules at resolution time — cached with
-/// `ConnectResponse`, off the per-request hot path. Secret hosts and connection
-/// providers resolve lazily, only when some loaded rule needs them. Any load error
-/// PROPAGATES: the caller refuses the CONNECT rather than caching a policy-free
-/// (allow-everything, inject-nothing) state for the ~60s cache cycle.
+/// Load the published project rules at resolution time. Secret hosts and
+/// connection providers resolve lazily, only when some loaded rule needs them.
+/// Load errors propagate so the caller refuses the CONNECT rather than caching a
+/// policy-free (allow-everything, inject-nothing) state for the cache cycle.
 pub(crate) async fn load_connect_v2(
     pool: &PgPool,
     org_id: &str,
@@ -74,8 +69,7 @@ pub(crate) async fn load_connect_v2(
     })
 }
 
-/// "All apps available" always: app availability is a OneCLI Cloud capability;
-/// the shared pre-check stays structurally inert here.
+/// Always "all apps available": app availability is a OneCLI Cloud capability.
 pub(crate) async fn load_available_apps(
     _pool: &PgPool,
     _org_id: &str,
@@ -122,10 +116,8 @@ async fn decision_for_rule(
     PolicyDecision::Allow
 }
 
-/// Decide via the OSS core over the already-resolved project rules. No DB access.
-/// If the identity is somehow incomplete, or the rule set is empty (a load error,
-/// or a project with no published policy), the decision is `Allow` — the engine is
-/// authoritative, so there is no fallback.
+/// Decide via the OSS core over the already-resolved project rules. No DB
+/// access. An incomplete identity or an empty rule set decides `Allow`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn evaluate(
     proxy_ctx: &ProxyContext,

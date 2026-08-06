@@ -8,18 +8,14 @@ import { effectiveAppPermissions } from "../services/policy-reflect/effective-to
 import { effectiveCredentials } from "../services/policy-reflect/effective-credentials";
 import { effectiveAgents } from "../services/policy-reflect/effective-agents";
 
-// Org-rule redaction driver: resolve the viewer's role via the roleResolver
-// provider. EE sets it (authorization-service); OSS/onprem-slim leave it null →
-// non-admin → fail-safe redaction of org-rule details.
+// Drives org-rule redaction. An unwired resolver yields null, which reads as
+// non-admin and redacts.
 const resolveRole = (userId: string, organizationId: string) =>
   getRoleResolver()?.getUserRole(userId, organizationId) ??
   Promise.resolve(null);
 
-// The step-9.7b read-only reflections (EE; compose onto the shared routers like
-// the simulate precedent): what the ENFORCED v2 rules mean for the legacy
-// equipment panels. Reads only — never audited, no write path exists. Org-rule
-// details are redacted for non-org-admins inside the services (the simulate
-// response-layer contract).
+// Read-only reflections of what the enforced v2 rules mean for the equipment
+// panels. Never audited — there is no write path here.
 
 const effectiveAppPermissionsQuery = z.object({
   provider: z.string().trim().min(1).max(100),
@@ -32,10 +28,9 @@ export const policyReflectRoutes = () => {
   const app = new Hono<ApiEnv>();
 
   // GET /v1/policy/effective-app-permissions?provider=X[&agentId=Y]
-  // [&connectionId=Z] — the per-tool effective-permissions reflection for the
-  // App Permissions panel. `connectionId` reflects one specific account as the
-  // winning injected connection. Any PROJECT MEMBER (it replaces a
-  // member-visible panel).
+  // [&connectionId=Z] — per-tool effective permissions for the App Permissions
+  // panel. `connectionId` reflects one account as the winning injected
+  // connection. Open to any project member.
   app.get("/effective-app-permissions", auth(), async (c) => {
     const authCtx = c.get("auth");
     const projectId = requireProjectId(authCtx);
@@ -50,8 +45,8 @@ export const policyReflectRoutes = () => {
         parsed.error.issues[0]?.message ?? "Invalid query",
       );
     }
-    // Org-admin viewers see org rule details; everyone else gets redaction.
-    // A null resolver/role (OSS, unknown) fails SAFE to non-admin.
+    // Org admins see org rule details; everyone else gets redaction, and an
+    // unknown role fails safe to non-admin.
     const role = await resolveRole(authCtx.userId, authCtx.organizationId);
     const viewerSeesOrgRules = role === "admin" || role === "owner";
     return c.json(
@@ -68,9 +63,7 @@ export const policyReflectRoutes = () => {
 };
 
 /** Composes onto the shared /agents router: the injectable-credential
- * reflection for the "Credential access" dialog. Any PROJECT MEMBER
- * (it replaces a member-visible dialog — the member fence, not an
- * admin gate). */
+ * reflection for the "Credential access" dialog. Open to any project member. */
 export const agentReflectRoutes = () => {
   const app = new Hono<ApiEnv>();
 
@@ -92,8 +85,8 @@ export const agentReflectRoutes = () => {
 };
 
 /** Composes onto the shared /connections router: the per-agent access
- * reflection for the connection "agent access" dialog. Any PROJECT
- * MEMBER (it replaces a member-visible dialog). */
+ * reflection for the connection "agent access" dialog. Open to any project
+ * member. */
 export const connectionReflectRoutes = () => {
   const app = new Hono<ApiEnv>();
 

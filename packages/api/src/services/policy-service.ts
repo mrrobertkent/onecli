@@ -13,9 +13,8 @@ import { isSessionPolicy } from "../validations/policy";
 
 // ── Unified policy engine service (policy_rules_v2) ─────────────────────────
 // CRUD + reorder + publish over the priority-ordered, first-match rule model.
-// Each scope has a draft (editable) set and published (active) snapshots; the
-// gateway will read only the active published generation — this service is
-// otherwise inert in step 2.
+// Each scope has a draft (editable) set and published snapshots; the gateway
+// reads only the active published generation.
 
 type PolicyStatus = "draft" | "published";
 
@@ -26,8 +25,7 @@ export const RULE_INCLUDE = {
 
 type RuleRow = Prisma.PolicyRuleV2GetPayload<{ include: typeof RULE_INCLUDE }>;
 
-/** A full policy rule row (identities + targets included) — the currency of the
- * publish/generation machinery. */
+/** A full policy rule row (identities + targets included). */
 export type PolicyRuleRow = RuleRow;
 
 export interface PolicyRuleDto {
@@ -38,13 +36,11 @@ export interface PolicyRuleDto {
   priority: number;
   enabled: boolean;
   isDefault: boolean;
-  /** Generation-stable identity (a publish copies it onto the snapshot) — the
-   * key the editor diffs draft vs published rules by; row `id` regenerates. */
+  /** Generation-stable identity the editor diffs draft against published by; a
+   * publish copies it onto the snapshot, while row `id` regenerates. */
   logicalId: string;
-  // Rule origin — the editor treats "custom" as editable (post-adoption this
-  // includes the former app_permission rules, re-tagged custom at the editing
-  // cutover) and shows the remaining derived sources (blocklist/equipment, or
-  // app_permission pre-cutover) read-only.
+  // Rule origin. The editor treats "custom" as editable and the derived sources
+  // (blocklist / equipment / app_permission) as read-only.
   source: string;
   name: string;
   description: string | null;
@@ -58,8 +54,7 @@ export interface PolicyRuleDto {
   createdAt: Date;
 }
 
-// Response targets mirror the input union but loosen `method` to a plain string
-// (it came from the validated enum on write; the response reflects storage).
+// Mirrors the input union but loosens `method` to a plain string, as stored.
 export type PolicyTargetDto =
   | {
       kind: "app";

@@ -2,9 +2,8 @@ import { z } from "zod";
 import { ruleConditionSchema } from "./policy-rule";
 
 // ── Unified policy engine (policy_rules_v2) request shapes ──────────────────
-// Discriminated unions mirror the DB CHECK constraints (one-principal per
-// identity row, kind-shaped targets), so malformed input is rejected with 422
-// before it reaches the database.
+// The discriminated unions mirror the DB CHECK constraints, so malformed input
+// is rejected with a 422 before it reaches the database.
 
 /** A rule names exactly one principal per identity — a uniform {type, id}. */
 export const policyIdentitySchema = z.discriminatedUnion("type", [
@@ -22,26 +21,23 @@ export const policyTargetSchema = z.discriminatedUnion("kind", [
     kind: z.literal("app"),
     provider: z.string().min(1).max(255),
     tools: z.array(z.string().min(1)).max(100).optional(),
-    // Step 8: when set, this app target injects ALL the agent's connections of
-    // `provider` at the given level ("all connections"); absent = the
-    // app-permission block/allow rule (no injection). `assertTargetsValid` fences
-    // the level (a project rule can't scope to `organization`).
+    // When set, this app target injects every one of the agent's connections of
+    // `provider` at the given level; absent, the rule injects nothing.
+    // `assertTargetsValid` fences the level.
     connectionScope: z.enum(["organization", "project"]).optional(),
   }),
   z.object({
     kind: z.literal("connection"),
     connectionId: z.string().min(1),
-    // `tools` narrow WHICH endpoints the rule matches (the engine decodes a
-    // connection target to its provider's app, honoring these tools); empty =
-    // the provider's whole app. Injection is independent — it always injects the
-    // whole connection, tools or not.
+    // `tools` narrow which endpoints the rule matches; empty means the
+    // provider's whole app. Injection ignores them and always injects the whole
+    // connection.
     tools: z.array(z.string().min(1)).max(100).optional(),
   }),
   z.object({
     kind: z.literal("secret"),
-    // A secret target names EITHER a specific `secretId` OR a `secretScope`
-    // ("all secrets at that level"). Both are optional here; `assertTargetsValid`
-    // enforces exactly-one (a clean 422) and the level fence, mirroring `app`.
+    // A secret target names either a specific `secretId` or a `secretScope`.
+    // `assertTargetsValid` enforces exactly one of them, plus the level fence.
     secretId: z.string().min(1).optional(),
     secretScope: z.enum(["organization", "project"]).optional(),
   }),
@@ -57,20 +53,15 @@ export type PolicyTargetInput = z.infer<typeof policyTargetSchema>;
 export const policyActionSchema = z.enum(["allow", "block"]);
 const rateLimitWindowSchema = z.enum(["minute", "hour", "day"]);
 
-// Granular per-resource scoping (the "session policy") a CONNECTION target can
+// Granular per-resource scoping (the "session policy") a connection target can
 // carry: an object keyed by the provider's resource axis — GitHub → repos,
-// Dropbox → folders. It rides in `conditions` (the exact shape the equipment
-// materialization persists and the gateway's `granular_access` guard reads,
-// source-agnostically), distinct from the behavioral RuleCondition[] (body
-// contains X) the block/allow engine evaluates. Structural bounds only; the
-// per-provider deep checks (repos exist on the installation, absolute Dropbox
-// paths) + the entitlement gate run in the EE policy validator. Absent = all.
+// Dropbox → folders. It rides in `conditions`, distinct from the behavioral
+// RuleCondition[] the block/allow engine evaluates. Structural bounds only; the
+// per-provider deep checks and the entitlement gate run in the EE policy
+// validator. Absent means unrestricted.
 //
-// An EMPTY list is refused: it reads as "reach nothing", which is a scope no
-// UI can author (clearing a restriction sends `null`) and which the credential
-// paths historically mis-read as "no scoping requested" — for GitHub that
-// silently mints a token for EVERY repository. The gateway now treats a stored
-// empty list as deny-all; this stops new ones from being written at all.
+// An empty list is refused: clearing a restriction sends `null`, so an empty
+// list can only arrive as a scope no UI can author.
 const resourceList = (max: number, itemMax: number) =>
   z.array(z.string().min(1).max(itemMax)).min(1).max(max);
 
@@ -80,9 +71,9 @@ export const sessionPolicySchema = z.union([
 ]);
 export type SessionPolicyInput = z.infer<typeof sessionPolicySchema>;
 
-/** A rule's `conditions`: EITHER behavioral (body-contains) rules OR a connection
- * target's granular session policy (repos/folders). An array is behavioral, an
- * object is a session policy; they never mix on one rule. */
+/** A rule's `conditions`: either behavioral rules or a connection target's
+ * granular session policy. An array is behavioral, an object is a session
+ * policy; they never mix on one rule. */
 const ruleConditionsSchema = z.union([
   z.array(ruleConditionSchema).max(10),
   sessionPolicySchema,
@@ -96,9 +87,8 @@ const ruleShape = {
   description: z.string().max(1000).optional(),
   enabled: z.boolean().optional(),
   action: policyActionSchema,
-  // Modifiers on an Allow; empty identities = "any agent". A rule must name at
-  // least one target — the service rejects an empty list (see `createPolicyRule`):
-  // an empty target set matches NOTHING at the gateway (fail-closed), never "any".
+  // Empty identities mean "any agent", but an empty target list matches nothing
+  // at the gateway, so `createPolicyRule` rejects it.
   rateLimit: z.number().int().min(1).max(1_000_000).optional(),
   rateLimitWindow: rateLimitWindowSchema.optional(),
   requireApproval: z.boolean().optional(),
@@ -124,8 +114,8 @@ const rateLimitPaired = {
   message: "rateLimit and rateLimitWindow must be provided together",
 };
 const sessionPolicyNeedsConnection = {
-  // A session policy (object `conditions`) scopes a connection's injected
-  // credential — it's meaningless without a connection target.
+  // A session policy scopes a connection's injected credential, so it is
+  // meaningless without a connection target.
   check: (d: { conditions?: unknown; targets?: { kind: string }[] }) =>
     !isSessionPolicy(d.conditions) ||
     (d.targets ?? []).some((t) => t.kind === "connection"),

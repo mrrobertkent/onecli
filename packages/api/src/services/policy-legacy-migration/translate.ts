@@ -1,19 +1,11 @@
 /**
- * OSS cutover translation (step 9.5): the pure old→new mapping for an OSS
- * project's legacy policy state — custom rules, app-permission tool rows,
- * blocklist rows, equipment assignments, and the org-row `policyMode` — into
- * `BackfillRuleInput`s the shared `backfillPublishScope` materializes.
+ * The pure old→new mapping for an OSS project's legacy policy state — custom
+ * rules, app-permission tool rows, blocklist rows, equipment assignments and
+ * the org-row `policyMode` — into `BackfillRuleInput`s.
  *
- * This is deliberately the PROJECT-ONLY subset (OSS has no org scope, no
- * directory identities, no granular session policies). The full translation
- * library lives in the EE overlay and never ships; the two implementations are
- * kept decision-identical by parity tests that run only in the private repo.
- *
- * Ordering law (mirrors the EE comparator's project arm): agent-scoped rules
- * above all-agents rules — reproducing the legacy gateway's exact-signature
- * agent shadow — then strictness (block < approval < rate < allow), stable on
- * input order. The caller feeds rows `createdAt asc` so ties resolve the same
- * on every run.
+ * Ordering: agent-scoped rules above all-agents rules, then strictness
+ * (block < approval < rate < allow), stable on input order — so callers must
+ * feed rows `createdAt asc` for ties to resolve the same on every run.
  */
 import { getApp } from "../../apps/registry";
 import type { BackfillRuleInput, BackfillTargetInput } from "../policy-service";
@@ -34,8 +26,7 @@ export interface OssOldRule {
   conditions: unknown;
 }
 
-/** A selective agent's equipment (project-owned resources only — the caller
- * applies the project-scope fence, mirroring the EE derivation). */
+/** A selective agent's equipment; the caller applies the project-scope fence. */
 export interface OssAgentEquipment {
   agentId: string;
   secretMode: string;
@@ -48,8 +39,7 @@ const metadataOf = (row: OssOldRule): Record<string, unknown> | null =>
     ? (row.metadata as Record<string, unknown>)
     : null;
 
-/** A host-wide blocklist row (`metadata.type = "blocklist"`) — bridge-owned
- * after the cutover (`source: "blocklist"`), like cloud's. */
+/** Whether a row is a host-wide blocklist row (`metadata.type = "blocklist"`). */
 export const isOssBlocklistRow = (row: OssOldRule): boolean =>
   metadataOf(row)?.type === "blocklist";
 
@@ -61,11 +51,9 @@ const collapsed = (
 ) => ({ action, requireApproval, rateLimit, rateLimitWindow });
 
 /**
- * Collapse an old action to the v2 binary + modifiers (block → block ·
- * manual_approval → allow+requireApproval · rate_limit → allow+rate ·
- * allow → allow). Returns null for a malformed rate row (limit ≤ 0 or an
- * unknown window) or an unknown action — the legacy gateway drops those in its
- * own loader, so the translation must too.
+ * Collapse an old action to the v2 binary plus modifiers. Returns null for a
+ * malformed rate row (limit ≤ 0 or an unknown window) or an unknown action —
+ * the legacy gateway drops those too.
  */
 export const collapseOssAction = (row: OssOldRule) => {
   switch (row.action) {
@@ -91,9 +79,7 @@ export const collapseOssAction = (row: OssOldRule) => {
   }
 };
 
-/** Strictness rank (block 0 < approval 1 < rate 2 < allow 3) — the local
- * mirror of the EE `strictnessRank`; drift is fenced by the private parity
- * tests. */
+/** Strictness rank: block 0 < approval 1 < rate 2 < allow 3. */
 const strictness = (r: BackfillRuleInput): number => {
   if (r.action === "block") return 0;
   if (r.requireApproval) return 1;
@@ -101,8 +87,8 @@ const strictness = (r: BackfillRuleInput): number => {
   return 3;
 };
 
-/** Project ordering: agent-scoped above all-agents (the legacy agent shadow),
- * then strictness; stable on input order. */
+/** Project ordering: agent-scoped above all-agents, then strictness; stable on
+ * input order. */
 export const ossRuleOrderComparator = (
   a: BackfillRuleInput,
   b: BackfillRuleInput,
@@ -114,14 +100,10 @@ export const ossRuleOrderComparator = (
 };
 
 /**
- * One legacy row → one v2 rule carrying its host/path/method VERBATIM as a
- * network target. Custom rows AND app-permission tool rows both take this
- * mapping with `source: "custom"` — app-permission rows are adopted as
- * user-owned rules at translation time (OSS has no pre-cutover bridge era, so
- * there is nothing to re-tag later), and the stored host/path/method is exactly
- * what the legacy gateway matched, making the translation decision-exact
- * without any catalog dependency. Blocklist rows keep `source: "blocklist"`
- * (bridge-owned). Returns null for rows the legacy gateway dropped.
+ * One legacy row → one v2 rule carrying its host/path/method verbatim as a
+ * network target. Custom and app-permission tool rows both map with
+ * `source: "custom"`; blocklist rows keep `source: "blocklist"`. Returns null
+ * for rows the legacy gateway dropped.
  */
 export const translateOssRow = (row: OssOldRule): BackfillRuleInput | null => {
   const action = collapseOssAction(row);
@@ -132,9 +114,8 @@ export const translateOssRow = (row: OssOldRule): BackfillRuleInput | null => {
     source: isOssBlocklistRow(row) ? "blocklist" : "custom",
     name: row.name,
     ...action,
-    // Behavioral conditions are arrays by the legacy contract; anything else
-    // is dropped — an object here would read as a granular session policy and
-    // 422 every publish through the OSS validator lock.
+    // Legacy conditions are arrays; an object would read as a session policy
+    // and 422 on publish.
     conditions: Array.isArray(row.conditions) ? row.conditions : null,
     identities: row.agentId ? [{ type: "agent", id: row.agentId }] : [],
     targets: [
@@ -150,11 +131,8 @@ export const translateOssRow = (row: OssOldRule): BackfillRuleInput | null => {
 };
 
 /**
- * An app-permission TOOL row's provider, or null for anything else. Mirrors
- * the EE translator's `appToolMeta` law: `metadata.source = "app_permission"`
- * with STRING `provider` + `toolId` — blocklist rows carry `source` but no
- * `toolId`, so they never match (callers still check `isOssBlocklistRow`
- * first, matching `translateOssRow`'s own precedence).
+ * An app-permission tool row's provider, or null for anything else. Blocklist
+ * rows carry `source` but no `toolId`, so they never match.
  */
 export const ossAppToolProvider = (row: OssOldRule): string | null => {
   const md = metadataOf(row);
@@ -174,10 +152,8 @@ interface OssToolGroup {
 }
 
 /**
- * The grouped app rule's display name — ONE definition shared by the OSS
- * cutover grouping and the EE compaction pass (a parity pair: the same merge
- * must yield the same name in both editions), action-suffixed so two groups of
- * one provider (an allow run and a block run) stay tellable apart.
+ * The grouped app rule's display name, action-suffixed so an allow group and a
+ * block group of the same provider stay tellable apart.
  */
 export const mergedAppRuleName = (
   provider: string,
@@ -189,12 +165,10 @@ export const mergedAppRuleName = (
   return `${getApp(provider)?.name ?? provider}${suffix}`;
 };
 
-/** One ≥2-member tool-row group → its single grouped rule: named for the app,
- * carrying every member's stored endpoint VERBATIM as its own network target
- * (targets OR within a rule, so the union is decision-exact — no catalog
- * dependency), deduped on the exact (host, path, method) triple. The caller
- * guarantees the key fields (agent, action, approval, conditions) are uniform;
- * the first member is the representative. */
+/** One tool-row group → its single grouped rule, carrying every member's stored
+ * endpoint as a network target, deduped on (host, path, method). The caller
+ * guarantees the group's key fields are uniform; the first member is the
+ * representative. */
 const groupedOssRule = (group: OssToolGroup): BackfillRuleInput => {
   const first = group.rows[0];
   const seen = new Set<string>();
@@ -232,30 +206,20 @@ const groupedOssRule = (group: OssToolGroup): BackfillRuleInput => {
  * The ordered policy set of one project's legacy rows (customs +
  * app-permission-derived + enabled blocklist), priorities `0..n-1`.
  *
- * App-permission TOOL rows are GROUPED (step 9.9): the enabled, non-rate rows
- * of one (agent, provider, action, approval, conditions) signature collapse
- * into a single rule via `groupedOssRule`, slotted at the FIRST member's
- * position — decision-identical, because the comparator's strictness bands are
- * contiguous and every rule within a band carries the same outcome. Rate tool
- * rows stay per-row (each legacy row had its own rate counter; pooling them
- * into one rule would share a single bucket), as do disabled tool rows (see
- * below) and singleton groups (a lone grant keeps its own name — byte-identical
- * to the ungrouped translation).
- *
- * Disabled custom/app-permission rows are CARRIED with `enabled: false`
- * (decision-neutral — the gateway loads `enabled = true` only — but the user's
- * data survives into the editor). Disabled blocklist rows are NOT derived: the
- * old row stays the blocklist panel's source of truth, exactly like the
- * bridge's re-derivation.
+ * Enabled non-rate app-permission rows sharing an (agent, provider, action,
+ * approval, conditions) signature collapse into one rule at the first member's
+ * position; rate rows stay per-row so each keeps its own counter. Disabled
+ * custom/app-permission rows are carried with `enabled: false`; disabled
+ * blocklist rows are not derived at all — the old row stays the blocklist
+ * panel's source of truth.
  */
 export const translateOssProjectRules = (
   rows: OssOldRule[],
 ): BackfillRuleInput[] => {
   const eligible = rows.filter((r) => r.enabled || !isOssBlocklistRow(r));
 
-  // Partition: blocklist first (translateOssRow's own precedence), collapse
-  // BEFORE grouping (a malformed row is dropped exactly as today and must
-  // never poison a group key).
+  // Collapse before grouping, so a malformed row is dropped rather than
+  // poisoning a group key.
   const toolGroups = new Map<string, OssToolGroup>();
   const groupKeyOfRow = new Map<OssOldRule, string>();
   for (const row of eligible) {
@@ -304,8 +268,7 @@ export const translateOssProjectRules = (
   return ordered;
 };
 
-/** The ENABLED blocklist rows alone, unordered — the bridge's re-derivation
- * input (it interleaves them against the kept customs itself). */
+/** The enabled blocklist rows alone, unordered. */
 export const translateOssBlocklistRows = (
   rows: OssOldRule[],
 ): BackfillRuleInput[] =>
@@ -314,21 +277,16 @@ export const translateOssBlocklistRows = (
     .map(translateOssRow)
     .filter((r): r is BackfillRuleInput => r !== null);
 
-/**
- * The per-project Default Rule, seeded from the org-row `policyMode`
- * (`allow → Allow`, `deny → Block`) — the 9.5 de-hack of the instance-wide
- * mode masquerading as a project setting. Written for EVERY project (even
- * rule-less ones): its presence in the published generation is the gateway's
- * per-project cutover signal, and the deny carve (Default-Block bites only
- * credentialed non-LLM requests) is engine-side.
- */
-/** Stamped on every migrated/seeded Default Rule so the cutover can tell its
- * own generations from a user publish that pre-empted migration (the default
- * row's description is not editable from the console, so the marker is
- * stable). */
+/** Stamped on every migrated/seeded Default Rule so the migration can tell its
+ * own generations from a user publish that pre-empted it. */
 export const OSS_MIGRATED_DEFAULT_DESCRIPTION =
   "Migrated from the legacy rules model";
 
+/**
+ * The per-project Default Rule, seeded from the org-row `policyMode`. Written
+ * for every project, even rule-less ones: its presence in the published
+ * generation is the gateway's per-project cutover signal.
+ */
 export const ossProjectDefaultRule = (
   policyMode: string,
 ): BackfillRuleInput => ({
@@ -346,9 +304,8 @@ export const ossProjectDefaultRule = (
   targets: [],
 });
 
-/** An equipment translation result: the rules plus every dropped
- * `sessionPolicy` (OSS's gateway never enforced them — granular scoping is a
- * OneCLI Cloud capability — so they are dropped, loudly, by the caller). */
+/** An equipment translation result: the rules, plus every `sessionPolicy` that
+ * was dropped for the caller to report. */
 export interface OssEquipmentTranslation {
   rules: BackfillRuleInput[];
   droppedSessionPolicies: { agentId: string; appConnectionId: string }[];
@@ -358,8 +315,7 @@ const equipmentRule = (
   agentId: string,
   target: BackfillTargetInput,
 ): BackfillRuleInput => ({
-  // Priority is assigned by the caller — equipment order is irrelevant to
-  // injection, which unions all matching allow-targets.
+  // Assigned by the caller; equipment order is irrelevant to injection.
   priority: 0,
   isDefault: false,
   source: "equipment",
@@ -374,13 +330,11 @@ const equipmentRule = (
 });
 
 /**
- * A SELECTIVE agent's equipment → one `allow` rule per assigned secret and
- * connection (`source: "equipment"`, injection-only — the engine's assembler
- * drops them from the decision walk). ALL-mode agents get NO rules, because
- * `secretMode` remains the live all-vs-rules switch the gateway reads per
- * connection — an all-mode agent draws the whole fenced pool and rules never
- * narrow it. (It outlives this migration; the eliminate-all-mode follow-up
- * retires it.) Stored `sessionPolicy` values are dropped and reported.
+ * A selective agent's equipment → one `allow` rule per assigned secret and
+ * connection (`source: "equipment"`, injection-only). All-mode agents get no
+ * rules: `secretMode` stays the live all-vs-rules switch the gateway reads, and
+ * an all-mode agent draws the whole fenced pool. Stored `sessionPolicy` values
+ * are dropped and reported.
  */
 export const translateOssEquipment = (
   agents: OssAgentEquipment[],
@@ -416,8 +370,8 @@ export const translateOssEquipment = (
   return { rules, droppedSessionPolicies };
 };
 
-/** JSON with recursively-sorted object keys — Postgres `jsonb` normalizes key
- * order, so a byte compare of raw `JSON.stringify` would false-diverge. */
+/** JSON with recursively-sorted object keys — `jsonb` does not round-trip key
+ * order, so comparing raw `JSON.stringify` output would false-diverge. */
 const stableJson = (value: unknown): string => {
   if (Array.isArray(value)) {
     return `[${value.map(stableJson).join(",")}]`;
@@ -436,11 +390,8 @@ const sortedJson = (values: unknown[]): string =>
   stableJson([...values.map(stableJson)].sort());
 
 /**
- * Canonical form for the boot verify: the decision-bearing fields of one rule,
- * order-insensitive on identities/targets and key-order-insensitive on JSON
- * values. The verify compares `translate(old)` against the stored generation
- * re-read in the gateway's order; unique priorities make the index alignment
- * exact.
+ * Canonical form of one rule's decision-bearing fields for the boot verify —
+ * order-insensitive on identities/targets, key-order-insensitive on JSON.
  */
 export const ossCanonRule = (r: BackfillRuleInput): string =>
   stableJson({

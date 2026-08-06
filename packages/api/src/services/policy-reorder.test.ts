@@ -1,18 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The server half of manual ordering: `reorderPolicyRules` must (a) take the
-// per-scope advisory lock BEFORE reading, (b) fence its read to the caller's
-// scope (a foreign — e.g. another org's/project's — rule id can never pass the
-// membership check: cross-scope isolation at the QUERY level), (c) reject any
-// non-permutation (missing / duplicate / foreign ids) with 409 CONFLICT, and
-// (d) write dense 1-based priorities in the given order. A concurrent lockless
-// delete surfaces as Prisma P2025 mid-write → the same 409. The db is mocked at
-// the boundary; the assertions pin the service's control flow + issued writes.
+// `reorderPolicyRules` must take the per-scope advisory lock before reading,
+// fence its read to the caller's scope, reject any non-permutation with a 409,
+// and write dense 1-based priorities in the given order. The db is mocked at
+// the boundary, so the assertions pin control flow and issued writes.
 
 const gate = vi.hoisted(() => ({ assertAllowed: vi.fn(async () => {}) }));
 
 const state = vi.hoisted(() => ({
-  /** Ids the SCOPED draft read returns (the caller's own rules only). */
+  /** Ids the scoped draft read returns (the caller's own rules only). */
   draftIds: [] as string[],
   /** The where clause the in-tx findMany was issued with (the fence). */
   lastWhere: null as unknown,

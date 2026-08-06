@@ -2,9 +2,9 @@ import { parse } from "tldts";
 import { z } from "zod";
 
 // Best-effort write-time check that a path-injection regex is syntactically
-// valid. The gateway's Rust `regex` crate is the authoritative validator (its
-// syntax differs slightly), so a pattern accepted here but rejected there just
-// skips at inject time rather than corrupting a request.
+// valid. The gateway's `regex` crate is the authoritative validator and its
+// syntax differs slightly, so a pattern accepted here may still skip at inject
+// time.
 const isValidRegex = (pattern: string): boolean => {
   try {
     new RegExp(pattern);
@@ -122,12 +122,10 @@ export const isPathInjection = (
 ): config is PathTemplateInjectionConfig | PathRegexInjectionConfig =>
   isPathTemplateInjection(config) || isPathRegexInjection(config);
 
-// Mirror of the gateway's `is_path_safe` (apps/gateway/src/inject.rs): a path
-// secret is substituted into the URL path verbatim, so a path-structural
-// delimiter, percent sign, whitespace, or control character in the value would
-// reshape the request. The gateway is the authoritative guard (it also covers
-// 1Password-sourced values unknown at write time); this gives inline values
-// immediate feedback at write time.
+// Mirror of the gateway's `is_path_safe`: a path secret is substituted into the
+// URL path verbatim, so a delimiter, percent sign, whitespace, or control
+// character in the value would reshape the request. The gateway is the
+// authoritative guard; this is write-time feedback for inline values.
 export const isPathSafeValue = (value: string): boolean =>
   ![...value].some((ch) => {
     const code = ch.codePointAt(0) ?? 0;

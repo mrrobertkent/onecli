@@ -1,21 +1,13 @@
 // The staged-changes diff: draft vs published, over the rules a user can change
 // plus the Default Rule's action.
 //
-// `blocklist` rows stay out: the app page's blocklist panel writes them in
-// draft/published lockstep, so they can never be pending and the console offers
-// them no actions. `equipment` and legacy `app_permission` rows ARE in: since
-// step 10 neither has an editor of its own, so the console is the only place
-// they can be disabled or deleted, and a staged revoke has to count as a change
-// or "Apply Changes" stays greyed out and the revoke never reaches the gateway.
-// (The old exclusion assumed derived rows re-materialized with fresh logicalIds
-// every bridge run; the bridge is gone, so their identities are stable and
-// comparable.) Kept in step with `REVOCABLE_SOURCES` in the rules table.
-// Keyed by `logicalId`, the generation-stable identity (row `id` regenerates on
-// every publish). Pure + structural so the web editor can feed its DTOs
-// directly and the logic stays unit-testable here.
+// `blocklist` rows are excluded because they are written in draft/published
+// lockstep and can never be pending; keep `USER_CHANGEABLE` in step with
+// `REVOCABLE_SOURCES` in the rules table. Rules are keyed by `logicalId`, the
+// generation-stable identity — row `id` regenerates on every publish.
 
-/** The structural slice of a policy rule the diff reads — the web `PolicyRuleV2`
- * DTO satisfies it as-is. */
+/** The structural slice of a policy rule the diff reads — the web
+ * `PolicyRuleV2` DTO satisfies it as-is. */
 export interface DiffableRule {
   logicalId: string;
   source: string;

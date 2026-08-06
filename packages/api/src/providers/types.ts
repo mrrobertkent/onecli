@@ -41,10 +41,9 @@ export interface SessionUser {
    */
   federatedProvider?: string | null;
   /**
-   * ALL federated IdP names attached to this session's identity, in token
-   * order. A profile linked to several IdPs carries every provider here
-   * while `federatedProvider` only sees the first — consumers deciding on
-   * identity trust must scan this array. Empty/unset for native sign-ins.
+   * Every federated IdP name attached to this session's identity, in token
+   * order; `federatedProvider` only sees the first. Consumers deciding on
+   * identity trust should scan this array. Empty/unset for native sign-ins.
    */
   identityProviders?: string[];
 }
@@ -64,10 +63,9 @@ export interface SessionDenial {
 }
 
 /**
- * Edition policy applied to every AUTHENTICATED session at resolution time
- * (e.g. enterprise "require SSO"). Runs after the user upsert/JIT membership;
- * returning a denial rejects the session with 401 + the denial body. Never
- * registered in OSS — sessions are always allowed there.
+ * Edition policy applied to every authenticated session at resolution time
+ * (e.g. enterprise "require SSO"). Runs after the user upsert and JIT
+ * membership; returning a denial rejects the session with a 401.
  */
 export type SessionEnforcer = (
   session: SessionUser,
@@ -101,9 +99,7 @@ export interface OAuthOrgHandlers {
 
 /**
  * Org-level app-config reads backing the project → org → env credential
- * fallback. EE-only capability: org-level app configs are writable only
- * through the EE org surface, so OSS never registers a provider and the org
- * tier is skipped everywhere (project → env, unchanged).
+ * fallback. EE-only: OSS registers no provider, so the org tier is skipped.
  */
 export interface OrgAppConfigProvider {
   /** Org-row-or-env credential resolution (mirrors the project resolver). */
@@ -123,12 +119,9 @@ export interface OrgAppConfigProvider {
 }
 
 /**
- * App-availability reads backing the connect-picker filter (policy-engine
- * step 7). EE-only: the org allowlist (toggle + per-principal grants) lives in
- * the EE org surface, so OSS never registers a provider and every app is
- * available (the picker is unfiltered, unchanged). The TS mirror of the
- * gateway's availability read — the same enforcement the gateway
- * applies at runtime, surfaced to the UI.
+ * App-availability reads backing the connect-picker filter, mirroring the
+ * gateway's runtime availability check. EE-only: OSS registers no provider, so
+ * every app is available.
  */
 export interface AppAvailabilityProvider {
   /**

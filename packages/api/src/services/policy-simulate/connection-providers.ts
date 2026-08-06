@@ -1,14 +1,14 @@
 import { db } from "@onecli/db";
 
-// The TS mirror of the gateway's `find_connection_providers`
-// (apps/gateway/src/db.rs): the providers of the acting org+project app
-// connections, so a `connection` target can resolve to the provider whose
-// catalog hosts it gates (the step-8 secret symmetry). ORG+PROJECT-FENCED on
-// both arms — a forged/foreign connection id resolves to NOTHING (it simply
-// isn't in the fenced set), which leaves the target unresolved (never matches —
-// fail-closed, like a deleted secret). No status filter: the row's existence is
-// the reference, matching the gateway.
-
+/**
+ * Providers of the acting org + project's app connections, keyed by connection
+ * id, so a `connection` target can resolve to the provider whose catalog hosts
+ * it gates. Mirrors the gateway's `find_connection_providers`.
+ *
+ * Fenced on both arms, so a foreign connection id is simply absent and leaves
+ * its target unresolved. No status filter — the row's existence is the
+ * reference.
+ */
 export const loadConnectionProviders = async (
   organizationId: string,
   projectId: string,

@@ -55,19 +55,18 @@ pub(crate) enum HostPattern {
 /// A host pattern and its injection strategy for an app provider.
 pub(crate) struct HostRule {
     pub(crate) pattern: HostPattern,
-    /// Optional path prefix to scope this rule (e.g., `"/calendar/"` for Google Calendar).
-    /// When set, only requests whose path starts with this prefix match this provider.
-    /// When `None`, all paths on the host match (used for providers with dedicated subdomains).
+    /// Optional path prefix scoping this rule (e.g., `"/calendar/"`). `None`
+    /// matches every path on the host, for providers with dedicated subdomains.
     pub(crate) path_prefix: Option<&'static str>,
     pub(crate) strategy: AuthStrategy,
     /// When true, matching requests return a synthetic OAuth token response with
-    /// the cached access token instead of being forwarded upstream. Used for
-    /// credential stub flows where the SDK tries to refresh dummy credentials.
+    /// the cached access token instead of being forwarded upstream — for stub
+    /// credential flows where the SDK tries to refresh dummy credentials.
     pub(crate) intercept: bool,
     /// For suffix-pattern rules covering per-tenant hosts (e.g. `*.jfrog.io`),
-    /// the credential JSON field holding the connection's stored host.
-    /// Injection proceeds ONLY when the request host equals the stored value,
-    /// preventing token leakage to other tenants on the same suffix.
+    /// the credential JSON field holding the connection's stored host. Injection
+    /// proceeds only when the request host equals it, so a token cannot leak to
+    /// another tenant on the same suffix.
     pub(crate) credential_host_field: Option<&'static str>,
 }
 
@@ -1088,10 +1087,8 @@ static APP_PROVIDERS: &[AppProvider] = &[
     AppProvider {
         provider: "jfrog-artifactory",
         display_name: "JFrog Artifactory",
-        // Wildcard suffix: JFrog SaaS hosts are per-customer (`<name>.jfrog.io`).
-        // The bare suffix alone would inject the token into ANY `*.jfrog.io`
-        // host, so `credential_host_field` gates injection to the connection's
-        // exact stored subdomain (see connect.rs).
+        // JFrog SaaS hosts are per-customer, so `credential_host_field` gates
+        // injection to the connection's stored subdomain rather than any `*.jfrog.io`.
         host_rules: &[HostRule {
             pattern: HostPattern::Suffix(".jfrog.io"),
             path_prefix: None,
@@ -1160,16 +1157,13 @@ pub(crate) fn provider_for_host(hostname: &str) -> Option<(&'static str, &'stati
 
 /// Given a hostname and request path, return the best matching provider's (id, display_name).
 ///
-/// For shared hosts (e.g., `www.googleapis.com`), uses the path prefix to disambiguate
-/// between providers (Gmail on `/gmail/*`, Calendar on `/calendar/*`, etc.).
-/// Falls back to the first host-only match only for dedicated subdomains; shared hosts
-/// with path-scoped providers return `None` when no prefix matches.
+/// Shared hosts (e.g. `www.googleapis.com`) disambiguate by path prefix and return
+/// `None` when none matches; dedicated subdomains fall back to a host-only match.
 #[must_use]
 pub(crate) fn provider_for_host_and_path(
     hostname: &str,
     path: &str,
 ) -> Option<(&'static str, &'static str)> {
-    // First try: match both host and path prefix
     let path_match = all_providers().find_map(|p| {
         p.host_rules
             .iter()
@@ -1183,9 +1177,8 @@ pub(crate) fn provider_for_host_and_path(
         return path_match;
     }
 
-    // Fallback: host-only match for dedicated subdomains (e.g., gmail.googleapis.com).
-    // Skip when the host has path-scoped providers (shared hosts like
-    // www.googleapis.com) — the first match would be arbitrary and misleading.
+    // Host-only fallback, skipped on shared hosts where the first match would be
+    // arbitrary.
     if host_has_path_scoped_providers(hostname) {
         return None;
     }
@@ -1193,8 +1186,7 @@ pub(crate) fn provider_for_host_and_path(
 }
 
 /// Returns true when any provider registered for `hostname` uses path-prefix
-/// scoped rules, indicating a shared host where the host-only fallback would
-/// be ambiguous (e.g., `www.googleapis.com`).
+/// scoped rules — a shared host where a host-only match would be ambiguous.
 pub(crate) fn host_has_path_scoped_providers(hostname: &str) -> bool {
     all_providers().any(|p| {
         p.host_rules
@@ -1219,14 +1211,11 @@ pub(crate) fn providers_for_host(hostname: &str) -> Vec<&'static str> {
     providers
 }
 
-/// The app-availability pre-check (step 7). Returns `Some(provider)` when the
-/// request targets a known app provider that is NOT available to the connection's
-/// project — the caller refuses it. Returns `None` (allowed) when availability is
-/// unrestricted (the common case / OSS / enforcement off), when the request does
-/// not target an identifiable app provider (a raw/unknown host, or an ambiguous
-/// shared host — so the LLM host and un-managed traffic are structurally never
-/// blocked), or when the targeted provider IS available. Pure + DB-free — the
-/// available set was resolved once at connection resolution.
+/// The app-availability pre-check. Returns `Some(provider)` when the request
+/// targets a known app provider unavailable to the connection's project — the
+/// caller refuses it. `None` when availability is unrestricted, when no provider
+/// is identifiable (raw hosts and ambiguous shared hosts are never blocked), or
+/// when the targeted provider is available.
 #[must_use]
 pub(crate) fn app_availability_block(
     host: &str,
@@ -1236,15 +1225,9 @@ pub(crate) fn app_availability_block(
     if !available.restricted {
         return None;
     }
-    // Normalize the host (strip port + lowercase) before provider identification.
-    // Registry matching is exact + port-less, so a port-bearing CONNECT authority
-    // (`gmail.googleapis.com:443`) or a mixed-case Host (`Gmail.Googleapis.Com`)
-    // would otherwise identify no provider and silently slip past the gate. This
-    // is a security gate, so it normalizes here even though provider matching
-    // elsewhere (credential injection) is case-sensitive — there a miss just
-    // fails safe (no creds → 401). Only restricted orgs reach this (the common
-    // `restricted: false` path returned above), so the allocation is off the
-    // prod/OSS hot path. (The port strip is a hard-won regression lesson.)
+    // Registry matching is exact and port-less, so a port-bearing CONNECT
+    // authority or a mixed-case Host would identify no provider and slip past
+    // this gate.
     let host = crate::gateway::strip_port(host).to_ascii_lowercase();
     match provider_for_host_and_path(&host, path) {
         Some((provider, _)) if !available.providers.iter().any(|p| p == provider) => {
@@ -1299,10 +1282,8 @@ pub(crate) fn build_app_injections(provider: &str, hostname: &str, token: &str) 
     }
 }
 
-/// Build injection rules for all matching host rules of a provider on a given host.
-/// Returns one `(path_pattern, injections)` pair per matching rule. This handles
-/// providers with multiple rules on the same host (e.g., Google Drive has `/drive/`
-/// and `/upload/drive/` on `www.googleapis.com`).
+/// Build injection rules for all matching host rules of a provider on a given host:
+/// one `(path_pattern, injections)` pair per matching rule.
 pub(crate) fn build_app_injection_rules(
     provider: &str,
     hostname: &str,
@@ -1352,14 +1333,11 @@ pub(crate) fn provider_matches_host_and_path(provider: &str, hostname: &str, pat
         })
 }
 
-/// Like [`provider_matches_host_and_path`], but matches ONLY through a
-/// **path-scoped** host rule (`path_prefix` set and the request path under it) —
-/// never a bare host/suffix rule. Path-scoped rules mark a legacy/mirror
-/// endpoint of a specific API surface (e.g. Gmail's `www.googleapis.com/gmail/`
-/// mirror of `gmail.googleapis.com`), so they are safe to fold into a
-/// TOOL-scoped policy match; a broad credential-zone rule (e.g. AWS's bare
-/// `*.amazonaws.com`) is deliberately excluded so a tool-scoped rule can't bleed
-/// across sibling services on the same zone.
+/// Like [`provider_matches_host_and_path`], but matches only through a path-scoped
+/// host rule, never a bare host/suffix rule. Path-scoped rules pin one API surface
+/// (e.g. Gmail's `www.googleapis.com/gmail/`), so they fold safely into a
+/// tool-scoped policy match; a broad credential-zone rule (AWS's `*.amazonaws.com`)
+/// is excluded so a tool-scoped rule cannot bleed across sibling services.
 #[must_use]
 pub(crate) fn provider_matches_path_scoped(provider: &str, hostname: &str, path: &str) -> bool {
     all_providers()
@@ -1372,15 +1350,10 @@ pub(crate) fn provider_matches_path_scoped(provider: &str, hostname: &str, path:
         })
 }
 
-/// Test helper: a representative `(provider, host, path)` for every host rule
-/// that attaches a credential to a FORWARDED request — a concrete host matching
-/// the rule's pattern and a path under its prefix. Excludes intercept rules
-/// (synthetic-token, never forwarded) and per-tenant suffix rules gated on a
-/// stored credential host — as SAMPLES only; the runtime matcher
-/// (`provider_matches_host_and_path`) intentionally still covers those hosts, so
-/// a whole-app rule governs them too (enforcement ⊇ injection, monotonic — a
-/// per-tenant/intercept host can't be sampled statically, not that it's
-/// unenforced). Backs the enforcement-⊇-injection invariant test.
+/// Test helper: a representative `(provider, host, path)` for every host rule that
+/// attaches a credential to a forwarded request. Intercept rules and per-tenant
+/// host-gated rules are excluded because they cannot be sampled statically — the
+/// runtime matcher still covers those hosts.
 #[cfg(test)]
 pub(crate) fn injection_surface_samples() -> Vec<(&'static str, String, String)> {
     let mut out = Vec::new();
@@ -1487,10 +1460,9 @@ pub(crate) fn credential_host_field(provider: &str, hostname: &str) -> Option<&'
         })
 }
 
-/// Normalize a host for equality comparison: strip any `scheme://` prefix, cut
-/// at the first path separator, drop a trailing `:port`, and lowercase.
-/// Both the request host and the stored credential host are normalized before
-/// comparison so `"https://Nanos.JFrog.io/"` and `"nanos.jfrog.io"` match.
+/// Normalize a host for equality comparison: strip any `scheme://` prefix, cut at
+/// the first path separator, drop a trailing `:port`, and lowercase. Applied to
+/// both sides so `"https://Nanos.JFrog.io/"` and `"nanos.jfrog.io"` match.
 #[must_use]
 pub(crate) fn normalize_host(s: &str) -> String {
     let mut h = s.trim();
@@ -1516,8 +1488,6 @@ pub(crate) fn host_has_intercept_rules(hostname: &str) -> bool {
 }
 
 /// Check whether a request should be intercepted with a synthetic token response.
-/// Returns true when any provider has a host rule matching the hostname and path
-/// with `intercept: true`.
 pub(crate) fn is_intercept_target(hostname: &str, path: &str) -> bool {
     all_providers().any(|p| {
         p.host_rules.iter().any(|r| {
@@ -1530,10 +1500,7 @@ pub(crate) fn is_intercept_target(hostname: &str, path: &str) -> bool {
 
 /// Refresh an expired access token using the provider's token endpoint.
 /// Returns (new_access_token, expires_at, optional_new_refresh_token).
-///
-/// Client credentials are resolved in order:
-/// 1. Explicit `client_id`/`client_secret` (from BYOC AppConfig)
-/// 2. Env vars from `RefreshConfig` (platform defaults)
+/// Client credentials come from the explicit BYOC pair, else the config's env vars.
 pub(crate) async fn refresh_access_token(
     config: &RefreshConfig,
     refresh_token: &str,
@@ -2017,7 +1984,6 @@ mod tests {
             Injection::SetHeader { name, value } => {
                 assert_eq!(name, "authorization");
                 assert!(value.starts_with("Basic "));
-                // Decode and verify
                 let b64 = base64::engine::general_purpose::STANDARD;
                 let encoded = &value["Basic ".len()..];
                 let decoded = String::from_utf8(b64.decode(encoded).unwrap()).unwrap();
@@ -2793,7 +2759,7 @@ mod tests {
         );
     }
 
-    // ── app_availability_block (step 7) ────────────────────────────────
+    // ── app_availability_block ─────────────────────────────────────────
 
     /// Build an `AvailableApps` allowlist for tests.
     fn available(restricted: bool, providers: &[&str]) -> crate::db::AvailableApps {
@@ -2805,8 +2771,7 @@ mod tests {
 
     #[test]
     fn app_availability_block_open_allows_everything() {
-        // "open" org (the default / OSS / enforcement off): never blocks, even a
-        // provider absent from the (empty) list.
+        // An unrestricted org never blocks, even a provider absent from the list.
         let open = available(false, &[]);
         assert_eq!(
             app_availability_block("gmail.googleapis.com", "/gmail/v1/users/me", &open),
@@ -2846,9 +2811,8 @@ mod tests {
 
     #[test]
     fn app_availability_block_never_blocks_raw_or_llm_hosts() {
-        // Restricted with an empty allowlist: even so, un-managed raw hosts and the
-        // LLM host resolve to no provider, so they are structurally never blocked
-        // (the enforce-deny / lifeline carve, for free).
+        // Un-managed raw hosts and the LLM host resolve to no provider, so an
+        // empty allowlist still cannot block them.
         let restricted = available(true, &[]);
         assert_eq!(
             app_availability_block("api.openai.com", "/v1/chat/completions", &restricted),
@@ -2897,10 +2861,8 @@ mod tests {
 
     #[test]
     fn app_availability_block_strips_port_before_matching() {
-        // The real call site passes a host that carries the CONNECT-authority
-        // port (`:443`); the registry hosts are port-less, so the block must
-        // strip the port first or it would identify NO provider and silently
-        // never block. Regression guard for that class of port-handling bugs.
+        // Registry hosts are port-less, so a CONNECT-authority host must have its
+        // port stripped or it identifies no provider and silently never blocks.
         let restricted = available(true, &["slack"]);
         assert_eq!(
             app_availability_block(
@@ -2920,8 +2882,8 @@ mod tests {
 
     #[test]
     fn app_availability_block_is_case_insensitive_on_host() {
-        // A mixed-case Host must not slip past the gate — it normalizes to lower
-        // before matching, else `Gmail.Googleapis.Com` identifies no provider.
+        // A mixed-case Host normalizes to lower before matching, else
+        // `Gmail.Googleapis.Com` identifies no provider and slips past the gate.
         let restricted = available(true, &["slack"]);
         assert_eq!(
             app_availability_block(
@@ -3195,16 +3157,15 @@ mod tests {
 
     #[test]
     fn jfrog_suffix_no_false_positives() {
-        // The bare apex must NOT match (suffix requires something before it).
+        // The bare apex must not match: the suffix requires something before it.
         assert!(providers_for_host("jfrog.io").is_empty());
         assert!(providers_for_host(".jfrog.io").is_empty());
     }
 
     #[test]
     fn jfrog_other_tenant_still_matches_provider_statically() {
-        // Any *.jfrog.io matches the provider at the static level — the
-        // per-connection host gate in connect.rs is what blocks injection to
-        // tenants other than the connection's stored subdomain.
+        // Any *.jfrog.io matches the provider statically; the per-connection host
+        // gate is what blocks injection to other tenants.
         assert_eq!(
             providers_for_host("evil.jfrog.io"),
             vec!["jfrog-artifactory"]

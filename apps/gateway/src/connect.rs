@@ -25,25 +25,16 @@ pub(crate) const CONNECTION_ID_HEADER: &str = "x-onecli-connection-id";
 /// Header name for listing available connections (response).
 pub(crate) const CONNECTIONS_HEADER: &str = "x-onecli-connections";
 
-/// Which ORG/PROJECT credential pool a connecting agent draws from. Since
-/// attach-model step 7 the v2 selection IS the whole story for those tiers:
-/// every agent is rule-selected, and the retired `agents.secret_mode` column
-/// is never read (it drops in step 8). The PARTNER secret tier rides OUTSIDE
-/// this classification: partner secrets are org infrastructure a rule cannot
-/// even name (`assertTargetsValid` forbids it), so `resolve_secret_injections`
-/// injects them unconditionally — a grant-less agent must still keep
-/// partner-provided (budget-metered) keys.
+/// Which org/project credential pool a connecting agent draws from. The partner
+/// secret tier rides outside this classification: a rule cannot name a partner
+/// secret, so `resolve_secret_injections` injects it unconditionally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InjectionPool {
-    /// A rule-driven selection: the fenced pool narrowed to what the agent's
-    /// v2 allow rules name.
+    /// The fenced pool narrowed to what the agent's allow rules name.
     RuleSelected,
-    /// No selection: nothing from the org/project pool is injected (the
-    /// grant-independent partner tier still is). Since step 10 the old
-    /// per-agent grant tables are unread, and since step 7 there is no
-    /// all-mode fallback — an empty selection injects NOTHING from these
-    /// tiers, or a deliberately restricted agent would silently receive every
-    /// org/project credential.
+    /// Nothing from the org/project pool is injected (the grant-independent
+    /// partner tier still is). There is no fallback: an empty selection must
+    /// inject nothing, or a restricted agent would receive every credential.
     Empty,
 }
 
@@ -65,11 +56,9 @@ pub(crate) fn connection_pool(selection: &db::InjectSelection) -> InjectionPool 
     InjectionPool::RuleSelected
 }
 
-/// Map an org's billing `subscription_status` to the plan label the gateway
-/// enforces integration-call quotas against. Only an explicitly free (or unset)
-/// status maps to `"free"`; every other named plan passes through unchanged, so
-/// a new paid tier (e.g. "scale") is never silently throttled as the free tier.
-/// The quota itself lives in the EE hooks; this only decides which label to pass.
+/// Map an org's billing `subscription_status` to the quota plan label. Only a
+/// free or unset status maps to `"free"`; every other plan passes through, so a
+/// new paid tier is never silently throttled as free.
 pub(crate) fn plan_for_subscription_status(status: &str) -> &str {
     match status {
         "" | "free" => "free",
@@ -100,23 +89,19 @@ pub(crate) struct ConnectResponse {
     /// "enterprise").
     #[serde(default)]
     pub plan: String,
-    /// Cloud-only: pending claim token when this org is a partner-created org
-    /// awaiting claim (claim mode). None otherwise. Inert in OSS.
+    /// Cloud-only: pending claim token when this org awaits claim. Inert in OSS.
     #[serde(default)]
     pub claim_token: Option<String>,
     /// Cloud-only: spend budgets governing the effective credential for this
     /// host (0/1 in practice — the response is per-host).
     #[serde(default)]
     pub budget_bindings: Vec<crate::budget::BudgetBinding>,
-    /// Cloud-only: the published new-model policy rules for this connection (org
-    /// and project scopes), loaded here (cached ~60s with the rest of this
-    /// response) so the per-request decision path is DB-free. Empty when
-    /// the engine is off, or before the org is backfilled.
+    /// Cloud-only: the policy rules for this connection's org and project
+    /// scopes, cached here so the per-request decision path is DB-free.
     #[serde(default)]
     pub policy_rules_v2: db::PolicyV2Rules,
-    /// Cloud-only: the apps this connection's project may reach (step 7), resolved
-    /// here (cached ~60s with the rest of this response) so the per-request app
-    /// pre-check is DB-free. Unrestricted (every app available) in OSS, when the
+    /// Cloud-only: the apps this connection's project may reach, cached here so
+    /// the per-request app pre-check is DB-free. Unrestricted in OSS, when the
     /// org's availability mode is "open", or when enforcement is off.
     #[serde(default)]
     pub available_apps: db::AvailableApps,
@@ -139,22 +124,18 @@ pub(crate) enum AppConnectionResult {
         body_transform: Option<apps::BodyTransform>,
         /// Provider name of the resolved connection (e.g., "github-app", "datadog").
         provider: String,
-        /// Per-agent granular-access policy of THIS connection — the one that
-        /// won injection. Carried here (rather than re-derived by a provider
-        /// scan) so request-level enforcement applies the correct policy even
-        /// when an agent has several same-provider connections.
+        /// Granular-access policy of the connection that won injection, carried
+        /// here so request-level enforcement applies the right one when an agent
+        /// has several same-provider connections.
         session_policy: Option<serde_json::Value>,
-        /// Id of the connection that won injection for this request; `None`
-        /// when no connection serves this path per the catalog (the
-        /// non-serving wipe). Follows `session_policy`'s attribution law
-        /// exactly — including its catch-all blind spot: rules that
-        /// self-select by path at apply time can inject a credential whose id
-        /// was wiped here. `Target::Connection` decisions bind to this id.
+        /// Id of the connection that won injection; `None` when no connection
+        /// serves this path. Follows `session_policy`'s attribution exactly,
+        /// including its blind spot: rules that self-select by path at apply
+        /// time can inject a credential whose id was wiped here.
         connection_id: Option<String>,
         /// Connections whose credential is minted only once the request is
-        /// ALLOWED — see [`PendingInjection`]. Their rules are absent from
-        /// `rules` until then, so every "are there injections?" test must
-        /// consider this too.
+        /// allowed — see [`PendingInjection`]. Their rules are absent from
+        /// `rules` until then, so "are there injections?" must consider this too.
         pending: Vec<PendingInjection>,
     },
     /// No app connections available for this provider.
@@ -167,10 +148,8 @@ pub(crate) enum AppConnectionResult {
     NotFound { connections: Vec<ConnectionChoice> },
 }
 
-/// Whether a session policy asks for a resource-scoped credential — a non-empty
-/// object, the same predicate `resolve_access_token` uses to force a scoped
-/// mint. (An empty allowlist reaches nothing and is refused before injection,
-/// so it never needs a credential at all.)
+/// Whether a session policy asks for a resource-scoped credential: a non-empty
+/// object. Shared with `resolve_access_token` so the two cannot disagree.
 fn granular_scoping_requested(session_policy: Option<&serde_json::Value>) -> bool {
     session_policy
         .and_then(|sp| sp.as_object())
@@ -180,12 +159,9 @@ fn granular_scoping_requested(session_policy: Option<&serde_json::Value>) -> boo
 /// Stamp what each connection may reach: its own selected scope narrowed to
 /// the organization's boundary.
 ///
-/// Both halves matter. A grant that NAMES a connection carries its own scope
-/// (already composed with the boundary while folding); a PROVIDER-LEVEL grant
-/// carries none, and its connections are only known here — this is the first
-/// point at which those ids exist, so it is the only place their boundary can
-/// be applied. Re-applying a boundary already composed in the fold is a no-op:
-/// intersection with a superset returns the same set.
+/// A provider-level grant carries no scope of its own and its connection ids
+/// are first known here, so this is the only place its boundary can be applied.
+/// Re-applying a boundary already composed for a named grant is a no-op.
 fn stamp_resource_scopes(
     connections: &mut [db::AppConnectionRow],
     selection: &db::InjectSelection,
@@ -202,14 +178,9 @@ fn stamp_resource_scopes(
 /// the request.
 ///
 /// Resource-scoped credentials (a GitHub installation token limited to specific
-/// repositories) are minted live from the provider on every request and never
-/// persisted. Building them during resolution meant a request the policy was
-/// about to refuse still caused a real credential to be created upstream. The
-/// selection — which connection wins, its policy, whether it injects at all —
-/// needs none of that, so it happens up front and the mint waits.
-///
-/// Everything here is already-decrypted, request-scoped state; it never leaves
-/// the process and is dropped with the request.
+/// repositories) are minted live from the provider per request and never
+/// persisted, so the mint must not precede a refusal. The selection needs none
+/// of it. Holds decrypted plaintext that is dropped with the request.
 #[derive(Debug)]
 pub(crate) struct PendingInjection {
     pub conn: db::AppConnectionRow,
@@ -296,8 +267,6 @@ pub(crate) struct PolicyEngine {
     pub pool: sqlx::PgPool,
     pub crypto: Arc<CryptoService>,
     /// Resolves `op://` references for secrets with `value_source = "onepassword"`.
-    /// The same `Arc` is also registered as a `VaultService` provider (where it
-    /// acts only as a connection holder — it never races on hostname).
     pub onepassword: Arc<OnePasswordVaultProvider>,
 }
 
@@ -316,16 +285,9 @@ impl PolicyEngine {
         agent: &db::AgentRow,
         hostname: &str,
     ) -> Result<ConnectResponse, ConnectError> {
-        // Load the published new-model policy for this connection's scopes FIRST
-        // (cached with the rest of ConnectResponse, so the per-request path never
-        // touches the DB). Step 8: the inject-selection derives from these rules
-        // which specific credentials the agent's rules allow — the connect-time
-        // SELECTION that replaces the equipment join for a selective agent.
-        //
-        // A load failure REFUSES the CONNECT (like every other query here), so the
-        // agent retries. Resolving empty instead would be doubly wrong now that
-        // the legacy fallback is gone: every request would decide Allow AND a
-        // selective agent would get no credentials — both cached for ~60s.
+        // A load failure refuses the CONNECT so the agent retries. Resolving
+        // empty instead would decide Allow for every request and leave a
+        // selective agent uncredentialed — both cached for the response TTL.
         let policy_rules_v2 = crate::policy_engine::load_connect_v2(
             &self.pool,
             &agent.organization_id,
@@ -343,31 +305,24 @@ impl PolicyEngine {
             .resolve_app_connections(agent, hostname, &inject_selection)
             .await?;
         // Intercept when this host has a credential to inject. Enforcement does
-        // NOT depend on this: `gateway.rs` forces MITM for every authenticated
-        // agent, so a block / rate-limit / approval rule on an uncredentialed host
-        // is intercepted and enforced regardless. Keeping a rule-derived term here
-        // would only suppress the vault fallback (`gateway.rs` runs it when
-        // `!intercept`) for hosts some rule happens to name — including rules
-        // scoped to a different agent.
+        // not depend on it: the gateway forces MITM for every authenticated
+        // agent, so rules on an uncredentialed host are still enforced.
         let has_credentials = !injection_rules.is_empty() || !app_connections.is_empty();
 
-        // Check if the project has credentials (secrets or app connections) for
-        // this host that the agent's grants don't attach — surfaced as an
-        // `access_restricted` error pointing at the attach surface instead of a
-        // generic credential-not-found.
+        // The project has credentials for this host that the agent can't reach —
+        // surfaced as `access_restricted` rather than a credential-not-found.
         let access_restricted =
             injection_rules.is_empty() && self.has_available_credentials(agent, hostname).await;
 
         let plan = plan_for_subscription_status(&agent.subscription_status).to_string();
 
-        // Cloud-only: resolve claim-mode state once here (cached with the rest
-        // of ConnectResponse for 60s). No-op in OSS (returns None).
+        // Cloud-only: claim-mode state, cached with the rest of the response.
+        // No-op in OSS.
         let claim_token =
             crate::partner::claim_token_for_org(&self.pool, &agent.organization_id).await;
 
-        // Cloud-only: resolve which apps this project may connect (step 7), cached
-        // here so the per-request pre-check is DB-free. "All available" in OSS,
-        // when the org's availability mode is "open", or when enforcement is off.
+        // Cloud-only: which apps this project may connect, cached here so the
+        // per-request pre-check is DB-free. All available in OSS.
         let available_apps = crate::policy_engine::load_available_apps(
             &self.pool,
             &agent.organization_id,

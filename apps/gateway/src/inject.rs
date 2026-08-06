@@ -1,10 +1,5 @@
-//! Request injection and agent authentication.
-//!
-//! This module handles:
-//! - Extracting agent tokens from `Proxy-Authorization` headers
-//! - Applying injection rules (set_header, remove_header, set_param, set_path,
-//!   replace_path_regex) to forwarded requests
-//! - Path pattern matching for injection rules
+//! Request injection and agent authentication: agent token extraction from
+//! `Proxy-Authorization`, injection rules, and path pattern matching.
 
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
@@ -30,9 +25,8 @@ pub(crate) enum Injection {
         name: String,
         value: String,
     },
-    /// Replace a header only if it already exists in the request.
-    /// Used for OAuth: replace Authorization when the SDK sends the exchange
-    /// request, but leave x-api-key untouched on subsequent requests.
+    /// Replace a header only if it already exists. Used for OAuth: replace
+    /// Authorization on the exchange request, leave x-api-key untouched.
     ReplaceHeader {
         name: String,
         value: String,
@@ -45,14 +39,12 @@ pub(crate) enum Injection {
         name: String,
         value: String,
     },
-    /// Substitute the secret into a `{value}` hole in the URL path (template mode).
-    /// The agent emits the natural URL shape with any/empty filler in the secret's
-    /// slot; the gateway replaces that slot with `value`. Used for token-in-path
-    /// APIs like Telegram (`/bot<token>/sendMessage`).
+    /// Substitute the secret into a `{value}` hole in the URL path (template
+    /// mode), for token-in-path APIs like Telegram (`/bot<token>/sendMessage`).
     SetPath {
         /// Path template containing exactly one `{value}` hole, e.g. `/bot{value}`.
         template: String,
-        /// The resolved secret value substituted into the hole.
+        /// The resolved secret value.
         value: String,
     },
     /// Rewrite the URL path via a regex (advanced mode). `replacement` may use
@@ -60,8 +52,8 @@ pub(crate) enum Injection {
     ReplacePathRegex {
         /// The regex matched against the request path (query stripped).
         pattern: String,
-        /// Replacement template; `$N` are expanded from captures, then `{value}`
-        /// is replaced with the secret (so a `$` in the secret is never reinterpreted).
+        /// Replacement template; `$N` expand from captures, then `{value}`
+        /// becomes the secret.
         replacement: String,
         /// The resolved secret value.
         value: String,
@@ -86,9 +78,8 @@ pub(crate) fn extract_agent_token<T>(req: &Request<T>) -> Option<String> {
         .decode(encoded)
         .ok()?;
     let decoded_str = String::from_utf8(decoded).ok()?;
-    // Format is "{username}:{token}" — extract the token from the password field.
-    // Follows the convention of GitHub/GitLab/Bitbucket: dummy username, token as password.
-    // Also handles legacy "{token}:" format (token as username, empty password).
+    // "{username}:{token}" (GitHub-style dummy username, token as password), or
+    // "{token}:" with the token in the username field.
     let token = match decoded_str.split_once(':') {
         Some((_, pass)) if !pass.is_empty() => pass,
         Some((user, _)) => user, // empty password → token is the username
@@ -190,26 +181,16 @@ pub(crate) fn rules_serve_path(rules: &[InjectionRule], request_path: Option<&st
 
 /// Merge app-connection and secret injection rules for one request.
 ///
-/// Both sets are path-scoped, so they coexist on shared hosts — e.g.
-/// `www.googleapis.com`, where a `/youtube/*` API-key secret and a
-/// `/calendar/*` OAuth Bearer serve different APIs (#428).
-/// [`apply_injections`] applies every matching rule in order with
-/// last-insert-wins per header, so ordering encodes precedence:
-///
-/// - specific patterns out-rank catch-alls (`*` / `/*`) regardless of
-///   source, so a host-wide secret doesn't starve path-scoped apps;
-/// - on equal specificity, secrets keep their historical precedence over
-///   apps, so pre-existing overlapping configs keep injecting the secret;
-/// - disjoint patterns simply coexist. A path matched by rules of both
-///   sources with different injection kinds (e.g. a query-param key and a
-///   Bearer header) carries both — pre-existing apply semantics.
+/// Both sets are path-scoped, so they coexist on shared hosts. [`apply_injections`]
+/// applies every matching rule in order with last-insert-wins per header, so order
+/// encodes precedence: specific patterns out-rank catch-alls (`*` / `/*`) from
+/// either source, and at equal specificity secrets out-rank apps.
 pub(crate) fn merge_injection_rules(
     app_rules: Vec<InjectionRule>,
     secret_rules: Vec<InjectionRule>,
 ) -> Vec<InjectionRule> {
-    // Single-source resolutions pass through untouched: the specificity law
-    // arbitrates real coexistence, never a lone source, whose list order is
-    // load-bearing pre-existing behavior.
+    // A lone source keeps its own list order; specificity only arbitrates
+    // real coexistence.
     if app_rules.is_empty() {
         return secret_rules;
     }
@@ -232,11 +213,9 @@ pub(crate) fn merge_injection_rules(
 
 /// Add or replace a URL query parameter in a path+query string.
 ///
-/// Only the injected parameter is encoded via `form_urlencoded`; existing
-/// query segments are preserved byte-for-byte so their on-the-wire encoding
-/// is never altered (important for signature-based auth like AWS SigV4).
-///
-/// Fragments (`#…`) are preserved and kept after the query string.
+/// Only the injected parameter is encoded; existing query segments are preserved
+/// byte-for-byte so signature-based auth (e.g. AWS SigV4) still verifies.
+/// Fragments are kept after the query string.
 fn apply_set_param(request_path: &mut String, name: &str, value: &str) {
     let encoded_pair = form_urlencoded::Serializer::new(String::new())
         .append_pair(name, value)
@@ -299,12 +278,9 @@ fn apply_set_param(request_path: &mut String, name: &str, value: &str) {
 
 // ── Path injection ──────────────────────────────────────────────────────
 
-/// Reject secret values that would reshape the URL if substituted into the path
-/// raw. Path secrets are injected verbatim (so e.g. a Telegram token's `:`
-/// survives), so any path-structural delimiter, percent sign, space, or control
-/// character in the resolved value would corrupt or redirect the request — fail
-/// safe instead. Covers values whose source (e.g. 1Password) is unknown at write
-/// time, so this is the authoritative guard.
+/// Reject secret values that would reshape the URL. Path secrets are injected
+/// verbatim (so e.g. a Telegram token's `:` survives), so a path-structural
+/// delimiter, percent sign, space or control character must fail safe instead.
 fn is_path_safe(value: &str) -> bool {
     !value
         .chars()
@@ -320,11 +296,10 @@ fn split_path_suffix(request_path: &str) -> (&str, &str) {
     }
 }
 
-/// Template-mode path injection. Splits `template` on its single `{value}` hole,
-/// requires the request path to start with the literal prefix (and, if present,
-/// the literal suffix immediately after the hole), then replaces the hole — the
-/// run of characters up to the next `/` — with the secret. Substitution is raw
-/// (the secret must be path-safe). Returns `true` if the path was rewritten.
+/// Template-mode path injection: matches the literal prefix (and any literal
+/// suffix) around the template's single `{value}` hole, then replaces the hole —
+/// the run of characters up to the next `/` — with the raw, path-safe secret.
+/// Returns `true` if the path was rewritten.
 fn apply_set_path(request_path: &mut String, template: &str, value: &str) -> bool {
     const HOLE: &str = "{value}";
 
@@ -345,21 +320,17 @@ fn apply_set_path(request_path: &mut String, template: &str, value: &str) -> boo
 
     let (path, rest) = split_path_suffix(request_path);
 
-    // The prefix is anchored at the start of the path.
     let Some(after_prefix) = path.strip_prefix(prefix) else {
         return false;
     };
-    // The hole spans up to the next `/` (one segment / segment-suffix).
     let hole_len = after_prefix.find('/').unwrap_or(after_prefix.len());
     let after_hole = &after_prefix[hole_len..];
-    // A literal suffix in the template must follow the hole.
     if !after_hole.starts_with(suffix) {
         return false;
     }
 
     let new_path = format!("{prefix}{value}{after_hole}");
-    // Defense-in-depth: never emit a path that lost its leading `/`, which would
-    // fuse with the host when the upstream URL is built (`scheme://host{path}`).
+    // A path without a leading `/` would fuse with the host in the upstream URL.
     if !new_path.starts_with('/') {
         warn!("set_path skipped: rewritten path would not start with /");
         return false;
@@ -368,10 +339,9 @@ fn apply_set_path(request_path: &mut String, template: &str, value: &str) -> boo
     true
 }
 
-/// Process-global cache of compiled path-rewrite regexes. Patterns come from
-/// stored secrets (a small, finite set), so the cache stays bounded. Compile
-/// *failures* (`None`) are cached too, so an invalid pattern isn't recompiled on
-/// every request.
+/// Process-global cache of compiled path-rewrite regexes; bounded because
+/// patterns come from stored secrets. Failures cache as `None` so an invalid
+/// pattern isn't recompiled on every request.
 fn regex_cache() -> &'static DashMap<String, Option<Arc<Regex>>> {
     static CACHE: OnceLock<DashMap<String, Option<Arc<Regex>>>> = OnceLock::new();
     CACHE.get_or_init(DashMap::new)
@@ -392,11 +362,10 @@ fn compiled_regex(pattern: &str) -> Option<Arc<Regex>> {
     compiled
 }
 
-/// Regex-mode path injection (advanced). Applies `pattern`/`replacement` to the
-/// path portion only. The secret is substituted at the `{value}` positions of the
-/// replacement template, split out before `$N` expansion — so neither a `$` in the
-/// secret nor a `{value}` inside a captured group is ever reinterpreted. First
-/// match only. Returns `true` if the path was rewritten.
+/// Regex-mode path injection (advanced), applied to the path portion only. The
+/// secret is spliced into the replacement template's `{value}` positions before
+/// `$N` expansion, so neither a `$` in the secret nor a `{value}` inside a
+/// captured group is ever reinterpreted. First match only.
 fn apply_replace_path_regex(
     request_path: &mut String,
     pattern: &str,
@@ -413,10 +382,6 @@ fn apply_replace_path_regex(
 
     let (path, rest) = split_path_suffix(request_path);
     let rewritten = re.replace(path, |caps: &regex::Captures| {
-        // Substitute the secret only at the `{value}` positions of the replacement
-        // *template* — split out before `$N` expansion — so neither a `$` in the
-        // secret nor a `{value}` that appears inside a captured group is ever
-        // reinterpreted: the secret lands only where the operator put `{value}`.
         let mut out = String::new();
         for (i, segment) in replacement.split("{value}").enumerate() {
             if i > 0 {
@@ -428,10 +393,8 @@ fn apply_replace_path_regex(
     });
 
     match rewritten {
-        // No match — the path is unchanged, so nothing was injected.
         Cow::Borrowed(_) => false,
-        // Defense-in-depth: never emit a path that lost its leading `/`, which
-        // would fuse with the host when the upstream URL is built.
+        // A path without a leading `/` would fuse with the host in the upstream URL.
         Cow::Owned(new_path) if !new_path.starts_with('/') => {
             warn!("replace_path_regex skipped: rewritten path would not start with /");
             false
@@ -443,18 +406,15 @@ fn apply_replace_path_regex(
     }
 }
 
-/// Check if a request path matches a rule's path pattern.
+/// Check if a request path matches a rule's path pattern. Query strings are
+/// stripped before comparison. Patterns, checked in order:
 ///
-/// Supported patterns (checked in order):
-/// - `"*"` — matches any path
-/// - `"/a/*/b"` — segment wildcard (`*` matches one segment, e.g. `/repos/*/issues`)
-/// - `"/a/*/b/*:action"` — segment wildcard with in-segment glob (`*:predict` matches `ep123:predict`)
-/// - `"/foo/*/bar/*"` — mixed (segment globs + trailing wildcard matches 1+ segments)
-/// - `"/prefix/*"` — prefix with path boundary (`/v1/*` matches `/v1/foo` but not `/v1beta`)
-/// - `"/prefix*"` — glob prefix (`/v1.0/me/messages*` matches `/v1.0/me/messages/123`)
-/// - exact match — path must equal pattern exactly
-///
-/// Query strings in `request_path` are stripped before comparison.
+/// - `"*"` — any path
+/// - `"/a/*/b"` — segment wildcard, with in-segment globs (`*:predict`) and a
+///   trailing `*` matching 1+ segments
+/// - `"/prefix/*"` — prefix at a path boundary (`/v1/*` matches `/v1/foo`, not `/v1beta`)
+/// - `"/prefix*"` — glob prefix (`/me/messages*` matches `/me/messages/123`)
+/// - exact match otherwise
 pub(crate) fn path_matches(request_path: &str, pattern: &str) -> bool {
     let path = request_path.split('?').next().unwrap_or(request_path);
     if pattern == "*" {
@@ -477,13 +437,9 @@ fn has_mid_path_wildcard(pattern: &str) -> bool {
     pattern.len() > 1 && pattern[..pattern.len() - 1].contains('*')
 }
 
-/// Match patterns with `*` wildcards in path segments. Each `*` matches
-/// any characters within a single segment (no `/` crossing), except a
-/// trailing standalone `*` which matches one or more remaining segments.
-///
-/// - `*` as a full segment matches any segment
-/// - `*:predict` matches `abc:predict` (glob within a segment)
-/// - trailing `*` matches 1+ remaining segments
+/// Match patterns with `*` wildcards in path segments. Each `*` matches any
+/// characters within a single segment (no `/` crossing), except a trailing
+/// standalone `*` which matches one or more remaining segments.
 fn segment_wildcard_matches(path: &str, pattern: &str) -> bool {
     let path_segs: Vec<&str> = path.split('/').collect();
     let pat_segs: Vec<&str> = pattern.split('/').collect();
@@ -669,7 +625,7 @@ mod tests {
 
     #[test]
     fn path_glob_prefix() {
-        // "/v1.0/me/messages*" — generated by build_app_injection_rules for path_prefix providers
+        // "/v1.0/me/messages*" — the glob prefix for path_prefix providers
         assert!(path_matches("/v1.0/me/messages", "/v1.0/me/messages*"));
         assert!(path_matches("/v1.0/me/messages/123", "/v1.0/me/messages*"));
         assert!(path_matches(
@@ -770,12 +726,10 @@ mod tests {
         ));
     }
 
-    /// Regression guard for app-permission catalog patterns: each pattern must
-    /// match the REAL request path its operation produces. A `*` matches exactly
-    /// one path segment, so a pattern with too few segments silently never
-    /// matches and the permission becomes a no-op. These cases encode endpoints
-    /// verified against official provider docs; see
-    /// `packages/api/src/apps/app-permissions/*`.
+    /// Each app-permission catalog pattern must match the real request path its
+    /// operation produces. A `*` matches exactly one path segment, so a pattern
+    /// with too few segments silently never matches and the permission becomes
+    /// a no-op.
     #[test]
     fn app_permission_patterns_match_real_endpoints() {
         // GitHub REST nests under /repos/{owner}/{repo}/... (two path params).
@@ -796,7 +750,7 @@ mod tests {
             "/repos/octocat/hello/git/refs/heads/main",
             "/repos/*/*/git/refs/*"
         ));
-        // The old one-param shapes must NOT match real two-param paths.
+        // One-param shapes must not match real two-param paths.
         assert!(!path_matches(
             "/repos/octocat/hello/pulls",
             "/repos/*/pulls"
@@ -820,13 +774,13 @@ mod tests {
             "/ex/confluence/abc123/wiki/rest/api/search",
             "/ex/confluence/*/wiki/rest/api/search"
         ));
-        // Bare /wiki/... (missing the cloudid prefix) was the systemic bug.
+        // Bare /wiki/... lacks the cloudid prefix.
         assert!(!path_matches(
             "/ex/confluence/abc123/wiki/api/v2/pages/77",
             "/wiki/api/v2/pages/*"
         ));
 
-        // Jira Cloud JQL search migrated from /search to /search/jql.
+        // Jira Cloud JQL search lives at /search/jql.
         assert!(path_matches(
             "/ex/jira/abc123/rest/api/3/search/jql",
             "/ex/jira/*/rest/api/3/search/jql"
@@ -862,7 +816,7 @@ mod tests {
             "/upload/youtube/v3/videos"
         ));
 
-        // Todoist migrated to /api/v1/...; Outlook respond aliases.
+        // Todoist /api/v1/...; Outlook respond aliases.
         assert!(path_matches(
             "/api/v1/tasks/abc/close",
             "/api/v1/tasks/*/close"

@@ -30,7 +30,7 @@ export const GATEWAY_BASE_URL =
 
 // ── Edition ─────────────────────────────────────────────────────────────
 
-/** Parsed build edition + variant (single source of truth). */
+/** Parsed build edition + variant. */
 export const EDITION_INFO = parseEdition(
   process.env.EDITION ?? process.env.NEXT_PUBLIC_EDITION,
 );
@@ -39,8 +39,7 @@ export const EDITION_INFO = parseEdition(
 export const CAPS = capabilitiesFor(EDITION_INFO);
 
 /**
- * @deprecated Use `EDITION_INFO.edition`. Raw build-time edition string
- * (`"cloud"`, `"oss"`, or `""`); kept for back-compat with existing call-sites.
+ * @deprecated Use `EDITION_INFO.edition`. Raw build-time edition string.
  */
 export const EDITION =
   process.env.EDITION ?? process.env.NEXT_PUBLIC_EDITION ?? "";
@@ -51,11 +50,9 @@ export const IS_CLOUD = EDITION_INFO.edition === "cloud";
 // ── Auth & Encryption ───────────────────────────────────────────────────
 
 /**
- * Dotted PATH to the IdP claim carrying the user's groups.
- *
- * A path, not a name, because Authentik and Okta emit a flat `groups` while
- * Keycloak keeps roles at `realm_access.roles` — a claim NAME cannot express
- * the second. Default suits Authentik, which is what this instance runs.
+ * Dotted path to the IdP claim carrying the user's groups. A path rather than a
+ * name because Keycloak nests roles at `realm_access.roles`, while Authentik and
+ * Okta emit a flat `groups`.
  */
 export const OIDC_GROUPS_CLAIM_PATH =
   process.env.OIDC_GROUPS_CLAIM_PATH ?? "groups";

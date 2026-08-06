@@ -1,13 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The effective-credentials reflection's contracts (step 9.7b, EFFECTIVE-access
-// framing): each credential the agent can inject is tagged with what it can DO
-// under the rules (Usable / Limited / Blocked) — an all-mode agent BLOCKED from
-// a provider reads "Blocked", not "available" (the user's reported case). Plus
-// the inject_select injectable-set law (all-mode pool / selective assigned ∪
-// rule grants, explicit-identity-only, pool grants expanded), the org+project
-// fence on rule-named ids (cross-org bait), and collapsed org redaction. The db
-// is mocked at the boundary; queries are routed by their where/select shape.
+// The effective-credentials reflection: each injectable credential is tagged
+// with what the agent can do with it under the rules (usable / limited /
+// blocked), alongside the inject_select injectable-set law, the org+project
+// fence on rule-named ids, and org redaction. The db is mocked at the boundary
+// and queries are routed by their where/select shape.
 
 const state = vi.hoisted(() => ({
   calls: [] as { model: string; op: string; args: unknown }[],
@@ -148,9 +145,9 @@ const armStubs = (opts: {
   state.responders.set("agent.findFirst", () =>
     opts.agent !== undefined ? opts.agent : { id: "agent-1" },
   );
-  // Honour the `source: { not: … }` filter so the DECISION load (equipment
-  // dropped) and the INJECTION load (equipment kept) genuinely differ — without
-  // this a test passes whichever load the code uses.
+  // Honour the `source: { not: … }` filter so the decision load (equipment
+  // dropped) and the injection load (equipment kept) genuinely differ —
+  // otherwise a test passes whichever load the code uses.
   state.responders.set("policyRuleV2.findMany", (args) => {
     const where = (
       args as {
@@ -199,8 +196,8 @@ const CTX = {
 
 describe("the effective-access framing (the user's case)", () => {
   it("a granted connection BLOCKED by a rule reads `blocked`, another reads `usable`", async () => {
-    // NanoClaw holds grants for gmail + github. A rule blocks it from gmail's
-    // whole app. gmail must read `blocked` (attached ≠ usable), github `usable`.
+    // The agent holds grants for gmail + github, and a rule blocks it from
+    // gmail's whole app — attached is not the same as usable.
     const blockGmail = simRow({
       logicalId: "block-gmail",
       name: "Block NanoClaw from gmail",
@@ -296,7 +293,7 @@ describe("the effective-access framing (the user's case)", () => {
     });
 
     const result = await effectiveCredentials("agent-1", CTX);
-    expect(result.connections[0]?.status).toBe("limited"); // NOT "usable"
+    expect(result.connections[0]?.status).toBe("limited"); // not "usable"
   });
 
   it("a secret whose host a rule blocks reads `blocked`", async () => {
@@ -347,10 +344,9 @@ describe("the effective-access framing (the user's case)", () => {
 
 describe("the injectable set (inject_select mirror)", () => {
   it("selective: every attachment comes from a rule, EQUIPMENT included", async () => {
-    // The old per-agent assignments became `source="equipment"` rules at the
-    // cutover, and the gateway's `inject_select` walks them like any other. If
-    // this read the DECISION set (which drops equipment) the agent's credential
-    // would vanish here while the gateway still injects it.
+    // The gateway's `inject_select` walks `source="equipment"` rules like any
+    // other. Reading the decision set, which drops equipment, would make the
+    // credential vanish here while the gateway still injects it.
     armStubs({
       agent: { id: "agent-1" },
       projectRows: [
@@ -514,8 +510,8 @@ describe("fencing + redaction", () => {
   it("a non-admin sees ONE redacted marker for multiple org grants (no name, no count)", async () => {
     armStubs({
       agent: { id: "agent-1" },
-      // c1 is named by BOTH org rules — the fenced id-in resolve returns it once
-      // and the two org grants must collapse to a single redacted marker.
+      // c1 is named by both org rules, so the two grants have to collapse to a
+      // single redacted marker.
       ruleConnections: [{ id: "c1", label: "Gmail", provider: "gmail" }],
       orgRows: [orgGrant("org-a", BAIT), orgGrant("org-b", `${BAIT}-2`)],
     });

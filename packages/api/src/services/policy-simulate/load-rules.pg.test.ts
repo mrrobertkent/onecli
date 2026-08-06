@@ -3,17 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "../../testing/pg-proof.js";
 
 /**
- * The two rule loaders on REAL PostgreSQL.
- *
- * `loadRulesForSimulation` (DECISION) and `loadInjectionRules` (INJECTION)
- * differ by ONE `where` term, and reading the wrong one is silent: the decision
- * set quietly gains a permission nothing granted, or a selective agent's
- * credentials quietly vanish from every reflection. Both are settled here
- * against real rows rather than an assertion about a mock's arguments.
- *
- * Also pins the terms both share — `enabled`, the published-generation pin, and
- * the scope fence — at BOTH scopes, since the org and project loads take the
- * same code path but only the project one had any coverage.
+ * The two rule loaders on real PostgreSQL. `loadRulesForSimulation` (decision)
+ * and `loadInjectionRules` (injection) differ by one `where` term and reading
+ * the wrong one fails silently, so both are settled against real rows. Also
+ * pins the terms they share — `enabled`, the published-generation pin and the
+ * scope fence — at both scopes.
  *
  * Env-gated like the other proof suites; see app-blocklist-service.pg.test.ts.
  */
@@ -120,9 +114,8 @@ describe.skipIf(!PROOF_URL)(
   "the decision/injection split over real PostgreSQL",
   () => {
     it("DECISION drops equipment; INJECTION keeps it — same rows, same scope", async () => {
-      // The whole point of the split. An equipment rule grants a credential
-      // WITHOUT permitting its host: visible to inject_select, invisible to
-      // assemble_v2.
+      // An equipment rule grants a credential without permitting its host, so
+      // it is visible to injection and invisible to the decision walk.
       await rule(`${P}custom`);
       await rule(`${P}equip`, { source: "equipment" });
       await rule(`${P}blocklist`, { source: "blocklist", action: "block" });

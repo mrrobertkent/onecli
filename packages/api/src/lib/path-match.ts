@@ -1,6 +1,5 @@
-// Faithful ports of the gateway's request matchers. The new engine must match
-// requests EXACTLY as the gateway does, so these mirror the Rust line-for-line
-// — keep them in lockstep with the source noted on each function.
+// Ports of the gateway's request matchers. Keep them in lockstep with the Rust
+// source noted on each function.
 
 /**
  * Port of `apps/gateway/src/inject.rs::path_matches`. Query strings are
@@ -25,7 +24,7 @@ export const pathMatches = (requestPath: string, pattern: string): boolean => {
   return path === pattern;
 };
 
-// `pattern[..len-1].contains('*')` — a `*` anywhere except the last char.
+// A `*` anywhere except the last character.
 const hasMidPathWildcard = (pattern: string): boolean =>
   pattern.length > 1 && pattern.slice(0, -1).includes("*");
 
@@ -67,9 +66,8 @@ const segmentMatches = (segment: string, pattern: string): boolean => {
 
 /**
  * ASCII-only case folding, matching Rust's `to_ascii_lowercase` /
- * `to_ascii_uppercase` / `eq_ignore_ascii_case`. JS `toLowerCase()` folds the
- * full Unicode range (İ→i̇, K→k), which would diverge from the gateway on a
- * non-ASCII host or condition value; these fold only `A-Z`/`a-z`.
+ * `to_ascii_uppercase`. `toLowerCase()` folds the full Unicode range and would
+ * diverge from the gateway on a non-ASCII host or condition value.
  */
 export const asciiLower = (s: string): string =>
   s.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));

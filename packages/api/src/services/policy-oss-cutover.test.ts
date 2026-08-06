@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The OSS new-project birth posture, which shipped with ZERO coverage while it
-// was derived from the oldest project's published default. Attach-model step 6
-// pins it to ALLOW: the project Default Rule has no UI any more, so an
-// inherited Block would be both invisible and unfixable — every new project
-// would silently be allowlist-mode. The `db` mock is deliberately a landmine:
-// the seeder must not read the database at all now, so any query fails loudly
-// rather than quietly reintroducing the derivation.
+// The `db` mock is a landmine on purpose: the seeder must not read the database
+// at all, so any query fails loudly.
 
 const state = vi.hoisted(() => ({
   calls: [] as { scope: unknown; rules: Record<string, unknown>[] }[],
@@ -60,9 +55,6 @@ describe("the OSS new-project seeded posture", () => {
   });
 
   it("stays ALLOW no matter what exists already — no instance-posture inheritance", async () => {
-    // Previously this read the oldest project's published default, so one
-    // operator flipping their first project to Block made every later project
-    // deny-by-default forever. The db mock above proves no such read happens.
     await ossNewProjectPolicySeeder.seed("org-x", "proj-2");
     await ossNewProjectPolicySeeder.seed("org-x", "proj-3");
     expect(state.calls.map((c) => c.rules[0]?.action)).toEqual([

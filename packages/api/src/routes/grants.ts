@@ -23,13 +23,11 @@ import {
   type GrantScope,
 } from "../services/grants-service";
 
-// ── The attach-model grants surface (plans/project-attach-model.md §4.3) ────
+// ── The grants surface ──────────────────────────────────────────────────────
 // Project scope only — org policy stays the rules surface. Two orientations
-// over the same service: the agent side (the step-3 tabs) composes onto
-// /v1/agents, the connection side (the step-4 dialog) onto /v1/connections,
-// following the policy-reflect mount pattern. Every mutation wraps withAudit,
-// which also flushes the gateway cache server-side — grants change what the
-// gateway injects and decides, so the flush is load-bearing.
+// over the same service: the agent side mounts onto /v1/agents, the connection
+// side onto /v1/connections. Every mutation wraps withAudit, whose gateway
+// cache flush is load-bearing here — grants change what the gateway injects.
 
 const grantScope = (auth: AuthContext): GrantScope => ({
   projectId: requireProjectId(auth),

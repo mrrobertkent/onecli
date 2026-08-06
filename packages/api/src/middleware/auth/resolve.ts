@@ -47,9 +47,8 @@ export const resolveOrganizationId = async (
 };
 
 /**
- * Whether a user holds a ProjectAccess binding on a project — directly or via a
- * group they belong to. Mirrors the EE authz service's `hasProjectAccessBinding`
- * (this shared file can't import cloud code); only reached under `CAPS.rbac`.
+ * Whether a user holds a ProjectAccess binding on a project, directly or via a
+ * group they belong to. Only reached under `CAPS.rbac`.
  */
 const hasProjectBinding = async (
   userId: string,
@@ -66,13 +65,9 @@ const hasProjectBinding = async (
 };
 
 /**
- * Whether a user may access a project: an admin/owner of the project's
- * organization, or an active member granted access through a ProjectAccess
- * binding (direct or via a group). Bindings are the sole usage gate since step
- * 13b — the creator arm was dropped. Non-RBAC editions (oss, onprem) enforce no
- * roles, so this is a no-op there (always allowed). Shared by `resolveProjectId`
- * (session project resolution) and the API-key auth path so both gate access
- * identically — and so a key keeps working only while its user still has access.
+ * Whether a user may access a project: an org admin/owner, or an active member
+ * with a ProjectAccess binding (direct or via a group). Always true when the
+ * edition does not enforce roles.
  */
 export const canAccessProjectAsUser = async (
   userId: string,
@@ -86,11 +81,8 @@ export const canAccessProjectAsUser = async (
   const role = resolver
     ? await resolver.getUserRole(userId, project.organizationId)
     : null;
-  // Only an ACTIVE member can reach a project. Suspended/non-members read as
-  // no-role → denied — and a binding never rescues them: the binding check lives
-  // *inside* this active-member gate, so a suspended user's stale binding is
-  // never consulted (the suspension invariant). Keep it that way. An active
-  // member passes iff org-admin or holding a ProjectAccess binding.
+  // The binding check sits inside this active-member gate on purpose, so a
+  // suspended user's stale binding is never consulted.
   if (!role) return false;
   if (ROLE_HIERARCHY[role] >= ROLE_HIERARCHY.admin) return true;
   return hasProjectBinding(userId, project.id);
@@ -129,10 +121,8 @@ export const resolveProjectId = async (
 
   if (!project) return null;
 
-  // Multi-org (cloud): a member may only target projects they hold a binding on;
-  // admins and owners may target any project in their org. Non-multi-org editions
-  // register no role resolver, so this gate is skipped and any in-org project is
-  // accepted, as before. Mirrors `canAccessProject` in the EE authz service.
+  // A member may only target projects they hold a binding on; admins and owners
+  // may target any project in their org.
   if (!(await canAccessProjectAsUser(userId, project))) return null;
 
   return project.id;

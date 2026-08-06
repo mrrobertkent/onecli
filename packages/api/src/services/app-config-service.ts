@@ -18,11 +18,9 @@ const disconnectIfConnected = async (
   // their existence check), pass its id to skip re-resolving it for the sweep.
   knownConfigId?: string,
 ) => {
-  // Org-scope removal also drops the project connections this config minted:
-  // their OAuth refresh tokens are bound to the client credentials being
-  // removed, so refresh would fail against a different client. The provenance
-  // FK finds exactly those — across every project, and nothing this config
-  // didn't mint. OSS never has org rows, so this arm is inert there.
+  // Org-scope removal also drops the project connections this config minted
+  // (found via the provenance FK): their refresh tokens are bound to the client
+  // credentials being removed, so refresh would fail against a different client.
   const orgConfigId = isOrgScope(scope)
     ? (knownConfigId ??
       (
@@ -98,11 +96,9 @@ export const getAppConfigCredentials = async (
 };
 
 /**
- * Decrypted credential fields for a specific AppConfig row by id — used by the
- * provenance-link refresh paths, where a connection must refresh with the
- * config that minted it (its refresh token is bound to that OAuth client).
- * Returns null when the row is missing or disabled, mirroring the gateway's
- * `find_app_config_by_connection` (`enabled = true`).
+ * Decrypted credential fields for a specific AppConfig row, for refresh paths
+ * where a connection must refresh with the config that minted it. Returns null
+ * when the row is missing or disabled.
  */
 export const getAppConfigCredentialsById = async (
   appConfigId: string,
@@ -133,12 +129,9 @@ export const getAppConfigCredentialsById = async (
 };
 
 /**
- * The blast radius of removing or replacing an org-scoped app config: the
- * connections that would be disconnected. `orgConnections` are the config's own
- * org-scoped connections; `projectConnections` are the project connections it
- * minted (the provenance FK), across every project. Surfaced in the org admin's
- * confirm dialog — org scope only (a project config has no cross-project
- * fan-out).
+ * How many connections removing or replacing an org-scoped app config would
+ * disconnect: the config's own org-scoped connections, plus the project
+ * connections it minted across every project. Org scope only.
  */
 export const countAppConfigDependents = async (
   scope: ResourceScope,
@@ -257,7 +250,7 @@ export const deleteAppConfig = async (
     throw new ServiceError("NOT_FOUND", "App config not found");
   }
 
-  // Disconnect BEFORE deleting the row: onDelete SetNull would null the
+  // Disconnect before deleting the row: onDelete SetNull would null the
   // provenance FKs first and blind the org-scope dependent sweep.
   await disconnectIfConnected(scope, provider, config.id);
 
@@ -274,9 +267,8 @@ export const hasAppConfig = async (
     where: appConfigKey(scope, provider),
     select: { enabled: true, credentials: true },
   });
-  // "Configured" means usable: an enabled row must also carry credentials, or
-  // the resolver rejects it at connect time (the app grid/detail apply the same
-  // gate), which would otherwise let a half-saved config reach a failing OAuth.
+  // "Configured" means usable: an enabled row without credentials is rejected
+  // by the resolver at connect time, so a half-saved config must not count.
   return !!config?.enabled && !!config.credentials;
 };
 

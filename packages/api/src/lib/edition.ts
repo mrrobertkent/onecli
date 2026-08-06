@@ -1,14 +1,6 @@
 /**
- * OneCLI build edition + capability model — the single source of truth for
- * "which edition am I, and what can it do".
- *
- * Today only `oss` and `cloud` exist. The shape is intentionally extensible: a
- * future `onprem` edition (with a `variant` of `slim`/`full`) slots in here
- * without touching call-sites, which read the derived `capabilities` rather than
- * branching on the raw edition string.
- *
- * This module is pure and dependency-free — safe to import from any runtime
- * (client, server, edge). Keep it that way.
+ * Build edition and its capability model. Pure and dependency-free, so it is
+ * safe to import from any runtime.
  */
 
 /** Distribution edition. */
@@ -47,8 +39,8 @@ export const parseEdition = (raw: string | undefined | null): EditionInfo => {
 };
 
 /**
- * Capabilities derived from the edition. Call-sites should branch on these
- * rather than on the raw edition, so new editions are a data change here.
+ * Capabilities derived from the edition. Branch on these rather than the raw
+ * edition string, so a new edition is a data change here.
  */
 export interface Capabilities {
   /** Identity backend. */
@@ -58,36 +50,27 @@ export interface Capabilities {
   /** Whether billing / plan-gating is active. */
   billing: boolean;
   /**
-   * Whether the web serves the org-scoped surface (org routes/nav/chrome, namespaced
-   * URLs) rather than the flat one. This is the one capability that varies by VARIANT:
-   * `onprem-full` shows it; `onprem-slim` (connect-only) and `oss` do not.
+   * Whether the web serves the org-scoped surface (org routes, nav, namespaced
+   * URLs) rather than the flat one. The one capability that varies by variant.
    */
   orgScopedUI: boolean;
   /**
-   * Which web surface the edition serves: `"connect-only"` = just the app-connection
-   * flow (onprem-slim's tiny web); `"full"` = the whole product UI. Variant-driven for
-   * onprem (slim = connect-only, full = full); oss + cloud are full.
+   * Which web surface the edition serves: `"connect-only"` is just the
+   * app-connection flow, `"full"` is the whole product UI.
    */
   webSurface: "connect-only" | "full";
   /**
-   * Role-based access control is active — role enforcement in the access checks
-   * (project access, org-admin guard, api-key) AND the member/role management UI
-   * (the Team screen). Cloud only for now; onprem flips it true when it gains RBAC.
-   * Distinct from `multi-org` (how many orgs) and the `tenancy` model.
+   * Role-based access control is active: role enforcement in the access checks
+   * and the member/role management UI. Distinct from the `tenancy` model.
    */
   rbac: boolean;
 }
 
 const CAPABILITIES: Record<Edition, Capabilities> = {
-  // OSS is single-org, MULTI-USER. `org-per-user` gave every account its own
-  // isolated organization and project, which on a self-hosted instance means
-  // strangers who authenticate get their own tenant on your hardware and
-  // nothing is shared with the people you meant to collaborate with.
-  //
-  // `single-org-shared` is only safe as a FOUR-part unit: this tenancy value,
-  // `rbac: true`, a registered OSS `RoleResolver`, and role-resolved membership
-  // creation (`ensureSharedOrgMembership` taking an explicit role). Any three
-  // of the four is a privilege-escalation hole. Do not flip one back alone.
+  // `single-org-shared` is only safe alongside `rbac: true`, a registered OSS
+  // `RoleResolver`, and role-resolved membership creation
+  // (`ensureSharedOrgMembership` taking an explicit role). Changing one without
+  // the others opens a privilege-escalation hole.
   oss: {
     auth: "local",
     tenancy: "single-org-shared",
@@ -115,8 +98,8 @@ const CAPABILITIES: Record<Edition, Capabilities> = {
 };
 
 /**
- * The capability set for a parsed edition. Variant-aware: `onprem-full` extends the
- * onprem base with the org-scoped web surface; `onprem-slim` keeps the flat one.
+ * The capability set for a parsed edition. `onprem-full` extends the onprem base
+ * with the org-scoped web surface; `onprem-slim` keeps the flat one.
  */
 export const capabilitiesFor = (info: EditionInfo): Capabilities => {
   const base = CAPABILITIES[info.edition];

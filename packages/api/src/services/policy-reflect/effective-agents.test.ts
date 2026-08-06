@@ -1,14 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The effective-agents reflection's contracts (step 9.7b): the CREDENTIAL axis
-// mirrors the gateway's inject_select laws (full for all-mode; viaRule for
-// explicit-identity rule grants — INCLUDING `equipment` ones — naming THIS
-// connection or its provider pool; empty identities never grant), the
-// DECISIONS rollup rides the shared per-tool core, the fence mirrors
-// assertConnectionVisible (org-scoped rows visible, foreign orgs not), the
-// catalog-less axis is honestly absent, and the principal set resolves ONCE
-// per call however many agents (it is project-derived). The db is mocked at
-// the boundary; wheres are recorded and asserted.
+// The db is mocked at the boundary; the `where` arguments are recorded so the
+// fencing tests can assert on them.
 
 const state = vi.hoisted(() => ({
   calls: [] as { model: string; op: string; args: unknown }[],
@@ -156,8 +149,8 @@ const armStubs = (opts: {
     "agent.findMany",
     opts.agents ?? [{ id: "agent-1", name: "Support bot" }],
   );
-  // Honour `source: { not: … }` so the DECISION load (equipment dropped) and
-  // the INJECTION load (equipment kept) genuinely differ — without this a test
+  // Honour `source: { not: … }` so the decision load (equipment dropped) and
+  // the injection load (equipment kept) genuinely differ — without it a test
   // passes whichever of the two the code happens to read.
   state.responders.set("policyRuleV2.findMany", (args) => {
     const where = (
@@ -182,9 +175,8 @@ const totalGmailTools = () => {
 
 describe("the credential axis (the old dialog's meaning)", () => {
   it("viaRule for an EQUIPMENT grant, none otherwise", async () => {
-    // The old per-agent assignment rows became `source="equipment"` rules at the
-    // cutover. They are dropped from the decision set, so reading that set here
-    // would report "none" for an agent the gateway still injects for.
+    // `source="equipment"` rules are dropped from the decision set, so reading
+    // that set here would report "none" for an agent the gateway injects for.
     armStubs({
       agents: [
         { id: "a-equipped", name: "Equipped" },
@@ -238,8 +230,8 @@ describe("the credential axis (the old dialog's meaning)", () => {
             targetRow({ kind: "connection", appConnectionId: "conn-1" }),
           ],
         }),
-        // PLANTED BAIT: empty identities = "any" for decisions, NEVER for
-        // injection — must not attach for anyone.
+        // Bait: empty identities mean "any" for decisions but never for
+        // injection, so this must not attach for anyone.
         simRow({
           id: "r-bait",
           logicalId: "bait",
@@ -317,7 +309,7 @@ describe("the credential axis (the old dialog's meaning)", () => {
             }),
           ],
         }),
-        // App target WITHOUT connectionScope is block/allow only — no grant.
+        // App target without connectionScope is block/allow only — no grant.
         simRow({
           id: "r4",
           logicalId: "no-scope",
@@ -512,7 +504,7 @@ describe("the effective-access headline (the user decision)", () => {
     const agent = result.agents[0];
     expect(agent?.decisions?.anyApproval).toBe(true);
     expect(agent?.decisions?.allowedTools).toBe(agent?.decisions?.totalTools);
-    expect(agent?.access).toBe("limited"); // NOT "usable"
+    expect(agent?.access).toBe("limited"); // not "usable"
   });
 });
 

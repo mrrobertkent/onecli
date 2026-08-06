@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../providers/types";
 
-// The enforcer is the access gate: authentication alone is not sufficient to
-// be provisioned, and its failure mode is CLOSED. These tests are what hold
-// that up, so they lean on the denial paths rather than the happy one.
+// The enforcer is the access gate — authenticating is not enough to be
+// provisioned, and it fails closed — so these tests lean on the denial paths.
 
 const state = vi.hoisted(() => ({
   membership: null as { role: string } | null,
@@ -23,8 +22,7 @@ vi.mock("@onecli/db", () => ({
   },
 }));
 
-// `child` is needed because this module pulls in audit-service, which builds a
-// child logger at import time.
+// `child` is needed because audit-service builds a child logger at import time.
 vi.mock("../lib/logger", () => {
   const noop = { warn: () => {}, info: () => {}, error: () => {} };
   return { logger: { ...noop, child: () => noop } };
@@ -47,8 +45,6 @@ describe("ossSessionEnforcer", () => {
   });
 
   it("DENIES an authenticated identity with no membership", async () => {
-    // The original problem: OneCLI provisioned any identity that authenticated.
-    // Authenticating at the IdP now buys nothing on its own.
     state.membership = null;
     const denial = await ossSessionEnforcer(SESSION, USER);
     expect(denial?.code).toBe("NOT_AUTHORISED");
@@ -62,8 +58,8 @@ describe("ossSessionEnforcer", () => {
   });
 
   it("returns a denial rather than throwing", async () => {
-    // A throw lands in the route's catch as a 500, which some clients treat as
-    // retryable — and which carries no code for the terminal denial page.
+    // A throw lands in the route's catch as a 500, which carries no code for
+    // the denial page.
     state.throwOnMembership = true;
     await expect(ossSessionEnforcer(SESSION, USER)).resolves.toBeTruthy();
   });

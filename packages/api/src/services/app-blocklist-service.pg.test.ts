@@ -3,16 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "../testing/pg-proof.js";
 
 /**
- * The app blocklist on REAL PostgreSQL — the committed proof that a blocked host
- * actually reaches the set the gateway enforces.
- *
- * This is the regression that motivated the suite: the blocklist used to write
- * the old `policy_rules` table and rely on a background pass to copy the rows
- * into `policy_rules_v2`. When that pass was deleted, blocking a host became a
- * silent no-op — the panel said "Blocking npm Registry" and the host stayed
- * reachable. Mocks can't catch that class of bug, because the whole question is
- * WHICH ROWS LAND IN WHICH GENERATION, so this drives real writes and then reads
- * back with the gateway's own query shape (published ∧ max(generation) ∧ enabled).
+ * The app blocklist against real PostgreSQL: a blocked host has to reach the
+ * set the gateway enforces. Mocks can't cover this — the question is which rows
+ * land in which generation — so this drives real writes and reads them back
+ * with the gateway's own query shape (published, max generation, enabled).
  *
  * Env-gated: skipped unless POLICY_PROOF_DATABASE_URL points at a migrated
  * PostgreSQL, e.g.
@@ -181,8 +175,8 @@ describe.skipIf(!PROOF_URL)("app blocklist over real PostgreSQL", () => {
   it("a seeded block reaches the generation the gateway enforces", async () => {
     await svc.initBlocklistDefaults({ projectId: PROJECT }, "jfrog", HOSTS);
 
-    // THE regression: the rule must be in the LIVE PUBLISHED set, not just the
-    // draft — a draft-only write is exactly the silent no-op this replaced.
+    // The rule has to be in the live published set, not just the draft — a
+    // draft-only write is a silent no-op.
     await expect(enforcedHosts(PROJECT)).resolves.toEqual(
       expect.arrayContaining([NPM.hostPattern, PYPI.hostPattern]),
     );
@@ -269,8 +263,8 @@ describe.skipIf(!PROOF_URL)("app blocklist over real PostgreSQL", () => {
   });
 
   it("shows an org-level block on the project page, locked and not toggleable", async () => {
-    // The project page passes BOTH ids; an org block applies to every project
-    // under it, so it must surface there — and must not be editable from below.
+    // The project page passes both ids; an org block applies to every project
+    // under it, so it surfaces there but must not be editable from below.
     await svc.initBlocklistDefaults({ organizationId: ORG }, "jfrog", [NPM]);
 
     const [state] = await svc.getBlocklistState(

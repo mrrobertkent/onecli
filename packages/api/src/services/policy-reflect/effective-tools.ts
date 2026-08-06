@@ -29,38 +29,21 @@ import { loadSecretHosts } from "../policy-simulate/secret-hosts";
 import { toSimRule, type SimRule } from "../policy-simulate/sim-rule";
 import { buildInjectionProbe } from "./injection";
 
-// The per-tool "effective permissions" reflection behind the App
-// Permissions panel (step 9.7b): what the ENFORCED (published) v2 rules decide
-// for each catalog tool of a provider, computed with the same engine, inputs,
-// and two-level composition the gateway uses. Per tool, every catalog
-// path×method variant is synthesized into a concrete request (see
-// `synthesizePath`) and run through `evaluatePolicyOutcome`; the variants
-// aggregate into one verdict, or `mixed` when they disagree. Read-only — the
-// panel's editing moved to the Policy console.
+// Per-tool effective permissions for the App Permissions panel: what the
+// published rules decide for each catalog tool of a provider, using the same
+// engine and two-level composition as the gateway. Every catalog path×method
+// variant is synthesized into a concrete request (see `synthesizePath`) and
+// evaluated; the variants aggregate to one verdict, or `mixed` when they
+// disagree.
 //
-// HONESTY NOTES (deliberate, documented):
-// - A rule targeting a CONCRETE sub-path narrower than a tool's pattern is not
-//   visible to a representative request (it would need pattern-intersection
-//   analysis) — the same inherent limit as any per-tool summary.
-// - Body conditions cannot be exercised (no body input) — conditioned rules
-//   that would match live cannot match here, an inherent limit of any static
-//   summary.
-// - `hasInjections` is DERIVED per tool host from the agent's credential pools
-//   (the injection-probe approximation, hoisted once per request); the response
-//   discloses whether a credential is attached so a "Not managed" wall on an
-//   unconnected app reads correctly.
+// Limits: a rule targeting a sub-path narrower than a tool's pattern is
+// invisible to a representative request, and body conditions cannot be
+// exercised without a body.
 //
-// REDACTION CONTRACT (this file is its canonical home): org rule
-// DETAILS are org-admin-only; a non-admin sees `redacted: true` provenance and
-// org rules are excluded from the `variesByIdentity` disclosure count.
-// `orgResources` deliberately discloses the org rule's repo/folder VALUES —
-// never the rule's name or identity — to project viewers: the same posture as
-// the rate-limit values above, and for GitHub the repo list is already visible
-// via the connection's own metadata.
-//
-// RESPONSE CONSTRAINT: tool endpoint mappings (hostPattern/pathPattern/method)
-// NEVER serialize — per-tool id + verdict + provenance only (the client-safe
-// summary already carries names/descriptions; the leak is pinned by test).
+// Redaction: org rule details are org-admin-only — other viewers get
+// `redacted: true` provenance and org rules are excluded from
+// `variesByIdentity`. Tool endpoint mappings (hostPattern/pathPattern/method)
+// never serialize; per-tool id + verdict + provenance only.
 
 export type EffectiveToolVerdict =
   | "allow"
@@ -78,19 +61,16 @@ export type EffectiveProvenance =
   /** A level's Default Rule blocked (the deny-default terminal). */
   | { kind: "default"; scope: "organization" | "project" };
 
-/** What the ORG level alone says about a tool — the ceiling the project may
- * tighten under but never loosen past. Derived from an org-rules-only engine
- * run, so it stays visible even when a stricter project rule wins the combined
- * verdict. Carries no rule ref (members may learn THAT the org constrains,
- * never which rule — the §2.9 redaction posture). `null` = the org is silent
- * (no matching rule, allow posture, or the enforce-deny carve passed it). */
+/** What the org level alone says about a tool — the ceiling a project may
+ * tighten under but never loosen past. Carries no rule ref: members may learn
+ * that the org constrains, never which rule. `null` = the org is silent. */
 export type OrgCeilingVerdict = "allow" | "approval" | "block";
 
 export interface EffectiveToolResult {
   toolId: string;
   verdict: EffectiveToolVerdict;
-  /** Modifier values of the deciding allow rule (disclosed even when the org
-   * rule's NAME is redacted — the simulate contract's accepted disclosure). */
+  /** Modifier values of the deciding allow rule; disclosed even when that
+   * rule's name is redacted. */
   rateLimit: number | null;
   rateLimitWindow: string | null;
   /** Attribution; null when variants disagree, or when allowed purely by an
@@ -112,23 +92,21 @@ export interface EffectiveAppPermissionsResult {
     /** null = the agent-less baseline (only any-identity rules match). */
     agentId: string | null;
     /** Whether any of the provider's hosts has a credential attached for this
-     * basis (derived — the injection-probe approximation). */
+     * basis. */
     credentialAttached: boolean;
     scope: "organization" | "project";
   };
-  /** Identity-scoped rules relevant to this provider that the BASELINE view
-   * cannot show (they only match specific agents/groups) — scoped to the
-   * viewer's visibility like `bodyConditionsSkipped`. */
+  /** Identity-scoped rules relevant to this provider that the baseline view
+   * cannot show, scoped to the viewer's visibility. */
   variesByIdentity: number;
-  /** The ORG's resource boundary ("Resources") for this (agent, connection) —
-   * how far the organization allows the credential to reach, which a project
-   * selection narrows within but can never exceed. Only computed for an
-   * explicit `agentId` + `connectionId`; null = the org does not restrict (or
-   * no explicit basis). Discloses values only — see the redaction contract. */
+  /** How far the organization allows this (agent, connection) credential to
+   * reach; a project selection narrows within it but never exceeds it. Only
+   * computed for an explicit `agentId` + `connectionId`; null = unrestricted.
+   * Discloses repo/folder values, never the org rule's name or identity. */
   orgResources: SessionPolicyInput | null;
   /** What the credential actually reaches: the org boundary composed with the
    * project's selection. An empty list means the two do not overlap and the
-   * credential reaches nothing (the gateway refuses every request). */
+   * gateway refuses every request. */
   effectiveResources: SessionPolicyInput | null;
   groups: EffectiveToolGroupResult[];
 }
@@ -136,10 +114,10 @@ export interface EffectiveAppPermissionsResult {
 export interface EffectiveAppPermissionsInput {
   provider: string;
   agentId?: string;
-  /** Reflect for ONE specific connection: synthesized requests carry it as the
-   * winning injected connection, so per-account rules bind exactly as the
-   * gateway would. Absent = the provider-level view (per-account differences
-   * fold to `mixed`). Project scope only, like `agentId`. */
+  /** Reflect for one specific connection: synthesized requests carry it as the
+   * winning injected connection, so per-account rules bind as the gateway
+   * would. Absent = the provider-level view, where per-account differences fold
+   * to `mixed`. Project scope only, like `agentId`. */
   connectionId?: string;
 }
 
@@ -152,19 +130,14 @@ export interface EffectiveAppPermissionsCtx {
   viewerSeesOrgRules: boolean;
 }
 
-/** The substitution token for `*` slots when synthesizing a concrete request
- * from a catalog pattern. Deliberately collision-proof: no catalog pattern or
- * plausible rule path contains the literal segment `oc-any`, so a synthesized
- * request can only match a rule the way the PATTERN semantics allow — never by
- * a lucky literal collision with a concrete rule path. */
+/** The substitution token for `*` slots when synthesizing a request from a
+ * catalog pattern. No catalog pattern or plausible rule path contains the
+ * literal segment `oc-any`, so a synthesized request can only match by pattern
+ * semantics, never by a literal collision with a concrete rule path. */
 const TOKEN = "oc-any";
 
 /** Synthesize a concrete request path that hits `pattern` under `pathMatches`
- * semantics (which treat the REQUEST path literally): every `*` — a standalone
- * segment, a trailing `/*`, or an intra-segment `prefix*suffix` — is replaced
- * with the token in place. Verified against lib/path-match.ts: a trailing `/*`
- * prefix accepts prefix+token; a mid-path segment glob accepts any single
- * segment; an intra-segment glob accepts the token inline. */
+ * semantics: every `*` is replaced with the token in place. */
 export const synthesizePath = (pattern: string): string => {
   if (pattern === "*") return `/${TOKEN}`;
   return pattern
@@ -178,19 +151,15 @@ export const synthesizePath = (pattern: string): string => {
 export const synthesizeHost = (pattern: string): string =>
   pattern.replaceAll("*", TOKEN);
 
-/** Load the injection POOL (host patterns + connected-connection providers) —
- * the whole fenced pool for the agent-less BASELINE only. An agent draws
- * nothing here (step 7: its rules are the whole story, folded in by the shared
- * `buildInjectionProbe`). The queries run ONCE per request. Org scope probes
- * the org-level pool only. */
+/** Load the injection pool (host patterns + connected-connection providers) —
+ * the whole fenced pool, for the agent-less baseline only. Org scope probes the
+ * org-level pool only. */
 const loadInjectionPool = async (
   agent: { id: string } | null,
   ctx: EffectiveAppPermissionsCtx,
 ): Promise<{ secretHostPatterns: string[]; providers: string[] }> => {
   // An agent has no baseline pool: everything it can be handed comes from its
   // rules, which `buildInjectionProbe` folds in from the injection rule set.
-  // (Reading the frozen per-agent grant tables here would both miss every
-  // rule-made grant and keep counting revoked ones.)
   if (agent !== null) {
     return { secretHostPatterns: [], providers: [] };
   }
@@ -217,10 +186,10 @@ const loadInjectionPool = async (
 };
 
 interface VariantEval {
-  /** Verdict + modifier values folded into one equality key — a rate/approval
-   * DIFFERENCE between variants surfaces as `mixed`. Provenance is NOT folded
-   * in: two rules producing the SAME verdict must not read as `mixed` (and the
-   * verdict must not vary by viewer, since org provenance redacts). */
+  /** Verdict + modifier values folded into one equality key, so a rate or
+   * approval difference between variants surfaces as `mixed`. Provenance is
+   * excluded: two rules reaching the same verdict must not read as `mixed`,
+   * and the verdict must not vary by viewer since org provenance redacts. */
   key: string;
   verdict: Exclude<EffectiveToolVerdict, "mixed">;
   rateLimit: number | null;
@@ -230,10 +199,7 @@ interface VariantEval {
 }
 
 /** Strictest-wins fold for ceilings (block > approval > allow > silent):
- * variants or per-account runs that disagree lock at the tightest answer —
- * over-locking a path-split tool is safe, under-locking invites the
- * "clicked one thing, got another" save. Mirrors the engine's
- * strictest-combine direction. */
+ * variants or per-account runs that disagree lock at the tightest answer. */
 const CEILING_RANK: Record<OrgCeilingVerdict, number> = {
   allow: 1,
   approval: 2,
@@ -249,9 +215,7 @@ const foldCeilings = (
     null,
   );
 
-/** The org level evaluated ALONE — the same request, org rules only, so org
- * per-connection targets and the enforce-deny carve bind exactly as live. The
- * corpus-gated engine core is reused unchanged; only the input set narrows. */
+/** The org level evaluated alone: the same request, org rules only. */
 const orgCeilingOf = (
   engineRules: NewRule[],
   request: PolicyRequest,
@@ -313,9 +277,8 @@ const evaluateVariant = (
         orgCeiling,
       };
     }
-    // An approval rule short-circuits before the rate arms at the gateway
-    // (evaluate.rs / evaluator.ts `toDecision`), so its stored rate is never
-    // enforced — don't disclose it.
+    // An approval rule short-circuits before the rate arms, so its stored rate
+    // is never enforced — don't disclose it.
     if (outcome.rule.requireApproval) {
       return {
         key: "approval",
@@ -365,9 +328,8 @@ const evaluateVariant = (
 };
 
 /** Fold variant evaluations into one per-tool result: identical verdict+modifier
- * keys collapse to that verdict; any disagreement → `mixed`. Attribution is kept
- * only when every variant points at the SAME rule/default — a uniform verdict
- * reached via different rules is truthful but can't name one. */
+ * keys collapse to that verdict, any disagreement to `mixed`. Attribution is
+ * kept only when every variant points at the same rule or default. */
 const aggregateVariants = (
   toolId: string,
   evals: VariantEval[],
@@ -384,9 +346,9 @@ const aggregateVariants = (
       orgCeiling: null,
     };
   }
-  // The ceiling folds independently of the combined-verdict key: a ceiling
-  // difference between path variants must not read as `mixed`, and a `mixed`
-  // combined verdict can still carry a definite (strictest) ceiling lock.
+  // The ceiling folds independently of the verdict key: a ceiling difference
+  // between variants must not read as `mixed`, and a `mixed` verdict can still
+  // carry a definite ceiling lock.
   const orgCeiling = foldCeilings(evals.map((e) => e.orgCeiling));
   if (evals.every((e) => e.key === first.key)) {
     const sameSource = evals.every(
@@ -413,8 +375,7 @@ const aggregateVariants = (
 
 /** Fold the per-account runs of a provider-level view into one: tools that
  * agree across every connected account keep their verdict (and provenance when
- * uniform); any disagreement is `mixed` — the truthful provider-level answer
- * once decisions bind per-connection. */
+ * uniform); any disagreement is `mixed`. */
 const foldGroupRuns = (
   runs: EffectiveToolGroupResult[][],
 ): EffectiveToolGroupResult[] => {
@@ -425,8 +386,8 @@ const foldGroupRuns = (
   return first.map((group, gi) => {
     const tools = group.tools.map((tool, ti) => {
       const across = runs.map((r) => r[gi]?.tools[ti] ?? tool);
-      // Same independence as the variant fold: per-account ceiling
-      // disagreement locks at the strictest, never flips the verdict.
+      // Per-account ceiling disagreement locks at the strictest and never
+      // flips the verdict.
       const orgCeiling = foldCeilings(across.map((t) => t.orgCeiling));
       if (across.every((t) => toolKey(t) === toolKey(tool))) {
         const sameSource = across.every(
@@ -453,11 +414,9 @@ const foldGroupRuns = (
   });
 };
 
-/** Effective ACCESS to a resource, folded from its per-tool verdicts — the one
- * definition shared by BOTH per-agent surfaces (the credential list and the
- * connection→agents dialog) so they can never disagree. All tools blocked →
- * blocked; all reachable (allow/unmanaged) → usable; anything else (a block, an
- * approval, or a "varies") → limited; no tools → unknown (a catalog-less app). */
+/** Effective access to a resource, folded from its per-tool verdicts. All tools
+ * blocked → blocked; all reachable (allow/unmanaged) → usable; anything else →
+ * limited; no tools → unknown (a catalog-less app). */
 export type ToolRollupStatus = "usable" | "limited" | "blocked" | "unknown";
 
 export const rollupToolStatus = (
@@ -470,9 +429,9 @@ export const rollupToolStatus = (
   return "limited";
 };
 
-/** The pure per-request core, shared with the connection reflection (endpoint
- * B computes it once per agent): per catalog tool → per variant → synthesize →
- * evaluate → aggregate, plus the credential-attached signal. */
+/** The pure per-request core, shared with the connection reflection: per
+ * catalog tool → per variant → synthesize → evaluate → aggregate, plus the
+ * credential-attached signal. */
 export const computeEffectiveGroups = (input: {
   def: AppPermissionDefinition;
   simRules: SimRule[];
@@ -482,8 +441,8 @@ export const computeEffectiveGroups = (input: {
   principals: PrincipalSet;
   probe: (host: string) => boolean;
   viewerSeesOrgRules: boolean;
-  /** The winning injected connection the synthesized requests carry — absent =
-   * no winner, so resolved connection targets never match (the gateway law). */
+  /** The winning injected connection the synthesized requests carry. Absent =
+   * no winner, so resolved connection targets never match. */
   winningConnectionId?: string;
 }): { groups: EffectiveToolGroupResult[]; credentialAttached: boolean } => {
   const baseRequest = {
@@ -493,8 +452,8 @@ export const computeEffectiveGroups = (input: {
   };
   let credentialAttached = false;
   const groups: EffectiveToolGroupResult[] = input.def.groups.map((group) => {
-    // Concrete tools only — the group rollup plays the "All read/write" role;
-    // the wildcard is a compact authoring alias, not a distinct endpoint.
+    // Concrete tools only: the wildcard is an authoring alias, not a distinct
+    // endpoint, and the group rollup already plays the "All read/write" role.
     const tools = group.tools.map((tool) => {
       const host = synthesizeHost(tool.hostPattern);
       if (input.probe(host)) credentialAttached = true;
@@ -506,8 +465,7 @@ export const computeEffectiveGroups = (input: {
             ...baseRequest,
             host,
             path: synthesizePath(variant.pathPattern),
-            // Every catalog tool declares a method (pinned by
-            // read-wildcard-coverage.test.ts); GET is a defensive fallback.
+            // Every catalog tool declares a method; GET is a defensive fallback.
             method: variant.method ?? "GET",
             hasInjections: input.probe(host),
             isLlmHost: isLlmHost(host),
@@ -559,9 +517,8 @@ export const effectiveAppPermissions = async (
     if (!agent) throw new ServiceError("NOT_FOUND", "Agent not found.");
   }
 
-  // Same fence for an explicit connection: it must be THIS provider's and
-  // visible to the caller's scope (project-owned or org-shared) — a foreign id
-  // is simply not found (existence is never revealed across the fence).
+  // Same fence for an explicit connection: it must be this provider's and
+  // visible to the caller's scope (project-owned or org-shared).
   let connection: { id: string } | null = null;
   if (input.connectionId !== undefined) {
     if (ctx.scope !== "project") {
@@ -614,10 +571,10 @@ export const effectiveAppPermissions = async (
     projectBase
       ? loadInjectionRules(projectBase, "published")
       : Promise.resolve([]),
-    // The `agent &&` clause is load-bearing even though the set no longer
-    // depends on the agent: the agent-less BASELINE view must not inherit the
-    // project's users/groups, or identity-scoped verdicts would leak into it
-    // while `variesByIdentity` reports 0.
+    // The `agent &&` clause is load-bearing even though the set does not
+    // depend on the agent: the agent-less baseline must not inherit the
+    // project's users/groups, or identity-scoped verdicts leak into it while
+    // `variesByIdentity` reports 0.
     agent && ctx.projectId
       ? resolvePrincipalSet(ctx.projectId, ctx.organizationId)
       : Promise.resolve({ userIds: [], groupIds: [] }),
@@ -634,9 +591,9 @@ export const effectiveAppPermissions = async (
   const engineRules = simRules.map((s) => s.rule);
 
   // The injectable-credential predicate for the deny-default carve. Fed the
-  // INJECTION rules (equipment included, as `inject_select` walks them), not the
-  // decision set — otherwise a selective agent's credentials are invisible here
-  // and its tools read "unmanaged" when the gateway would call them managed.
+  // injection rules (equipment included), not the decision set — otherwise an
+  // agent's credentials are invisible here and its tools read "unmanaged" when
+  // the gateway would call them managed.
   const probe = buildInjectionProbe({
     agent,
     poolSecretHostPatterns: pool.secretHostPatterns,
@@ -653,8 +610,7 @@ export const effectiveAppPermissions = async (
       simRules,
       engineRules,
       // The baseline's empty-string agent id can never match an explicit agent
-      // identity (ids are never empty) — only any-identity rules apply, exactly
-      // "an agent with no specific grants".
+      // identity, so only any-identity rules apply.
       agentId: agent?.id ?? "",
       principals,
       probe,
@@ -662,11 +618,9 @@ export const effectiveAppPermissions = async (
       winningConnectionId,
     });
 
-  // Per-connection accuracy. An explicit connection reflects with it as the
-  // winner. The provider-level view may VARY by account once resolved
-  // connection targets name this provider — evaluate once per connected
-  // account and fold disagreements to `mixed`; with no connection rules the
-  // single no-winner pass is byte-identical to the pre-per-connection view.
+  // An explicit connection reflects with it as the winner. The provider-level
+  // view can vary by account once connection targets name this provider, so
+  // evaluate once per connected account and fold disagreements to `mixed`.
   const hasConnectionRules = engineRules.some((r) =>
     r.targets.some(
       (t) => t.kind === "connection" && t.provider === input.provider,
@@ -692,13 +646,10 @@ export const effectiveAppPermissions = async (
   }
   const { groups, credentialAttached } = folded;
 
-  // Identity-scoped rules relevant to this provider — what the BASELINE view
-  // cannot show. Relevance is decidable cheaply: app targets by provider
-  // (connection targets already resolved to app), secret/network targets when
-  // their pattern matches a CONCRETE catalog host of the provider (wildcard
-  // tool hosts are skipped — undecidable without intersection machinery).
-  // Scoped to the viewer's visibility, like bodyConditionsSkipped: org rules
-  // are org-rule information.
+  // Identity-scoped rules relevant to this provider — what the baseline view
+  // cannot show. Relevance: app targets by provider, secret/network targets
+  // when their pattern matches a concrete catalog host (wildcard tool hosts are
+  // skipped, being undecidable without intersection machinery).
   const concreteHosts = [
     ...new Set(
       def.groups
@@ -713,8 +664,8 @@ export const effectiveAppPermissions = async (
     if (s.rule.isDefault || s.rule.identities.length === 0) return false;
     return s.rule.targets.some((t) => {
       if (t.kind === "app") return t.provider === input.provider;
-      // A RESOLVED connection target carries its provider; unresolved
-      // (provider-less) ones never match anything, so they can't vary either.
+      // A resolved connection target carries its provider; unresolved ones
+      // never match anything, so they can't vary either.
       if (t.kind === "connection") return t.provider === input.provider;
       if (t.kind === "network")
         return concreteHosts.some((h) => hostMatches(h, t.hostPattern));

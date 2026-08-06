@@ -8,18 +8,13 @@ import { resolveUserEmail, canAccessProjectAsUser } from "./resolve";
  * API-key authentication result:
  *
  * - `AuthContext` — a valid key resolved its scope.
- * - `"missing-project"` — a *valid* org key (found + admin re-checked) hit a
- *   `requireProject` route without an `X-Project-Id` header. Distinguished so
- *   strict mode can tell the caller to name a project — without misleading a
- *   revoked-key holder, and mirroring the gateway, whose header message also
- *   fires only after a successful key lookup.
- * - `"invalid-key"` — an `oc_` bearer was presented but failed authentication
- *   (unknown/revoked key, demoted holder, project outside the key's org, …).
- * - `null` — the request carried no `oc_` bearer at all (no header, another
- *   scheme, or a non-OneCLI token) — nothing here to authenticate.
+ * - `"missing-project"` — a valid org key hit a `requireProject` route with no
+ *   `X-Project-Id` header.
+ * - `"invalid-key"` — an `oc_` bearer was presented but failed authentication.
+ * - `null` — the request carried no `oc_` bearer at all.
  *
- * Non-strict callers treat both string sentinels exactly like `null` (fall
- * through to session auth); strict mode turns them into precise 401s.
+ * Non-strict callers treat both string sentinels like `null` and fall through to
+ * session auth; strict mode turns them into precise 401s.
  */
 export type ApiKeyAuthResult =
   | AuthContext
@@ -46,9 +41,8 @@ export const authenticateApiKey = async (
     if (!apiKey || apiKey.scope !== "organization" || !apiKey.organizationId)
       return "invalid-key";
 
-    // Org keys are an admin capability — re-check the key's user still holds
-    // admin/owner in the org (only when RBAC is active; non-RBAC editions enforce
-    // no roles). Closes the gap where a key keeps working after a demotion.
+    // Re-check that the key's user still holds admin/owner, so a key stops
+    // working once its holder is demoted.
     if (CAPS.rbac) {
       const resolver = getRoleResolver();
       const role = resolver
@@ -104,10 +98,8 @@ export const authenticateApiKey = async (
   });
   if (!project) return "invalid-key";
 
-  // Re-check access at request time: the key authenticates only while its user
-  // still has access to the project (org admin/owner, or a ProjectAccess binding
-  // — the creator arm was dropped in step 13b). OSS is a no-op (single-user, no
-  // role resolver). Mirrors resolveProjectId.
+  // Re-check access at request time, so the key authenticates only while its
+  // user still has access to the project.
   if (!(await canAccessProjectAsUser(apiKey.userId, project)))
     return "invalid-key";
 

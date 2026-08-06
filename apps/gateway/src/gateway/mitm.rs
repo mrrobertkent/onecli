@@ -1,9 +1,8 @@
 //! MITM TLS interception: terminate TLS with the client using a generated
 //! leaf certificate, then forward HTTP requests to the real upstream server.
 //!
-//! Rules (injection + policy) are re-resolved from cache on each HTTP request
-//! so that changes (e.g., adding a secret) take effect immediately without
-//! requiring the agent to reconnect.
+//! Rules are re-resolved from cache on each request, so changes take effect
+//! without the agent reconnecting.
 
 use std::sync::Arc;
 
@@ -64,9 +63,8 @@ pub(super) async fn mitm(
     let acceptor = TlsAcceptor::from(server_config);
 
     let client_io = TokioIo::new(upgraded);
-    // Bounded because a client that opens a tunnel and then never speaks would
-    // otherwise hold this task forever — and, once the drain is waiting on it,
-    // hold the whole shutdown to its deadline.
+    // Bounded: a silent client would otherwise hold this task — and the drain
+    // waiting on it — until the shutdown deadline.
     let tls_stream = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(client_io))
         .await
         .context("TLS handshake with client timed out")?
@@ -215,9 +213,8 @@ pub(crate) struct InterceptToken {
 pub(crate) struct ResolvedRules {
     pub injection_rules: Vec<InjectionRule>,
     /// Connections whose credential is minted only after the request is
-    /// allowed (`connect::PendingInjection`). Their rules are NOT yet in
-    /// `injection_rules`, so use [`Self::injects`] — never
-    /// `injection_rules.is_empty()` — to ask whether a credential is in play.
+    /// allowed. Their rules are not yet in `injection_rules`, so ask
+    /// [`Self::injects`] whether a credential is in play.
     pub pending_injections: Vec<crate::connect::PendingInjection>,
     pub access_restricted: bool,
     /// Ready-to-use interception data when the resolved connection has a
@@ -240,26 +237,21 @@ pub(crate) struct ResolvedRules {
     #[cfg_attr(not(edition_cloud), allow(dead_code))]
     pub claim_token: Option<String>,
     /// Per-agent resource policy (e.g. Dropbox folder allowlist) for the
-    /// connection serving this host. Consumed by the cloud request guard to
-    /// enforce granular access; `None` in the common, unrestricted case.
+    /// connection serving this host; `None` when unrestricted.
     #[cfg_attr(not(edition_cloud), allow(dead_code))]
     pub session_policy: Option<serde_json::Value>,
     /// Id of the app connection that won injection for this request; `None`
-    /// when no connection serves it (secret/vault/uncredentialed traffic, the
-    /// non-serving wipe, or a swallowed escalation). Same attribution law as
-    /// `session_policy`. `Target::Connection` policy decisions bind to it.
+    /// when no connection serves it. `Target::Connection` policy decisions
+    /// bind to it.
     pub winning_connection_id: Option<String>,
     /// Cloud-only: spend budgets governing the effective credential for this host
     /// (0/1 in practice).
     #[cfg_attr(not(edition_cloud), allow(dead_code))]
     pub budget_bindings: Vec<crate::budget::BudgetBinding>,
-    /// The published new-model policy rules for this connection (from
-    /// `ConnectResponse`), passed to the enforce seam. Empty when the
-    /// engine is off, or before the org is backfilled.
+    /// Published policy rules for this connection; empty when the engine is off.
     pub policy_rules_v2: crate::db::PolicyV2Rules,
-    /// The apps this connection's project may reach (from `ConnectResponse`), for
-    /// the per-request availability pre-check. Unrestricted (all available) in
-    /// OSS, when the org is "open", or when enforcement is off.
+    /// The apps this project may reach, for the per-request availability
+    /// pre-check. Unrestricted in OSS and when enforcement is off.
     pub available_apps: crate::db::AvailableApps,
 }
 
@@ -267,17 +259,16 @@ impl ResolvedRules {
     /// Whether a credential will be injected into this request — including one
     /// still waiting to be minted.
     ///
-    /// This is the enforce-deny carve's input: answering "no" makes the traffic
-    /// unmanaged and exempts it from deny-defaults, so a deferred credential
-    /// that read as "none" would quietly let blocked requests through.
+    /// Deny-by-default exempts traffic this answers "no" for, so a deferred
+    /// credential has to count here.
     pub fn injects(&self) -> bool {
         !self.injection_rules.is_empty() || !self.pending_injections.is_empty()
     }
 }
 
 /// Result of per-request rule resolution including app connection disambiguation.
-// `Resolved` is the large, common variant; this value is built once per request
-// and consumed immediately, so boxing it would only add a hot-path allocation.
+// `Resolved` is the large, common variant; built and consumed once per request,
+// so boxing the whole enum would only add a hot-path allocation.
 #[allow(clippy::large_enum_variant)]
 enum ResolveResult {
     /// Rules resolved successfully, with the raw app connections for the response header.

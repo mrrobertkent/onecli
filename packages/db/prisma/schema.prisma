@@ -9,30 +9,24 @@ datasource db {
 
 // ── Organization, Project & User ────────────────────────────────────────
 
-// Cloud-only: an Organization is the billing + collaboration entity. Holds
-// subscription state, Stripe customer, and members. A user may belong to
-// multiple organizations (today: one auto-created on signup; future: invited
-// to others, can create more). Projects under an org share its plan/quotas.
+// Cloud-only: the billing + collaboration entity. Projects under an org share
+// its plan and quotas; a user may belong to multiple organizations.
 model Organization {
   id                  String    @id @default(uuid())
   name                String
   slug                String    @unique
   stripeCustomerId    String?   @unique @map("stripe_customer_id")
   subscriptionStatus  String    @default("free") @map("subscription_status")
-  // Cloud-only (inert in OSS): ops-set per-org agent-cap override (SQL only,
-  // no UI) — lets a self-serve org exceed its plan's maxAgents without moving
-  // to the sales-managed enterprise plan. Null = plan default.
+  // Cloud-only (inert in OSS): ops-set agent-cap override. Null = plan default.
   maxAgentsOverride   Int?      @map("max_agents_override")
   awsExternalId       String?   @map("aws_external_id")
-  /// DEPRECATED (policy engine step 10, 2026-07). Frozen: the default posture
-  /// lives on each scope's Default Rule in `policy_rules_v2`. Never written; the
-  /// only reader is `services/policy-legacy-migration/`, which seeds a converted
-  /// project's Default Rule from it. Goes with that directory and the tables.
+  /// Deprecated and frozen: the default posture now lives on each scope's
+  /// Default Rule in `policy_rules_v2`. Only read by
+  /// `services/policy-legacy-migration/`, never written.
   policyMode          String    @default("allow") @map("policy_mode") // "allow" | "deny"
-  // App-availability posture (step 7): "open" = every app connectable (default,
-  // = today's behavior); "restricted" = allowlist — an app is available to a
-  // project when an AppAvailabilityRule that grants it names one of the project's
-  // ProjectAccess people. Cloud/EE-only (directory-dependent); inert in OSS.
+  // Cloud-only (inert in OSS): "open" = every app connectable; "restricted" =
+  // an app is available to a project only when an AppAvailabilityRule granting
+  // it names one of the project's ProjectAccess people.
   appAvailabilityMode String    @default("open") @map("app_availability_mode") // "open" | "restricted"
   // Cloud-only (inert in OSS): set when this org was created by a Partner.
   partnerId           String?   @map("partner_id")
@@ -118,9 +112,8 @@ model Invitation {
 }
 
 // Cloud-only (inert in OSS): an email domain claimed by an organization and
-// proven via DNS TXT — the trust root for SSO home-realm discovery, JIT
-// membership, and identity linking. `verifiedAt` null = claimed but pending;
-// every trust decision checks verifiedAt, never mere existence.
+// proven via DNS TXT. `verifiedAt` null = claimed but unproven; trust decisions
+// check it rather than mere existence of the row.
 model OrganizationDomain {
   id                String    @id @default(uuid())
   organizationId    String    @map("organization_id")
@@ -138,10 +131,9 @@ model OrganizationDomain {
   @@map("organization_domains")
 }
 
-// Cloud-only (inert in OSS): a per-organization enterprise SSO connection —
-// the app-side record of an identity provider registered with the auth
-// backend. Secrets (e.g. an OIDC client secret) live in `credentials`
-// (encrypted), never in `config`.
+// Cloud-only (inert in OSS): a per-organization enterprise SSO connection.
+// Secrets (e.g. an OIDC client secret) live encrypted in `credentials`, never
+// in `config`.
 model OrganizationSsoConnection {
   id                  String   @id @default(uuid())
   organizationId      String   @map("organization_id")
@@ -218,20 +210,16 @@ model User {
   id                    String    @id @default(uuid())
   email                 String    @unique
   name                  String?
-  // Better Auth core `user` fields. Better Auth maps its `user` model onto
-  // THIS table — there is no second user table. `name` deliberately stays
-  // nullable: Better Auth enforces `required` on create only and filters
-  // (rather than validates) on read, so an existing null is safe.
+  // Better Auth core `user` fields — Better Auth maps its `user` model onto
+  // this table. `name` stays nullable; Better Auth enforces `required` on
+  // create only.
   emailVerified         Boolean   @default(false) @map("email_verified")
   image                 String?
-  /// Set when a credential was handed to the user rather than chosen by them —
-  /// a bootstrap admin seeded from a plaintext environment variable. The value
-  /// has been readable in container configuration and process listings, so it
-  /// is treated as compromised until rotated.
+  /// Set when a credential was handed to the user rather than chosen by them,
+  /// such as a bootstrap admin seeded from an environment variable.
   mustChangePassword    Boolean   @default(false) @map("must_change_password")
-  // Cloud-only (inert in OSS): the SCIM `name` object (formatted/givenName/
-  // familyName/…) stored losslessly so IdP-provisioned attributes round-trip;
-  // `name` above stays the display string.
+  // Cloud-only (inert in OSS): the SCIM `name` object, stored losslessly so
+  // IdP-provisioned attributes round-trip; `name` above is the display string.
   nameComponents        Json?     @map("name_components")
   externalAuthId        String    @unique @map("external_auth_id")
   countryCode           String?   @map("country_code")
@@ -307,16 +295,10 @@ model Agent {
   identifier  String // user-provided machine-readable ID, unique per project
   accessToken String   @unique @map("access_token") // "aoc_..." prefix, used for gateway auth
   isDefault   Boolean  @default(false) @map("is_default")
-  /// RETIRED (attach-model step 7): the gateway no longer reads this column —
-  /// injection is driven solely by grant rules, so a lingering "all" value
-  /// drives nothing. It exists only as the idempotency predicate of
-  /// `services/policy-grant-conversion/` (its README is the removal
-  /// checklist): the converter materializes an "all" agent's pool as grants
-  /// and flips it to "selective" on every web boot, and `migrate-import` — the
-  /// one writer of "all" left, preserving an older export's value — relies on
-  /// that predicate to convert right after its transaction commits. Every
-  /// creation site writes "selective" explicitly (the column default below is
-  /// dead weight). The column drops in step 8, deleting the converter with it.
+  /// Retired: the gateway no longer reads this, so a lingering "all" value
+  /// drives nothing. It survives only as the idempotency predicate of
+  /// `services/policy-grant-conversion/`, which converts an "all" agent's pool
+  /// to grants and flips it to "selective".
   secretMode  String   @default("all") @map("secret_mode") // "all" or "selective"
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -365,18 +347,10 @@ model Secret {
   @@map("secrets")
 }
 
-/// DEPRECATED (policy engine step 10, 2026-07). The gateway and the console both
-/// run on `policy_rules_v2`. Nothing reads these rows to decide or inject, and
-/// nothing writes a policy here any more — the app blocklist was ported to
-/// `policy_rules_v2` in the same step.
-/// REMAINING COUPLING (the drop checklist):
-///   1. `services/policy-legacy-migration/` READS these rows on every OSS boot
-///      and converts them (the grace-period migration — its README is the
-///      removal checklist). The whole directory goes with the table.
-///   2. `services/policy-migration-guard.ts` counts rows here on boot to report
-///      anything the conversion did not cover. Delete with the table.
-///   3. `ee/services/{project,organization}-service.ts` `deleteMany` here so a
-///      project/org delete isn't blocked by the FK. Delete with the table.
+/// Deprecated and frozen: the gateway and console both run on
+/// `policy_rules_v2`. Nothing here is read to decide or inject. Still
+/// referenced by `services/policy-legacy-migration/`,
+/// `services/policy-migration-guard.ts`, and the project/org delete paths.
 /// Scheduled for removal in ~2027, once the OSS grace period ends.
 model PolicyRule {
   id              String        @id @default(uuid())
@@ -410,9 +384,8 @@ model PolicyRule {
 }
 
 // ── Unified policy engine ──────────────────────────────────────────────────
-// Priority-ordered, first-match rules — the LIVE policy model since the step-5
-// cutover. The deprecated `policy_rules` above is frozen; the rename to
-// `policy_rules` happens when that table is dropped.
+// Priority-ordered, first-match rules — the live policy model. Takes the
+// `policy_rules` name once the deprecated table above is dropped.
 
 model PolicyRuleV2 {
   id              String   @id @default(uuid())
@@ -424,17 +397,13 @@ model PolicyRuleV2 {
   priority        Int // first-match order within a scope (lower = earlier)
   enabled         Boolean  @default(true)
   isDefault       Boolean  @default(false) @map("is_default") // terminal Default Rule
-  // A generation-stable identity: a draft's `logicalId` is copied onto each of its
-  // published snapshots, so the gateway's rate-limit counter (keyed on it) survives
-  // republishes — unlike the per-generation row `id`. Distinct rules get distinct
-  // values (defaulted); a snapshot copies its source draft's.
+  // Generation-stable identity: a published snapshot copies its source draft's
+  // value, so rate-limit counters keyed on it survive a republish (the row `id`
+  // does not).
   logicalId       String   @default(dbgenerated("gen_random_uuid()")) @map("logical_id")
-  // Origin of the rule: "custom" (authored) | "app_permission" | "blocklist"
-  // (materialized from the old model by the step-5 coherence bridge, until the
-  // old editors retire at step 7) | "default" (the terminal posture rule) |
-  // "equipment" (step 8, injection-only, derived from the live equipment
-  // model). The bridge re-materializes only the app_permission/blocklist/
-  // equipment rows, leaving custom + default untouched.
+  // Origin: "custom" (authored) | "app_permission" | "blocklist" | "default"
+  // (the terminal posture rule) | "equipment" (injection-only). The legacy
+  // bridge re-materializes everything except "custom" and "default".
   source          String   @default("custom")
   name            String
   description     String?
@@ -490,20 +459,17 @@ model PolicyRuleTarget {
   ruleId             String   @map("rule_id")
   kind               String // "app" | "connection" | "secret" | "network"
   appProvider        String?  @map("app_provider") // kind = app
-  // Narrow which endpoints the rule matches; EMPTY = the WHOLE app (host-only
-  // on the provider's catalog hosts — permit on allow / block on block). On a
-  // kind = connection target the tools narrow the connection's provider app the
-  // same way; injection still injects the whole connection regardless.
+  // Narrows which endpoints the rule matches; empty = the whole app (host-only
+  // on the provider's catalog hosts). Injection ignores this — a connection is
+  // always injected whole.
   appTools           String[] @default([]) @map("app_tools")
-  // kind = app (step 8): "organization" | "project" → inject ALL the agent's
-  // connections of `appProvider` at that level. NULL = the app-permission
-  // block/allow rule (no injection). Only set when kind = "app".
+  // kind = app: "organization" | "project" → inject all the agent's connections
+  // of `appProvider` at that level. Null = a block/allow rule, no injection.
   appConnectionScope String?  @map("app_connection_scope")
   appConnectionId    String?  @map("app_connection_id") // kind = connection
   secretId           String?  @map("secret_id") // kind = secret
-  // kind = secret (step 8): "organization" | "project" → inject ALL the agent's
-  // secrets at that level ("all secrets"). Mutually exclusive with `secretId`
-  // (specific secret). Only set when kind = "secret".
+  // kind = secret: "organization" | "project" → inject all the agent's secrets
+  // at that level. Mutually exclusive with `secretId`.
   secretScope        String?  @map("secret_scope")
   hostPattern        String?  @map("host_pattern") // kind = network
   pathPattern        String?  @map("path_pattern")
@@ -513,8 +479,8 @@ model PolicyRuleTarget {
   appConnection AppConnection? @relation(fields: [appConnectionId], references: [id], onDelete: Cascade)
   secret        Secret?        @relation(fields: [secretId], references: [id], onDelete: Cascade)
 
-  // A rule references a given connection / secret at most once (app + network
-  // rows are polymorphic — deduped in the app layer, per the plan §2.2).
+  // A rule references a given connection / secret at most once; app and network
+  // rows are polymorphic and deduped in the app layer.
   @@unique([ruleId, appConnectionId])
   @@unique([ruleId, secretId])
   @@index([ruleId])
@@ -524,23 +490,10 @@ model PolicyRuleTarget {
   @@map("policy_rule_targets")
 }
 
-/// DEPRECATED (policy engine step 10, 2026-07). Per-agent credential grants are
-/// `source="equipment"` rules in `policy_rules_v2` now. These rows are frozen at
-/// whatever the last bridge run left. NOTHING in the serving path reads them —
-/// the gateway's `inject_select`, the console reflections, and
-/// `routes/container-config.ts` were all re-sourced onto the v2 rules in step 10.
-/// REMAINING COUPLING (the drop checklist):
-///   1. `services/policy-legacy-migration/read-legacy.ts` READS these on every
-///      OSS boot to convert them into equipment rules (the grace-period
-///      migration). The whole directory goes with the table.
-///   2. `ee/services/project-service.ts` `deleteMany`s these on project delete
-///      (FK), and `apps/web/src/ee/account/actions.ts` NULLs
-///      `created_by_user_id` / `updated_by_user_id` on account delete (FK).
-///      Both go with the table.
-///   3. `ee/routes/migrate-import.ts` still ACCEPTS an `agentSecrets` payload arm
-///      from an older self-hosted exporter — it only reports them as skipped and
-///      never writes here, so it is independent of this table's lifetime.
-/// Scheduled for removal in ~2027.
+/// Deprecated and frozen: per-agent credential grants are `source="equipment"`
+/// rules in `policy_rules_v2` now, and nothing in the serving path reads these
+/// rows. Still referenced by `services/policy-legacy-migration/read-legacy.ts`
+/// and the project/account delete paths. Scheduled for removal in ~2027.
 model AgentSecret {
   agentId         String   @map("agent_id")
   secretId        String   @map("secret_id")
@@ -590,10 +543,9 @@ model RequestLog {
   latencyMs            Int      @map("latency_ms")
   injectionCount       Int      @map("injection_count")
   extraData            Json?    @map("extra_data")
-  // The generation-stable logicalId of the v2 policy rule that decided the
-  // request (step 9 visibility) — null for legacy decisions, plain allows,
-  // pre-v2 rows, and OSS (its writer never binds it). The display NAME rides
-  // extra_data.matched_rule_name (survives rule deletion).
+  // logicalId of the v2 policy rule that decided the request; null for plain
+  // allows, legacy rows, and OSS. The display name rides
+  // `extra_data.matched_rule_name`, so it survives the rule being deleted.
   matchedRuleLogicalId String?  @map("matched_rule_logical_id")
   createdAt            DateTime @default(now()) @map("created_at")
 
@@ -642,9 +594,9 @@ model AppConnection {
   projectId           String?              @map("project_id")
   organizationId      String?              @map("organization_id")
   partnerId           String?              @map("partner_id") // cloud-only, reserved for future partner-level app connections (inert)
-  // The AppConfig whose credentials minted this connection (OAuth refresh
-  // tokens are bound to that client). Null = platform/env credentials, a
-  // connection method that needs no config, or minted before this link.
+  // The AppConfig whose credentials minted this connection — OAuth refresh
+  // tokens are bound to that client. Null = platform credentials, a connection
+  // method needing no config, or minted before this link existed.
   appConfigId         String?              @map("app_config_id")
   provider            String // "github", "gmail", "google-calendar", "google-drive", etc.
   label               String?              @map("label") // auto-populated from metadata (email/username)
@@ -669,15 +621,10 @@ model AppConnection {
   @@map("app_connections")
 }
 
-/// DEPRECATED (policy engine step 10, 2026-07). Per-agent connection grants are
-/// `source="equipment"` rules in `policy_rules_v2` now, and their
-/// `session_policy` resource scoping rides those rules' `conditions` (the bridge
-/// carried it verbatim; `ee/policy_engine/inject_select.rs` reads it from there).
-/// These rows are frozen and nothing in the serving path reads them — same
-/// re-sourcing as `AgentSecret` above.
-/// REMAINING COUPLING: `services/policy-legacy-migration/read-legacy.ts` reads
-/// them on OSS boot to convert them, and `ee/services/project-service.ts`
-/// `deleteMany`s them on project delete (FK). Both go with the table.
+/// Deprecated and frozen: per-agent connection grants are `source="equipment"`
+/// rules in `policy_rules_v2` now, with `session_policy` scoping carried on
+/// those rules' `conditions`. Still referenced by
+/// `services/policy-legacy-migration/read-legacy.ts` and project delete.
 /// Scheduled for removal in ~2027, once the OSS grace period ends.
 model AgentAppConnection {
   agentId         String        @map("agent_id")
@@ -762,17 +709,16 @@ model GroupMember {
   @@map("group_members")
 }
 
-// Project access bindings — the project's human gate (GRANT semantics: a row
-// grants access; agents live in projects, so no machine columns here).
+// Project access bindings — the project's human gate; a row grants access.
 // Exactly one of userId/groupId per row (DB CHECK).
 model ProjectAccess {
   id              String   @id @default(uuid())
   projectId       String   @map("project_id")
   userId          String?  @map("user_id")
   groupId         String?  @map("group_id")
-  // Management role on a USER binding (step 13c): "owner" may rename/share/delete
-  // the project; "member" is a plain use grant. Group bindings stay role-less in
-  // v1 (member). Only consulted for management — usage (13b) is role-blind.
+  // Management role on a user binding: "owner" may rename/share/delete the
+  // project, "member" is a plain use grant. Group bindings are always "member".
+  // Consulted only for management; usage checks are role-blind.
   role            String   @default("member") // "owner" | "member"
   createdByUserId String?  @map("created_by_user_id") // null = system write (creator seed)
   createdAt       DateTime @default(now()) @map("created_at")
@@ -790,11 +736,9 @@ model ProjectAccess {
   @@map("project_access")
 }
 
-// Org-scoped app-availability rules (step 7): a named rule grants a SET of apps
-// to a SET of human principals (users | groups), applied when the org's
-// appAvailabilityMode is "restricted". Mirrors the PolicyRuleV2 +
-// PolicyRuleIdentity shape but is a SEPARATE axis (the provisioning gate, not
-// agent runtime policy). Cloud/EE-only; inert in OSS.
+// Cloud-only (inert in OSS): grants a set of apps to a set of human principals,
+// applied when the org's appAvailabilityMode is "restricted". This is the
+// provisioning gate — a separate axis from agent runtime policy.
 model AppAvailabilityRule {
   id              String   @id @default(uuid())
   organizationId  String   @map("organization_id")
@@ -879,10 +823,9 @@ model UserProvision {
 }
 
 // ── Partner (cloud-only) ────────────────────────────────────────────────
-// A Partner is a reseller/agency that sits ABOVE Organization. It creates orgs
-// via the Partner API, provides inherited (lowest-priority) partner secrets, and
-// hands out claim links. Cloud-only behaviour; these tables/columns are inert in
-// OSS (no OSS code reads or writes them), mirroring CliAuthSession/UserProvision.
+// A reseller/agency sitting above Organization: creates orgs via the Partner
+// API, provides inherited (lowest-priority) secrets, and hands out claim links.
+// Cloud-only; these tables and columns are inert in OSS.
 
 model Partner {
   id        String   @id @default(uuid())
@@ -917,8 +860,7 @@ model PartnerMember {
   user    User    @relation(fields: [userId], references: [id])
 
   @@id([partnerId, userId])
-  // A user belongs to at most one partner (the portal / API-key resolution is
-  // single-partner). Unique — not just an index — enforces that at the DB level.
+  // A user belongs to at most one partner: API-key resolution is single-partner.
   @@unique([userId])
   @@map("partner_members")
 }
@@ -951,9 +893,7 @@ model PartnerClaim {
 }
 
 // Cloud-only (inert in OSS): a spend budget on a secret for a consuming scope.
-// Scope-agnostic — partner-ness is implied by the bound secret's scope, so the
-// same model serves a future non-partner flow (org/project capping its own key).
-// Now: secretId = a partner secret, organizationId = the consuming org.
+// Today that means secretId = a partner secret, organizationId = consuming org.
 model Budget {
   id             String   @id @default(uuid())
   secretId       String   @map("secret_id")
@@ -976,9 +916,8 @@ model Budget {
 }
 
 // Cloud-only (inert in OSS): durable accumulated spend, period-windowed to match
-// the gateway's Redis hot counter key. The Redis counter is the hot enforcement
-// source of truth; this is the durable floor (rehydrated into Redis on cache miss
-// so a flush can't silently refill a budget). `spentNanos` = nano-dollars (1e-9).
+// the gateway's Redis counter, which rehydrates from here on a cache miss.
+// `spentNanos` is in nano-dollars (1e-9).
 model BudgetSpend {
   secretId       String   @map("secret_id")
   organizationId String   @map("organization_id")
@@ -1025,41 +964,27 @@ model CliAuthSession {
   @@map("cli_auth_sessions")
 }
 
-/// Instance-wide settings that an administrator can change at runtime, as
-/// opposed to container configuration that needs a restart.
+/// Instance-wide settings an administrator can change at runtime, as opposed to
+/// container configuration that needs a restart. Properties of the deployment
+/// rather than of a tenant, so they do not live on `Organization`.
 ///
-/// Singleton: exactly one row, pinned by `id = "instance"`. A key/value table
-/// would push type-checking to the call site for no gain at this size.
-///
-/// NOT on `Organization`: these are properties of the deployment, not of a
-/// tenant. Under `single-org-shared` there happens to be one of each, but the
-/// cloud edition has many organizations and one instance.
+/// Singleton: exactly one row, pinned by `id = "instance"`.
 model InstanceSetting {
   id String @id @default("instance")
 
-  /// Who may provision themselves an account. Deliberately three states rather
-  /// than a boolean: "SSO users may join" and "anyone may create a password
-  /// account" are different decisions, and a boolean forces them together.
-  ///
-  ///   "closed"   — (default) no self-provisioning; the bootstrap path or an
-  ///                admin creates accounts.
-  ///   "sso-only" — an identity that authenticates at the IdP AND resolves to a
-  ///                role is provisioned. Password sign-up stays shut.
+  /// Who may provision themselves an account:
+  ///   "closed"   — no self-provisioning; the bootstrap path or an admin
+  ///                creates accounts.
+  ///   "sso-only" — an identity that authenticates at the IdP and resolves to a
+  ///                role is provisioned; password sign-up stays shut.
   ///   "open"     — password self-registration is permitted too.
   ///
-  /// Read per-request by the sign-up gate, which DENIES on any unrecognised
-  /// value — so a typo or a future value this build does not know closes the
-  /// door rather than opening it.
+  /// The sign-up gate denies on any unrecognised value, so an unknown setting
+  /// closes the door rather than opening it.
   signupMode String @default("closed") @map("signup_mode")
 
-  /// The bootstrap administrator, once established. Null means the instance has
-  /// no admin yet and the first-admin claim is still open.
-  ///
-  /// This column IS the race gate. Claiming is a conditional update of this one
-  /// row (`WHERE bootstrap_admin_user_id IS NULL`), which Postgres serialises,
-  /// so concurrent claims resolve to exactly one winner — never two admins, and
-  /// never zero, because the loser's whole transaction rolls back rather than
-  /// leaving a half-made user behind.
+  /// The bootstrap administrator, once established. Null while unclaimed; the
+  /// conditional update on this column is what serialises concurrent claims.
   bootstrapAdminUserId String? @unique @map("bootstrap_admin_user_id")
 
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -1072,17 +997,14 @@ model InstanceSetting {
 
 // ── Better Auth ─────────────────────────────────────────────────────────
 //
-// Better Auth's `user` model is mapped onto `User` above; these are its three
-// remaining core tables plus its rate-limit store. Prisma FIELD names must
-// match Better Auth's field contract exactly (camelCase) because its Prisma
-// adapter addresses Prisma model fields, not columns — `@map` only renames the
-// physical column, which is how these stay snake_case like the rest of the
-// schema.
+// Better Auth's `user` model is mapped onto `User` above; these are its
+// remaining core tables plus its rate-limit store.
 //
-// Models are prefixed `Auth*` because bare `Session`/`Account` are ambiguous in
-// a schema this size; Better Auth is told about the rename with
-// `session.modelName` / `account.modelName` / `verification.modelName` /
-// `rateLimit.modelName`.
+// Field names must stay camelCase to match Better Auth's contract — its Prisma
+// adapter addresses model fields, not columns, so `@map` is what keeps the
+// physical columns snake_case. The `Auth*` model prefix is declared back to
+// Better Auth via `session.modelName` / `account.modelName` /
+// `verification.modelName` / `rateLimit.modelName`.
 
 model AuthSession {
   id        String   @id @default(uuid())
@@ -1100,10 +1022,9 @@ model AuthSession {
   @@map("auth_sessions")
 }
 
-// Local passwords live HERE, on `password` under `providerId = "credential"` —
-// never on the user row. Federated identities are rows on the same table, which
-// is what makes OIDC↔password account linking Better Auth's job rather than
-// something `resolveIdentityConflict` has to arbitrate.
+// Local passwords live here, on `password` under `providerId = "credential"` —
+// never on the user row. Federated identities are rows on the same table, so
+// OIDC↔password account linking is Better Auth's job.
 model AuthAccount {
   id                    String    @id @default(uuid())
   accountId             String    @map("account_id")
@@ -1137,10 +1058,9 @@ model AuthVerification {
   @@map("auth_verifications")
 }
 
-// Database-backed rate limiting (`rateLimit.storage: "database"`). Chosen over
-// the default in-memory store so the limit survives a container restart, which
-// an in-memory counter does not — and because the per-ACCOUNT backoff we add on
-// top of Better Auth's per-IP rule is only meaningful if it persists.
+// Database-backed rate limiting (`rateLimit.storage: "database"`) so limits —
+// including the per-account backoff layered on Better Auth's per-IP rule —
+// survive a container restart.
 model AuthRateLimit {
   id          String @id @default(uuid())
   key         String @unique

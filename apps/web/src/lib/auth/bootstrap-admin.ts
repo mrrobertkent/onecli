@@ -5,28 +5,7 @@ import { findOrCreateSharedOrg } from "@onecli/api/services/organization-service
 import { ensureBootstrapOrgApiKey } from "@onecli/api/services/api-key-service";
 import { hashPassword } from "@/lib/auth/password-hash";
 
-/**
- * The first administrator of an instance.
- *
- * Two ways in, and only ever one winner:
- *
- *  - seeded from environment configuration at boot, or
- *  - claimed by whoever reaches the setup page first, within a window that
- *    opens at each process start.
- *
- * Both go through `establishBootstrapAdmin`, so the transaction and the race
- * gate are shared rather than reimplemented per entry point.
- */
-
-/**
- * How long the claim stays open after a start, and where it is measured from.
- *
- * Timed from process start rather than a persisted timestamp, so restarting is
- * the operator's way back if they miss it — the alternative locks out anyone
- * who did not set the environment seed. The cost is that each restart reopens
- * the window; it is bounded, and it only exists at all while the instance has
- * no administrator.
- */
+/** Measured from process start, so a restart reopens the claim window. */
 const CLAIM_WINDOW_MS = 15 * 60 * 1000;
 const STARTED_AT = Date.now();
 
@@ -62,10 +41,8 @@ export interface BootstrapAdminSeed {
 /**
  * The environment-configured admin, or null when none is configured.
  *
- * A pre-hashed credential is preferred and takes precedence: a plaintext
- * password is visible in container configuration, `docker inspect`, and the
- * process environment, which is why supplying one forces a rotation at first
- * login.
+ * A pre-hashed credential takes precedence; a plaintext password is treated as
+ * compromised and forces a rotation at first login.
  */
 export const readBootstrapAdminSeed = (): BootstrapAdminSeed | null => {
   const email = fromEnvOrFile("BOOTSTRAP_ADMIN_EMAIL");
@@ -143,12 +120,8 @@ export interface EstablishedAdmin {
 /**
  * Create the bootstrap administrator, or fail because one already exists.
  *
- * The user, its credential, its `owner` membership and the claim itself are one
- * transaction. The claim is a conditional update of a single settings row, so
- * concurrent callers serialise on it: the loser's `WHERE ... IS NULL` no longer
- * matches, it raises, and its whole transaction unwinds. That is what makes two
- * admins impossible without also making zero admins possible — a half-created
- * user cannot survive a lost race.
+ * The user, its credential, its `owner` membership and the claim are one
+ * transaction, so a caller that loses the claim race leaves nothing behind.
  */
 export const establishBootstrapAdmin = async ({
   email,
@@ -164,8 +137,6 @@ export const establishBootstrapAdmin = async ({
   const org = await findOrCreateSharedOrg();
 
   const normalisedEmail = email.trim().toLowerCase();
-  // A hash supplied by the operator is used as-is; a plaintext password is
-  // hashed here with the same KDF the login path verifies against.
   const storedHash = passwordHash ?? (await hashPassword(password as string));
   // Only a credential we were handed in plaintext is treated as compromised.
   const mustChangePassword = !passwordHash;
@@ -177,10 +148,8 @@ export const establishBootstrapAdmin = async ({
         id: userId,
         email: normalisedEmail,
         name: name ?? "Administrator",
-        // Better Auth is the identity system, so its own id is the value.
         externalAuthId: userId,
-        // The operator configured this address out of band; there is no
-        // mailbox round-trip to perform and nothing to prove.
+        // Configured out of band by the operator; there is no mailbox to verify.
         emailVerified: true,
         mustChangePassword,
       },
@@ -190,7 +159,6 @@ export const establishBootstrapAdmin = async ({
     await tx.authAccount.create({
       data: {
         userId: user.id,
-        // Better Auth's shape for an email+password identity.
         providerId: "credential",
         accountId: user.id,
         password: storedHash,
@@ -216,8 +184,7 @@ export const establishBootstrapAdmin = async ({
   });
 
   // Outside the transaction: idempotent, and its failure should not undo an
-  // administrator who now exists. Owned by the real admin, which is the whole
-  // reason it is not minted before one exists.
+  // administrator who now exists.
   await ensureBootstrapOrgApiKey({
     organizationId: org.id,
     userId: admin.id,
@@ -236,9 +203,8 @@ export const establishBootstrapAdmin = async ({
  * Apply the environment-configured admin, if one is configured and the instance
  * has none. Returns null when there is nothing to do.
  *
- * Safe to call on every boot: an instance that already has an administrator
- * takes the `already-claimed` path, so a seed left in the environment is never
- * re-applied and never resets a rotated password.
+ * Safe to call on every boot: a seed left in the environment is never
+ * re-applied once an administrator exists.
  */
 export const seedBootstrapAdminFromEnv =
   async (): Promise<EstablishedAdmin | null> => {

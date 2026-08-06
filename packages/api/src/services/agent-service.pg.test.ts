@@ -4,12 +4,9 @@ import { proofDatabaseUrl } from "../testing/pg-proof.js";
 import { LAST_SEEN_WINDOW_MS } from "../lib/agent-activity.js";
 
 /**
- * `getAgentDetail` on REAL PostgreSQL — the Install page's verify signal.
- * Laws: `recentRequestAt` reflects only requests inside the lookback window
- * (an older request reads as null, so the query stays bounded on the
- * (project_id, created_at) index), and the read is project-fenced — another
- * project's agent id is NOT_FOUND, never a cross-project disclosure (the
- * planted negative control).
+ * `getAgentDetail` on real PostgreSQL: `recentRequestAt` reflects only requests
+ * inside the lookback window, and the read is project-fenced — another
+ * project's agent id is NOT_FOUND.
  *
  * Env-gated like the other proof suites; see pg-proof.ts.
  */
@@ -142,11 +139,9 @@ describe.skipIf(!PROOF_URL)(
   "listAgents lastSeenAt over real PostgreSQL",
   () => {
     it("attributes each agent its own newest in-window request, null otherwise", async () => {
-      // World state from the suite above, plus a dormant fixture: ACTIVE has
-      // recent rows; IDLE's only row is beyond the 7-day detail window but
-      // inside the 30-day list window (the two windows are deliberately
-      // different — this pins that); DORMANT's only row is beyond the list
-      // window; FRESH has none; the foreign project's agent must not appear.
+      // World state from the suite above, plus a dormant fixture. IDLE's only
+      // row sits beyond the detail window but inside the longer list window —
+      // the two windows differ, which is what this pins.
       await db.requestLog.create({
         data: requestLogRow(
           AGENT_DORMANT,

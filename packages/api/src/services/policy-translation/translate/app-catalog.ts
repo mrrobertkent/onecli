@@ -27,14 +27,8 @@ export interface RuleVariant {
   method: string | null;
 }
 
-/**
- * Port of `policy-rule-service.ts::allRuleVariants` — the paths×methods a tool
- * fans into. The gateway evaluates the stored rows; the new engine re-expands
- * via the catalog. The translator only emits an app-target when a group's stored
- * variants EXACTLY equal this expansion (translate/app-permission.ts), so the
- * re-expansion is always faithful; any drift falls back to verbatim network
- * rules. Also used by the corpus tests to generate catalog-consistent rows.
- */
+/** The paths×methods a tool fans into. Mirrors
+ * `policy-rule-service.ts::allRuleVariants`. */
 export const allRuleVariants = (tool: AppTool): RuleVariant[] => {
   const paths = [tool.pathPattern, ...(tool.aliasPatterns ?? [])];
   const methods: (string | null)[] = tool.methods ?? [tool.method ?? null];
@@ -68,14 +62,10 @@ export const appTargetMatches = (
   });
 
 /**
- * Does `host` match ANY catalog tool host of `provider`? The WHOLE-app match
- * behind a tool-LESS app target (the dialog's "All connections" and an
- * empty-tools resolved `connection` target): host-only — any path/method,
- * conditions ignored — the exact `secret`-target mirror
- * (`catalog.rs::app_target_matches`, empty-tools branch). A tool-narrowed
- * target runs the per-tool fan-out instead (`appTargetMatches`). A
- * catalog-less/unknown provider matches nothing (fail-safe: the permit surface
- * can never exceed the catalog).
+ * Does `host` match any catalog tool host of `provider`? This is the whole-app
+ * match behind a tool-less app target: host-only, any path/method, conditions
+ * ignored. A tool-narrowed target runs `appTargetMatches` instead. An unknown
+ * provider matches nothing, so the permit surface never exceeds the catalog.
  */
 export const providerHostMatches = (
   host: string,

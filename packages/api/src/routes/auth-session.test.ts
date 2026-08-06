@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../providers/types";
 
 // Route-level tests for the identity-conflict seam in GET /auth/session: a
-// session whose email belongs to a user with a DIFFERENT externalAuthId is
-// decided by the resolveIdentityConflict hook — the default preserves the
-// historical always-link behavior; a rejecting hook turns the sign-in into 409.
+// session whose email belongs to a user with a different externalAuthId is
+// decided by the resolveIdentityConflict hook — the default links, a rejecting
+// hook turns the sign-in into a 409.
 
-// Hermetic to the ambient edition (CI runs with NEXT_PUBLIC_EDITION=cloud):
-// pin before any import evaluates.
+// Pinned before any import evaluates so the suite is hermetic to the ambient
+// edition (CI runs with NEXT_PUBLIC_EDITION=cloud).
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_EDITION = "oss";
 });
@@ -54,18 +54,17 @@ vi.mock("../services/organization-service", () => ({
     state.bootstraps += 1;
     return { project: { id: "boot-proj", organizationId: "boot-org" } };
   },
-  // OSS is `single-org-shared`, so THIS is the branch the bootstrap decision
-  // takes. It counts as a bootstrap for these tests —
-  // they are about whether the org side ran, not which shape it took.
+  // Under `single-org-shared` tenancy this is the branch the bootstrap
+  // decision takes; it counts as a bootstrap for these tests, which care
+  // whether the org side ran, not which shape it took.
   joinSharedOrganization: async (
     _userId: string,
     _userEmail: string,
     role: string,
   ) => {
     state.bootstraps += 1;
-    // This path once hardcoded `owner` for every joiner, which made every
-    // user an owner of the one shared org. Pin it here too — the
-    // service-level test can only see calls the route actually makes.
+    // Recorded so the route's choice of role is pinned here; the service-level
+    // test only sees calls the route actually makes.
     state.joinRoles.push(role);
     return { project: { id: "boot-proj", organizationId: "boot-org" } };
   },

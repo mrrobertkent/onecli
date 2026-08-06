@@ -80,24 +80,18 @@ export interface CreateApiAppOptions {
   selfUrl?: string;
   roleResolver?: RoleResolver;
   /**
-   * Edition policy over authenticated sessions (e.g. enterprise "require
-   * SSO"): consulted at session resolution; a denial rejects with 401 + the
-   * denial body. OSS never sets it — sessions are always allowed.
+   * Edition policy over authenticated sessions (e.g. enterprise "require SSO"),
+   * consulted at session resolution; a denial rejects with a 401.
    */
   sessionEnforcer?: SessionEnforcer;
   policyValidator?: PolicyValidator;
   ruleActionGate?: RuleActionGate;
-  /**
-   * Seeds a new org's initial published policy on bootstrap (cloud: an
-   * allow-posture org Default Rule — deny-by-default is the admin's opt-in
-   * flip). OSS never sets it — new orgs stay on the old model until step 9.
-   */
+  /** Seeds a new org's initial published policy on bootstrap. */
   newOrgPolicySeeder?: NewOrgPolicySeeder;
   sessionHooks?: Partial<SessionHooks>;
   /**
    * Commit `oc_` bearers to API-key auth: when set, a failed API-key
    * authentication returns 401 instead of falling through to session auth.
-   * EE editions enable it; the OSS default keeps today's fallthrough.
    */
   strictApiKeyAuth?: boolean;
   version?: string;
@@ -141,15 +135,13 @@ export const createApiApp = (
   app.route("/user", userRoutes());
   app.route("/apps", appRoutes());
   app.route("/connections", connectionRoutes());
-  // Read-only policy reflections (step 9.7b) compose onto the same base paths.
-  // Since step 10 they are SHARED — OSS shows the credential-access dialog too —
-  // and each route redacts org-rule details via the roleResolver provider (null
-  // in OSS → fail-safe non-admin).
+  // Read-only policy reflections, composed onto the same base paths. Each route
+  // redacts org-rule details via the roleResolver provider.
   app.route("/policy", policyReflectRoutes());
   app.route("/agents", agentReflectRoutes());
   app.route("/connections", connectionReflectRoutes());
-  // The attach-model grants surface (step 2): agent⇄credential grants compiled
-  // into source:"grant" policy rules, composed onto the same base paths.
+  // Agent⇄credential grants compiled into source:"grant" policy rules, composed
+  // onto the same base paths.
   app.route("/agents", agentGrantsRoutes());
   app.route("/connections", connectionGrantsRoutes());
   app.route("/vaults", vaultRoutes());
@@ -161,15 +153,13 @@ export const createApiApp = (
   app.route("/credential-stubs", credentialStubRoutes());
   app.route("/migrate", migrateRoutes());
   app.route("/internal", internalRoutes());
-  // 410 Gone for the old-model paths step 10 removed. LAST, so every live route
-  // above wins the first-match — these only catch what no longer exists.
+  // 410 Gone for retired paths. Mounted last so every live route above wins the
+  // first match.
   app.route("/rules", removedRuleRoutes());
   app.route("/agents", removedAgentEquipmentRoutes());
   app.route("/connections", removedConnectionAgentRoutes());
-  // Project-scope policy CRUD retired in attach-model step 6. Mounted on the
-  // same base path as `policyReflectRoutes` above, which is why the shim
-  // enumerates exact sub-paths instead of a wildcard: the reflections
-  // (`/v1/policy/effective-app-permissions`) must keep answering.
+  // Shares a base path with `policyReflectRoutes` above, so this shim enumerates
+  // exact sub-paths rather than a wildcard and leaves the reflections answering.
   app.route("/policy", removedProjectPolicyRoutes());
 
   if (options?.eeRoutes) {

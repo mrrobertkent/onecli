@@ -40,32 +40,21 @@ import { toSimRule } from "../policy-simulate/sim-rule";
 import type { ConnectionGrantInput } from "../../validations/grants";
 
 /**
- * The step-5 one-shot conversion (plans/project-attach-model.md): flip every
- * all-mode agent to `secretMode="selective"` by first materializing its
- * effective credential pool as step-2 grant stacks, fold the project's
- * pre-attach rules into those stacks, and leave the project scope holding
- * ONLY grant rows + the default — exactly what the attach UI renders.
+ * One-shot conversion, run on every web boot: flip each all-mode agent to
+ * `secretMode="selective"` by materializing its effective credential pool as
+ * grant stacks, folding the project's pre-attach rules into them, and leaving
+ * the project scope holding only grant rows plus the default.
  *
- * Runs on every web boot from BOTH policy-migrate seams (after the OSS legacy
- * pass, whose freshly minted equipment rows this normalizes in the same boot).
- * Idempotency is PER AGENT — the predicate is `secretMode === "all"` — so a
- * failed project stays visible to every later boot instead of being skipped
- * forever (the step-10 `skipAlreadyPublished` lesson).
+ * All-or-nothing per project (shared identity-less rules apply to every agent,
+ * so a partial delete would loosen policy for a still-all-mode agent), and the
+ * flip happens only after the published generation verifies byte-equal. The
+ * unflipped interim — stacks live, pool still all-mode — is decision-safe.
  *
- * Safety frame, in order:
- *  - ALL-OR-NOTHING PER PROJECT: shared custom rules with empty identities
- *    apply to every agent, so deleting them while one agent's compile failed
- *    would loosen policy for that still-all-mode agent. Any failure aborts the
- *    whole project transaction; the per-project catch counts it and the next
- *    boot retries.
- *  - VERIFY THEN FLIP: the flip to selective happens only after pinned reads
- *    of the just-published generation prove the stacks landed byte-equal. The
- *    unflipped interim (stacks live, pool still all-mode) is decision-safe.
- *  - The PARTNER tier is deliberately absent: grants cannot name it, and the
- *    gateway injects it mode-independently (the step-5 gateway PR).
+ * Partner-tier credentials are out of scope: grants cannot name them and the
+ * gateway injects them mode-independently.
  *
- * TEMPORARY — delete once every environment (cloud, onprem, OSS grace window)
- * has zero all-mode agents; `README.md` in this directory is the checklist.
+ * Temporary — delete once every environment has zero all-mode agents;
+ * `README.md` in this directory is the checklist.
  */
 
 export interface GrantConversionResult {
@@ -123,10 +112,8 @@ const projectBase = (projectId: string): PolicyScopeBase => ({
 
 /**
  * Everything the conversion folds away: non-default, non-grant, non-blocklist
- * draft rows — custom + equipment (+ any legacy `app_permission` leftover).
- * Blocklist rows persist and keep evaluating on their own (the fold excludes
- * them too, or their meaning would be duplicated into stacks); the default is
- * reset in place, never deleted.
+ * draft rows. Blocklist rows persist and keep evaluating on their own; the
+ * default is reset in place, never deleted.
  */
 const foldableWhere = (
   base: PolicyScopeBase,
@@ -144,12 +131,10 @@ const hasNetworkTarget = (row: { targets: { kind: string }[] }): boolean =>
   row.targets.some((t) => t.kind === "network");
 
 /**
- * What the fold must NOT see: rows whose meaning is deliberately dropped
- * (census-recorded — network targets' per-host granularity has no grant
- * vocabulary; behavioral conditions are unsimulatable), and blocklist rows,
- * which PERSIST and keep evaluating on their own — folding them too would
- * duplicate their meaning into the stacks. Everything else feeds the fold, so
- * its meaning lives on.
+ * Rows the fold skips: network targets (no grant vocabulary for per-host
+ * granularity) and behavioral conditions (unsimulatable), whose meaning is
+ * dropped, plus blocklist rows, which keep evaluating on their own and would
+ * otherwise be duplicated into the stacks.
  */
 const excludedFromFold = (row: SimRuleRow): boolean =>
   isBehavioral(row.conditions) ||
@@ -172,11 +157,10 @@ const classifyDoomed = (
 };
 
 /**
- * The session policy a connection's grant must carry for this agent: the LAST
- * (highest-priority-number) matching allow rule with object conditions — the
- * gateway's session-policy assembly is last-match-wins per matching allow row
- * (`inject_select`), so this mirrors what it enforced pre-conversion. Walks the
- * INJECTION row set (equipment rows carry most real session policies).
+ * The session policy a connection's grant must carry for this agent: the last
+ * matching allow rule with object conditions, mirroring the gateway's
+ * last-match-wins assembly in `inject_select`. Walks the injection row set,
+ * where most real session policies live.
  */
 const sessionPolicyFor = (
   injectionRows: SimRuleRow[],
@@ -202,12 +186,10 @@ const sessionPolicyFor = (
 };
 
 /**
- * Which pooled connections a SELECTIVE agent receives today from rows the
- * conversion deletes (equipment + custom injection vehicles — grant rows are
- * already canonical and stay). Mirrors the gateway's `inject_select`: allow
- * rules with a matching explicit identity, via a specific connection target or
- * an app-level `connectionScope` expansion (literal scope compare, exactly as
- * the gateway's selective arm matches).
+ * Which pooled connections a selective agent receives today from rows the
+ * conversion deletes. Mirrors the gateway's `inject_select`: allow rules with a
+ * matching explicit identity, via a specific connection target or an app-level
+ * `connectionScope` expansion (literal scope compare).
  */
 const injectedConnectionIdsFor = (
   injectionRows: SimRuleRow[],
@@ -257,18 +239,16 @@ const injectedSecretIdsFor = (
   for (const s of poolSecrets) {
     if (levels.has(s.scope as "project" | "organization")) set.add(s.id);
   }
-  // The fence is the pool: a rule naming a foreign/deleted id contributes
-  // nothing (fail-closed, mirroring the gateway's fetch-side fence).
+  // The fence is the pool: a rule naming a foreign or deleted id contributes
+  // nothing, mirroring the gateway's fetch-side fence.
   const pooled = new Set(poolSecrets.map((s) => s.id));
   return new Set([...set].filter((id) => pooled.has(id)));
 };
 
 /**
- * Per-tool verdicts → the grant tri-state. `unmanaged` folds as allow (no
- * project opinion = the uncustomized attach); a `mixed` verdict cannot occur
- * once network/behavioral rules are excluded from the fold (remaining rules
- * treat every variant of a tool uniformly) — hitting one means an unmodeled
- * rule shape, so abort the project loudly rather than guess.
+ * Per-tool verdicts → the grant tri-state. `unmanaged` folds as allow. Any
+ * other verdict means an unmodeled rule shape reached the fold, so throw rather
+ * than guess.
  */
 export const groupsToGrantInput = (
   groups: { tools: { toolId: string; verdict: string }[] }[],
@@ -337,9 +317,8 @@ const stackRowsFor = (
     .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
 
 /**
- * Convert one project. Exported for `migrate-import`, which must run it for a
- * freshly imported project AFTER its own transaction commits (this opens its
- * own transaction + advisory lock — nesting would deadlock).
+ * Convert one project. Callers must not invoke this inside their own
+ * transaction — it opens its own plus an advisory lock, so nesting deadlocks.
  */
 export const convertProject = async (
   project: ProjectRef,
@@ -386,11 +365,9 @@ export const convertProject = async (
         return { skipped: true } as const;
       }
 
-      // ── Load the fold inputs. These loaders are db-bound (not tx-bound),
-      // which is safe by the locking protocol: every rule writer serializes on
-      // `lockScope`, so no concurrent rule write can commit while we hold it —
-      // and none of OUR writes have happened yet. Membership/pool reads have no
-      // lock and need none (any consistent snapshot is valid input).
+      // ── Load the fold inputs. These loaders are db-bound, not tx-bound:
+      // every rule writer serializes on `lockScope`, so nothing can commit
+      // while we hold it and none of our own writes have happened yet.
       const [
         decisionRows,
         injectionRows,
@@ -405,9 +382,8 @@ export const convertProject = async (
         resolvePrincipalSet(project.id, project.organizationId),
         loadSecretHosts(project.organizationId, project.id),
         loadConnectionProviders(project.organizationId, project.id),
-        // The gateway's secret fences, verbatim: project arm has NO scope
-        // filter; org arm requires scope='organization'. Partner-scoped rows
-        // carry neither id and stay out by construction.
+        // The gateway's secret fences, verbatim: the project arm has no scope
+        // filter, the org arm requires scope='organization'.
         db.secret.findMany({
           where: {
             OR: [
@@ -435,10 +411,7 @@ export const convertProject = async (
         }),
       ]);
 
-      // The fold sees the project layer AS IT WILL REMAIN minus grants: the
-      // deleted-for-good rules (network, behavioral) are excluded — their
-      // meaning is the census-recorded loosening — and blocklist rows are
-      // excluded because they PERSIST and keep evaluating on their own.
+      // The fold sees the project layer as it will remain, minus grants.
       const foldRows = decisionRows.filter((r) => !excludedFromFold(r));
       const simRules = foldRows.map((r) =>
         toSimRule(r, secretHosts, connectionProviders),
@@ -459,9 +432,8 @@ export const convertProject = async (
         const isAllMode = agent.secretMode !== "selective";
         const probe = buildInjectionProbe({
           agent: { id: agent.id },
-          // All-mode: the whole fenced pool (the probe also folds the agent's
-          // rule grants — a subset of the pool, so the union is unchanged).
-          // Selective: nothing here — the folded grants are the whole story.
+          // All-mode gets the whole fenced pool; for selective the folded
+          // grants are the whole story.
           poolSecretHostPatterns: isAllMode ? poolSecretHostPatterns : [],
           poolProviders: isAllMode ? poolProviders : [],
           rules: injectionRows,
@@ -471,12 +443,10 @@ export const convertProject = async (
         });
 
         // Which credentials this agent's stacks must cover: the whole pool for
-        // all-mode; for selective, exactly what its doomed (equipment/custom)
-        // rows inject today — grant-fed pairs are already canonical and stay.
-        // Both sets are pool-fenced, so a vehicle naming a DISCONNECTED
-        // connection maps to nothing and its rule is deleted with the fold —
-        // a would-be re-connect no longer revives it (known, recorded: the
-        // census found zero non-connected connections in dev or prod).
+        // all-mode; for selective, exactly what its doomed rows inject today.
+        // Both sets are pool-fenced, so a rule naming a disconnected connection
+        // maps to nothing and is deleted with the fold — a later re-connect
+        // does not revive it.
         const injectedConnections = isAllMode
           ? null
           : injectedConnectionIdsFor(
@@ -532,9 +502,8 @@ export const convertProject = async (
             input,
             conditions,
           );
-          // Count only policies that actually LANDED: an all-blocked stack has
-          // no allow row to carry one — and pre-conversion that restriction
-          // restricted an injection whose every request was blocked anyway.
+          // Count only policies that actually landed: an all-blocked stack has
+          // no allow row to carry one.
           if (desired.some((r) => r.action === "allow" && r.conditions != null))
             sessionPoliciesCarried += 1;
           stacks.push({
@@ -591,9 +560,8 @@ export const convertProject = async (
         },
       });
 
-      // ── Default: reset a Block posture (its catalog meaning is now explicit
-      // stack rows; non-catalog surfaces are the recorded change), then make
-      // sure one exists (the 95% publish-from-nothing path).
+      // ── Default: reset a Block posture — its catalog meaning is now explicit
+      // stack rows — then make sure one exists.
       let defaultsReset = 0;
       const blockDefault = await tx.policyRuleV2.findFirst({
         where: { ...base, status: "draft", isDefault: true, action: "block" },
@@ -608,7 +576,7 @@ export const convertProject = async (
       }
       await ensureDefault(tx, base);
 
-      // ── Write the stacks at the tail priority band, then publish ONCE.
+      // ── Write the stacks at the tail priority band, then publish once.
       const tail = await tx.policyRuleV2.aggregate({
         where: { ...base, status: "draft", isDefault: false },
         _max: { priority: true },
@@ -684,7 +652,7 @@ export const convertProject = async (
     return;
   }
 
-  // ── Verify against the WRITTEN generation, then — and only then — flip.
+  // ── Verify against the written generation, then — and only then — flip.
   const maxGen = await db.policyRuleV2.aggregate({
     where: { ...base, status: "published" },
     _max: { generation: true },
@@ -751,9 +719,8 @@ export const convertProject = async (
 };
 
 /**
- * The boot pass: every project, sequentially (this is boot-time work — a
- * per-project transaction keeps the lock windows short; parallelism would just
- * contend on the database).
+ * The boot pass: every project, sequentially, one transaction each to keep the
+ * lock windows short.
  */
 export const runGrantConversion = async (): Promise<GrantConversionResult> => {
   const result = emptyGrantConversionResult();

@@ -72,10 +72,9 @@ const buildInjectionConfig = (
   return Prisma.JsonNull;
 };
 
-// A path-injected secret is substituted into the URL path verbatim, so an inline
-// value containing a path-structural char would reshape the request. 1Password
-// values are resolved at request time and guarded by the gateway, so only inline
-// values are checked here; the gateway's `is_path_safe` is the authoritative guard.
+// A path-injected value is substituted into the URL path verbatim, so a
+// path-structural char would reshape the request. Only inline values are checked
+// here; 1Password values are guarded by the gateway when it resolves them.
 const assertPathValueSafe = (
   config: CreateSecretInput["injectionConfig"],
   valueSource: string | undefined,
@@ -190,16 +189,12 @@ export const createSecret = async (
       ? buildInjectionConfig(input.injectionConfig)
       : Prisma.JsonNull;
 
-  // Default to "inline" so existing callers and API clients that omit
-  // valueSource keep storing the value in Postgres exactly as before.
   const valueSource = input.valueSource ?? "inline";
 
   // ── Value resolved from 1Password at request time (nothing stored in PG) ──
   if (valueSource === "onepassword") {
-    // 1Password connections are per-project: the gateway resolves op:// refs via
-    // the requesting agent's project connection. An org/partner-scoped secret
-    // has no single project, so its value would silently fail to resolve —
-    // reject it here instead of creating a secret that can never inject.
+    // The gateway resolves op:// refs through the requesting agent's project
+    // connection, so an org/partner-scoped secret could never resolve.
     if (!scope.projectId) {
       throw new ServiceError(
         "BAD_REQUEST",
@@ -308,9 +303,8 @@ export const updateSecret = async (
   }
 
   if (input.valueSource === "onepassword") {
-    // Switch to / update a value resolved from 1Password. Per-project only, as in
-    // createSecret: the gateway resolves op:// refs via the agent's project
-    // connection, so org/partner scope has no connection to resolve through.
+    // Per-project only, as in createSecret: org/partner scope has no project
+    // connection for the gateway to resolve op:// refs through.
     if (!scope.projectId) {
       throw new ServiceError(
         "BAD_REQUEST",

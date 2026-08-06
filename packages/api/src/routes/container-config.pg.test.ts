@@ -3,19 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "../testing/pg-proof.js";
 
 /**
- * `injectableSecretWhere` on REAL PostgreSQL.
- *
- * Two properties that only a database can settle, and neither had a guard:
- *
- *  1. The FENCE. An agent's grants name secret ids; the gateway resolves them
- *     by retaining from the org/project-fenced pool, so a rule naming a
- *     foreign secret yields nothing. Fencing the rules does not fence their
- *     target ids — this asserts the query itself is fenced.
- *  2. PRECEDENCE. The gateway merges partner → org → project with later
- *     injections overriding, so the project secret is the one actually
- *     injected. An unordered `findFirst` over an OR returns whatever Postgres
- *     reaches first, which is how the container ends up with an org secret's
- *     auth mode while the gateway injects the project's.
+ * `injectableSecretWhere` against real PostgreSQL, covering the two properties
+ * only a database can settle: that the query itself is org/project fenced (not
+ * just the rules feeding it), and that the project secret wins the precedence
+ * an unordered `findFirst` would leave to Postgres.
  *
  * Env-gated like the other proof suites; see app-blocklist-service.pg.test.ts.
  */
@@ -163,9 +154,8 @@ describe.skipIf(!PROOF_URL)(
     });
 
     it("CROSS-ORG BAIT: a grant naming a foreign secret resolves to nothing", async () => {
-      // The fence has to live in the QUERY. A rule can name any id — these rows
-      // were materialized by the retired bridge, not through the validating write
-      // path — so trusting the rule's own scope would leak another org's secret.
+      // The fence has to live in the query: a rule row can name any id, so
+      // trusting the rule's own scope would leak another org's secret.
       await db.secret.createMany({
         data: [
           secret(`${P}foreign-org`, {

@@ -43,13 +43,9 @@ import type {
 import { useCreatePolicyRule, useUpdatePolicyRule } from "@/hooks/use-policy";
 import { useConnections } from "@/hooks/use-connections";
 import { useScopedSecrets } from "@/hooks/use-secrets";
-// The condition builder + org identity picker are edition seams: EE aliases
-// them to the real editors; the OSS modules are locked "available in OneCLI
-// Cloud" surfaces (conditions) or inert (the org picker — OSS mounts no org
-// scope).
+// Edition seams — imported by alias key on purpose; a relative import would
+// bypass the swap.
 import { ConditionBuilder } from "@/lib/components/condition-builder";
-// Alias key on purpose (see editor-chrome's note): a relative import would
-// bypass the edition seam.
 import { OrgIdentityPicker } from "@/lib/policy-editor/identity-picker";
 import { ruleSheetDescription } from "@/lib/policy-editor/publish-mode";
 import {
@@ -71,9 +67,8 @@ type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 const METHODS: Method[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const ANY_METHOD = "_any";
 
-// The target kinds this editor authors. "App" fronts both specific connection
-// targets and an "all connections at a level" app target (step 8); "Secret" names
-// a credential; "Network" is a raw host/path rule.
+// "App" fronts both specific connection targets and an "all connections at a
+// level" app target.
 type TargetKind = "network" | "app" | "secret";
 
 /** The form's target state, flattened from a rule's target rows. */
@@ -84,14 +79,12 @@ interface DerivedTarget {
   method: string;
   app: AppTargetState;
   secret: SecretTargetState;
-  /** The rule's targets can't be faithfully round-tripped by this single-kind
-   * form (they span >1 kind, or a shape it can't represent) — the editor then
-   * preserves them untouched on save rather than truncating. */
+  /** This single-kind form can't round-trip the rule's targets, so they are
+   * preserved untouched on save rather than truncated. */
   locked: boolean;
 }
 
 const emptyDerived = (): DerivedTarget => ({
-  // New rules default to the App target — the most common kind to author.
   kind: "app",
   hostPattern: "",
   pathPattern: "",
@@ -108,24 +101,17 @@ const emptyDerived = (): DerivedTarget => ({
   locked: false,
 });
 
-/** The DTO types a rule's `conditions` as a behavioral array, but a granular
- * session policy is stored as an object. Narrow via the shared `isSessionPolicy`
- * predicate (so the object/array split can't drift from the API) and adapt to the
- * form's state shape — the single cast the DTO's array type can't otherwise
- * express. */
+/** The DTO types `conditions` as a behavioral array, but a granular session
+ * policy is stored as an object — hence the cast. */
 const conditionsAsSessionPolicy = (
   c: unknown,
 ): Record<string, unknown> | null =>
   isSessionPolicy(c) ? (c as Record<string, unknown>) : null;
 
-/** Whether the single-kind form can faithfully round-trip a rule's targets. It
- * can't when they span more than one kind family (network / app+connection /
- * secret), or a within-family shape it doesn't model: an app-permission app
- * target (no `connectionScope`), >1 network/app target, an app+connection mix, or
- * a secret specific+"all" mix. Load-independent (reads only kinds + which
- * scope/id fields are set), so it holds before connections resolve. Only
- * reachable for API/CLI/SDK-authored rules — the editor only ever writes one
- * representable kind. */
+/** Whether a rule's targets span more than one kind family, or a within-family
+ * shape this form doesn't model. Reads only kinds and which scope/id fields are
+ * set, so it holds before connections resolve. Only ever true for rules authored
+ * outside the editor. */
 const isUnrepresentable = (targets: PolicyRuleV2["targets"]): boolean => {
   const family = (kind: string) => (kind === "connection" ? "app" : kind);
   const families = new Set(targets.map((t) => family(t.kind)));
@@ -138,9 +124,8 @@ const isUnrepresentable = (targets: PolicyRuleV2["targets"]): boolean => {
   const secretSpecific = targets.filter(
     (t) => t.kind === "secret" && t.secretId != null,
   );
-  // The specific-mode form authors ONE tool set shared across all the rule's
-  // connection targets. Rows carrying DIFFERENT tool sets (API/CLI-authored)
-  // can't be represented by the single picker → lock + preserve.
+  // Specific mode authors one tool set shared across every connection target,
+  // so rows carrying differing sets can't be represented.
   const connToolSigs = new Set(
     connTargets.map((t) =>
       t.kind === "connection" ? [...t.tools].sort().join(",") : "",
@@ -158,11 +143,8 @@ const isUnrepresentable = (targets: PolicyRuleV2["targets"]): boolean => {
   );
 };
 
-/** Flatten a rule's target rows into the editable form state. An `app` target
- * with a `connectionScope` → App/all; `connection` rows → App/specific (its
- * provider inferred from the loaded connections); a `secret` → Secret; a
- * `network` → Network. A rule the form can't faithfully represent is `locked`
- * (its targets are preserved untouched on save). */
+/** Flatten a rule's target rows into the editable form state. A rule the form
+ * can't represent comes back `locked`. */
 const deriveTarget = (
   rule: PolicyRuleV2 | null,
   connections: Connection[],
@@ -172,28 +154,20 @@ const deriveTarget = (
   const connTargets = targets.flatMap((t) =>
     t.kind === "connection" ? [t.connectionId] : [],
   );
-  // All the rule's connection targets share one tool set (the form authors it
-  // that way; non-uniform sets are locked by `isUnrepresentable`), so read it
-  // off the first connection target.
+  // Non-uniform tool sets are already locked by `isUnrepresentable`, so the
+  // first connection target's set is the rule's set.
   const connTools = targets.find((t) => t.kind === "connection")?.tools ?? [];
-  // The specific-mode form scopes the tools picker + connection checkboxes to a
-  // SINGLE provider and cross-applies one tool set to every connection target.
-  // An API-authored rule whose connections span >1 provider can't be edited
-  // safely (a save would cross-write provider-0's tools to the others) — lock
-  // it. Load-dependent (needs the connections list); dialog-authored rules are
-  // always single-provider, so this only fires on API/CLI rows.
+  // Specific mode cross-applies one tool set to every connection target, so a
+  // rule spanning several providers would have provider 0's tools written over
+  // the rest on save. Lock it instead.
   const connProviders = new Set(
     connTargets
       .map((id) => connections.find((c) => c.id === id)?.provider)
       .filter((p): p is string => !!p),
   );
-  // Lock when the form can't faithfully represent the rule's targets. An EXISTING
-  // rule with no targets is inert — a non-default rule with empty targets now
-  // matches NOTHING (fail-closed), typically an orphan whose sole target was
-  // deleted (authoring new empty-target rules is blocked API-side). This
-  // single-kind form can't express it (it always authors one concrete target), so
-  // lock it to preserve it untouched. Edit-only: the CREATE form also starts
-  // target-less but must stay editable.
+  // An existing rule with no targets is an orphan that matches nothing; this
+  // form always authors one concrete target, so lock rather than rewrite it.
+  // The create form also starts target-less, hence the `rule !== null`.
   const locked =
     isUnrepresentable(targets) ||
     (rule !== null && targets.length === 0) ||
@@ -219,8 +193,7 @@ const deriveTarget = (
         mode: "all",
         connectionIds: [],
         level: appAll.connectionScope,
-        // Read the tool narrowing back so an edit re-checks the same tools;
-        // empty = the whole app.
+        // Empty = the whole app.
         tools: appAll.tools ?? [],
         // "All connections" has no single-connection resource scope.
         sessionPolicy: null,
@@ -240,8 +213,7 @@ const deriveTarget = (
         connectionIds: connTargets,
         level: "project",
         tools: connTools,
-        // A SINGLE connection's object conditions are its granular session policy;
-        // multi-connection / behavioral-array conditions carry no resource scope.
+        // Only a single connection's object conditions are a session policy.
         sessionPolicy:
           connTargets.length === 1
             ? conditionsAsSessionPolicy(rule?.conditions)
@@ -287,11 +259,8 @@ export interface PolicyRuleFormProps {
 }
 
 /**
- * The editor's create/edit surface: a right-side drawer for a single custom rule
- * (agent identity + a network / app / secret target + Allow/Block + independent
- * approval/rate-limit modifiers + conditions). Edits the DRAFT; the parent's
- * Publish applies. An app/connection/secret target gates its hosts (permit on
- * allow, block on block) and, on an allow, names the credential(s) to inject.
+ * Create/edit drawer for a single custom rule. Edits the draft; the parent's
+ * Publish applies it.
  */
 export const PolicyRuleForm = ({
   scope,
@@ -300,18 +269,11 @@ export const PolicyRuleForm = ({
   onOpenChange,
 }: PolicyRuleFormProps) => {
   const isEdit = rule !== null;
-  // Agents are project-scoped; at org scope there's no project context to load
-  // them (and org guardrails apply to all agents).
-  // Org scope is the only scope this form serves since attach-model step 6.
   const { data: connections = [] } = useConnections(scope);
-  // Scope-aware secrets for the Secret target picker: the org page reads
-  // /v1/org/secrets (the project-scoped /v1/secrets 401s at org scope — no
-  // X-Project-Id) and returns the org's/project's OWN secrets (no partner).
   const { data: secrets = [] } = useScopedSecrets(scope);
-  // A rule may only reference resources OWNED at its own level — a PROJECT rule
-  // its project's, an ORG rule the org's (`assertTargetsValid` 422s a cross-level
-  // pick). Org resources are governed at the org level, so a project's config
-  // never even sees them. Filter both pickers to what's actually saveable.
+  // A rule may only reference resources owned at its own level;
+  // `assertTargetsValid` 422s a cross-level pick. Filter both pickers to what
+  // is actually saveable.
   const targetScope = "organization" as const;
   const scopedSecrets = secrets.filter((s) => s.scope === targetScope);
   const scopedConnections = connections.filter((c) => c.scope === targetScope);
@@ -323,7 +285,6 @@ export const PolicyRuleForm = ({
   const hostRef = useRef<HTMLInputElement>(null);
   const targetKindRef = useRef<HTMLDivElement>(null);
 
-  // Form state — hand-rolled useState, the house convention (no react-hook-form).
   const initial = deriveTarget(rule, connections);
   const [name, setName] = useState(rule?.name ?? "");
   const [nameTouched, setNameTouched] = useState(false);
@@ -340,9 +301,7 @@ export const PolicyRuleForm = ({
   const [secretTarget, setSecretTarget] = useState<SecretTargetState>(
     initial.secret,
   );
-  // A rule whose targets this single-kind form can't faithfully represent (see
-  // `isUnrepresentable`): the target section goes read-only and the targets are
-  // preserved untouched on save, never truncated.
+  // Read-only target section; the targets are preserved untouched on save.
   const [targetLocked, setTargetLocked] = useState(initial.locked);
   const [action, setAction] = useState<"allow" | "block">(
     rule?.action ?? "allow",
@@ -355,20 +314,14 @@ export const PolicyRuleForm = ({
   const [rateWindow, setRateWindow] = useState(
     rule?.rateLimitWindow ?? "minute",
   );
-  // Stored conditions were validated as RuleCondition on write; the DTO widens
-  // their literal target/operator to strings, so narrow them back on load.
+  // The DTO widens the stored literal target/operator to strings; narrow back.
   const [conditions, setConditions] = useState<RuleCondition[]>(
     isSessionPolicy(rule?.conditions)
       ? []
       : ((rule?.conditions ?? []) as RuleCondition[]),
   );
-  // Project rules carry at most one agent identity (or none = all agents); the
-  // Select below reads/writes it. Org rules use the multi-kind picker directly.
-  // A granular App target: an ALLOW on exactly one specific connection whose
-  // resource scope (session policy) is set — its `conditions` carry that policy,
-  // not behavioral rules. Drives the payload routing. Gated on `allow` because a
-  // Block injects nothing (the API rejects a session policy on a Block); the
-  // Resources picker is likewise hidden on a Block.
+  // A granular App target carries its session policy in `conditions` instead of
+  // behavioral rules. Allow-only: the API rejects a session policy on a Block.
   const appGranular =
     targetKind === "app" &&
     appTarget.mode === "specific" &&
@@ -376,9 +329,8 @@ export const PolicyRuleForm = ({
     appTarget.sessionPolicy != null &&
     action === "allow";
 
-  // The form instance is reused across opens; re-seed from the current rule each
-  // time the drawer opens (or the edited rule changes) — else Edit shows stale /
-  // blank fields and a save would overwrite the rule with them.
+  // The form instance is reused across opens, so re-seed on each open; stale
+  // fields would otherwise be written back over the rule.
   useEffect(() => {
     if (!open) return;
     const d = deriveTarget(rule, connections);
@@ -404,19 +356,14 @@ export const PolicyRuleForm = ({
         ? []
         : ((rule?.conditions ?? []) as RuleCondition[]),
     );
-    // `connections` is intentionally omitted: the seed reconstructs the App
-    // target's provider from the connections loaded at open time, but must not
-    // re-run (clobbering edits) when React Query later refetches them. The
-    // late-resolve effect below backfills a missing provider once they load.
+    // `connections` is omitted so a refetch doesn't re-seed over the user's
+    // edits; the effect below backfills a missing provider instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, rule]);
 
-  // The seed reconstructs an App/specific rule's provider from the connections
-  // loaded at open time; on a cold cache `useConnections` may resolve AFTER the
-  // drawer opens, leaving the provider blank (and the rule unsaveable). Backfill
-  // it once connections arrive — but ONLY when it's still empty, so a user's own
-  // choice is never clobbered. Infers from ANY selected connection that resolves
-  // (not just the first), so it's robust to load order.
+  // On a cold cache connections resolve after the drawer opens, leaving the
+  // provider blank and the rule unsaveable. Backfill only while still empty, so
+  // the user's own choice is never clobbered.
   useEffect(() => {
     if (!open || targetKind !== "app" || appTarget.mode !== "specific") return;
     if (appTarget.provider || appTarget.connectionIds.length === 0) return;
@@ -432,32 +379,27 @@ export const PolicyRuleForm = ({
     if (trimmed.length > 255) return "Name is too long.";
     return null;
   }, [name]);
-  // The selected app is cloud-only in this edition (OSS's EE-stub registry):
-  // the target would be dead (the OSS gateway's base catalog can't resolve
-  // it), so the save locks and AppTargetFields renders the locked callout.
-  // A target-locked rule is exempt — its targets are preserved as-is and the
-  // save edits modifiers only.
+  // The gateway's base catalog can't resolve a cloud-only app in this edition,
+  // so the target would be dead. Target-locked rules are exempt: their save
+  // edits modifiers only.
   const appCloudLocked =
     targetKind === "app" && !targetLocked && isCloudOnlyApp(appTarget.provider);
   const targetError = useMemo(() => {
-    // A locked rule's targets are read-only and preserved as-is — nothing to
-    // validate (and the fieldset is disabled).
+    // A locked rule's targets are read-only, so there is nothing to validate.
     if (targetLocked) return null;
     if (targetKind === "network")
       return hostPattern.trim() ? null : "Host is required.";
     if (targetKind === "secret") {
-      // Specific mode needs ≥1 secret; "all" mode always has a level.
+      // "all" mode always has a level, so only specific mode can be incomplete.
       if (secretTarget.mode === "specific")
         return secretTarget.secretIds.length > 0
           ? null
           : "Select at least one secret.";
       return null;
     }
-    // App: a provider is required; specific mode needs ≥1 connection, "all" mode
-    // always has a level.
     if (!appTarget.provider) return "Select an app.";
-    // Cloud-only app: the locked callout owns the messaging (and the save is
-    // disabled), so the connection-count error would only mislead.
+    // The locked callout owns the messaging here, so a connection-count error
+    // would only mislead.
     if (isCloudOnlyApp(appTarget.provider)) return null;
     if (appTarget.mode === "specific")
       return appTarget.connectionIds.length > 0
@@ -475,11 +417,10 @@ export const PolicyRuleForm = ({
   const handleSubmit = async () => {
     setSubmitAttempted(true);
     if (!isValid) {
-      // Guide the user to the first field to fix.
       if (nameError) nameRef.current?.focus();
       else if (targetKind === "network") hostRef.current?.focus();
-      // App/Secret errors live inside the composite pickers; steer focus to the
-      // Target section's active kind tab so it's not left on the Save button.
+      // App/Secret errors live inside the composite pickers, so focus their
+      // kind tab rather than leaving focus on Save.
       else
         targetKindRef.current
           ?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
@@ -487,10 +428,8 @@ export const PolicyRuleForm = ({
       return;
     }
     const chosenMethod = METHODS.find((m) => m === method); // undefined = Any
-    // Build the target rows from the chosen kind (fixing the prior always-network
-    // build, which silently dropped a non-network target on save). App/Secret
-    // "specific" fans out to one connection/secret target per selected id; "all"
-    // is a single target carrying the level as `connectionScope`/`secretScope`.
+    // "specific" fans out to one target per selected id; "all" is a single
+    // target carrying the level as `connectionScope`/`secretScope`.
     const targets: PolicyTargetInput[] =
       targetKind === "secret"
         ? secretTarget.mode === "specific"
@@ -504,8 +443,7 @@ export const PolicyRuleForm = ({
             ? appTarget.connectionIds.map((id) => ({
                 kind: "connection",
                 connectionId: id,
-                // Every connection target of the rule carries the same tool
-                // narrowing; empty = the connection's whole app.
+                // Empty = the connection's whole app.
                 ...(appTarget.tools.length ? { tools: appTarget.tools } : {}),
               }))
             : [
@@ -513,9 +451,8 @@ export const PolicyRuleForm = ({
                   kind: "app",
                   provider: appTarget.provider,
                   connectionScope: appTarget.level,
-                  // Tools narrow which endpoints the rule matches; empty = the
-                  // whole app. Injection still covers all connections at the
-                  // level (connectionScope is injection-only).
+                  // Tools narrow which endpoints match; empty = the whole app.
+                  // Injection still covers every connection at the level.
                   ...(appTarget.tools.length ? { tools: appTarget.tools } : {}),
                 },
               ]
@@ -534,8 +471,6 @@ export const PolicyRuleForm = ({
     const rateOn = action === "allow" && rateLimitOn;
     const rateValue = rateOn ? Math.max(1, Number(rateLimit) || 1) : null;
     const rateWin = rateOn ? rateWindow : null;
-    // A granular App target carries its scope in `conditions` as the session-policy
-    // object; otherwise conditions are the behavioral (body-contains) rules.
     const finalConditions = (
       appGranular
         ? appTarget.sessionPolicy
@@ -546,9 +481,8 @@ export const PolicyRuleForm = ({
 
     try {
       if (isEdit) {
-        // Update accepts null to clear a previously-set modifier. When the rule's
-        // targets are locked (unrepresentable here), OMIT `targets` so the service
-        // leaves the existing rows untouched — never truncates them.
+        // Update accepts null to clear a previously-set modifier. Omitting
+        // `targets` leaves the locked rule's existing rows untouched.
         const input: UpdatePolicyRuleInput = {
           name: name.trim(),
           action,
@@ -623,8 +557,7 @@ export const PolicyRuleForm = ({
           {/* Applies to */}
           <div className="space-y-1.5">
             <Label htmlFor="rule-agent">Applies to</Label>
-            {/* Org scope: target directory identities (users / user-groups),
-                or none = all agents in the organization. */}
+            {/* None = all agents in the organization. */}
             <OrgIdentityPicker
               id="rule-agent"
               value={identities}
@@ -644,8 +577,6 @@ export const PolicyRuleForm = ({
                 </p>
               ) : (
                 <>
-                  {/* Kind picker: selectable cards, matching the Allow/Block
-                      ActionCards below (no segmented track, no shadow). */}
                   <div ref={targetKindRef} className="grid grid-cols-3 gap-2">
                     {(
                       [
@@ -875,10 +806,8 @@ export const PolicyRuleForm = ({
             </div>
           </fieldset>
 
-          {/* Conditions — behavioral (body-contains) rules. Hidden for a
-              connection target (App → specific): a connection's conditions are its
-              granular session policy, authored via "Resources" under the App
-              target above, not body-contains rules. */}
+          {/* Hidden for a specific-connection target, whose conditions hold its
+              session policy and are authored under "Resources" above. */}
           {!(targetKind === "app" && appTarget.mode === "specific") && (
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Conditions</legend>
@@ -886,11 +815,8 @@ export const PolicyRuleForm = ({
                 conditions={conditions}
                 onChange={setConditions}
               />
-              {/* Whether conditions gate matching depends on the target: a
-                secret, or a WHOLE-app (no-tools) app/connection target, matches
-                host-only and ignores conditions; a tool-narrowed target runs
-                the tool fan-out, which honors conditions like a network rule
-                (so no note is shown then). */}
+              {/* Secret and whole-app targets match host-only and ignore
+                conditions; a tool-narrowed target honors them. */}
               {targetKind === "secret" && (
                 <p className="text-xs text-muted-foreground">
                   Conditions don&apos;t apply to this target type — it matches
@@ -907,10 +833,8 @@ export const PolicyRuleForm = ({
                 )}
             </fieldset>
           )}
-          {/* The Conditions editor is hidden for a specific-connection target, but
-              the rule may still carry behavioral conditions (authored earlier or
-              via the API). Surface them (read-only) so they aren't invisible —
-              they are preserved untouched on save. */}
+          {/* A specific-connection rule can still carry API-authored behavioral
+              conditions; surface them read-only rather than invisibly. */}
           {targetKind === "app" &&
             appTarget.mode === "specific" &&
             conditions.length > 0 && (

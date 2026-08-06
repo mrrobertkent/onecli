@@ -1,16 +1,9 @@
 /**
- * Centralized environment variable access.
+ * Centralized environment variable access. Import from `@/lib/env` rather than
+ * reading `process.env` directly.
  *
- * All `process.env` reads should go through this file so that defaults,
- * fallbacks, and naming are managed in one place. Import from `@/lib/env`
- * instead of reading `process.env` directly.
- *
- * NEXT_PUBLIC_* vars are inlined at build time by Next.js — they work on
- * both client and server as long as the literal string appears in source.
- *
- * `NEXT_RUNTIME` is deliberately NOT re-exported here: it must be read as the
- * literal `process.env.NEXT_RUNTIME` at its call-site so Next.js can inline it
- * per-runtime and dead-code-eliminate runtime-specific branches.
+ * `NEXT_RUNTIME` is not re-exported: it has to be read as a literal at its
+ * call-site for Next.js to inline it and drop the dead branch.
  */
 
 import { capabilitiesFor, parseEdition } from "@onecli/api/lib/edition";
@@ -68,12 +61,7 @@ export const IS_CLOUD = EDITION_INFO.edition === "cloud";
 
 // ── Auth & Encryption ───────────────────────────────────────────────────
 
-/**
- * Signing key for session cookies and OAuth state. Renamed from
- * `NEXTAUTH_SECRET` when next-auth was removed — the old name
- * described a library that is no longer here. DEPLOYMENT-FACING: operators must
- * set `AUTH_SECRET`.
- */
+/** Signing key for session cookies and OAuth state. Operators must set this. */
 export const AUTH_SECRET = process.env.AUTH_SECRET ?? "";
 
 export const SECRET_ENCRYPTION_KEY = process.env.SECRET_ENCRYPTION_KEY ?? "";
@@ -95,40 +83,23 @@ export const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET ?? "";
 /** Label shown on the OIDC login button (e.g. "Okta", "Keycloak"). */
 export const OIDC_PROVIDER_NAME = process.env.OIDC_PROVIDER_NAME ?? "SSO";
 
-/**
- * Optional branding for the OIDC login button, so a self-hosted instance can
- * present its identity provider the way Google's button is already presented
- * rather than as an unlabelled generic control.
- *
- * LOGO is any URL the browser can load — an absolute https URL, a path served
- * by this app, or a `data:` URI (which avoids a third-party request from the
- * login page). COLOR is the provider's brand colour as hex; the button's
- * foreground is derived from it for contrast rather than configured separately,
- * so a single value cannot produce unreadable text.
- *
- * Both are optional and independent: with neither set the button keeps the
- * neutral styling it has today.
- */
+/** Optional login-button branding: any URL the browser can load, including `data:`. */
 export const OIDC_PROVIDER_LOGO = process.env.OIDC_PROVIDER_LOGO ?? "";
 
+/** Provider brand colour as hex; the button foreground is derived from it. */
 export const OIDC_PROVIDER_COLOR = process.env.OIDC_PROVIDER_COLOR ?? "";
 
 /**
- * Optional override for the button's foreground. Left unset, it is derived from
- * OIDC_PROVIDER_COLOR by relative luminance, which maximises measured contrast.
- * Brand guidelines often call for white on a mid-luminance brand colour even
- * where black would score higher, so operators can say so explicitly — at the
- * cost of the contrast the derived value would have given them.
+ * Overrides the foreground derived from OIDC_PROVIDER_COLOR, for brand
+ * guidelines that call for a lower-contrast pairing than luminance would pick.
  */
 export const OIDC_PROVIDER_TEXT_COLOR =
   process.env.OIDC_PROVIDER_TEXT_COLOR ?? "";
 
 /**
- * Set when OIDC_PROVIDER_LOGO is a full lockup — a mark plus the provider's
- * wordmark in its own typeface — rather than a bare icon. The button then shows
- * the artwork alone, since repeating the name beside it duplicates the wordmark
- * and re-sets it in the app's font. OIDC_PROVIDER_NAME is still required: it
- * becomes the button's accessible name.
+ * Set when OIDC_PROVIDER_LOGO is a full lockup rather than a bare icon; the
+ * button then shows the artwork alone. OIDC_PROVIDER_NAME is still required as
+ * the button's accessible name.
  */
 export const OIDC_PROVIDER_LOGO_ONLY =
   (process.env.OIDC_PROVIDER_LOGO_ONLY ?? "").toLowerCase() === "true";

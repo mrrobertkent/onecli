@@ -1,46 +1,12 @@
 import { asciiLower, hostMatches, pathMatches } from "./path-match";
 
 // Overlap/shadow analysis for the manually-ordered first-match policy list.
-// ZERO-FALSE-POSITIVE by construction: a warning is emitted only when it is
-// PROVABLE from the literal rule data that the later rule can never take
-// effect — every undecidable comparison (group-membership inclusion, app↔network
-// cross-kind, wildcard⊇wildcard patterns, secret host sets, org↔project
-// cross-level) is skipped, costing recall but never precision. The match
-// semantics mirrored here are the engine's (evaluate.rs):
-// first match in priority order wins; empty identities = any principal; empty
-// targets match nothing; an empty-tools app target is the WHOLE app (host-only
-// on the provider's catalog hosts); a connection target resolves at connect to
-// its provider's whole app (statically unknowable here).
-//
-// TRUTHFULNESS FENCE: an ALLOW rule with an INJECTION-BEARING target (a
-// connection, a secret, or an app target with a connectionScope) is never
-// reported `shadowed` — even when its DECISION surface is provably covered,
-// the rule still drives credential injection at connect (inject-select unions
-// ALLOW rules position-independently), so "can never apply" would invite
-// deleting a rule with live effect. `duplicate` still applies (an identical
-// signature implies the identical action and injection contribution — the
-// injection union is idempotent), and so does a same-action `conflict`
-// (modifier-only); a conflict under an OPPOSITE-action head is fenced too,
-// since the block head contributes no injection while the allow victim does.
-// Known caveat, unreachable via current callers: a connection target's
-// injected sessionPolicy is the rule's RAW conditions while the signature
-// canonicalizes them (sorted/deduped) — set-equal-but-raw-different twins
-// would be called duplicates; the editor excludes equipment rules (the only
-// sessionPolicy-shaped carriers) and custom conditions are Zod-shaped, where
-// order/duplication are semantically inert.
-//
-// CONDITIONS ASYMMETRY GUARD: whole-app (empty-tools app) and secret targets
-// match with rule conditions IGNORED, while network/tools targets honor them.
-// A conditioned coverer therefore matches only its conditioned slice and can
-// never prove cover over a conditions-ignoring victim — such a victim is
-// claimable only by coverers with NO conditions (`ruleCovers`). Connection
-// targets are treated as conditions-ignoring too — CONSERVATIVELY (a tool-
-// narrowed connection actually honors conditions), which is safe because a
-// connection rule is injection-bearing and thus never a shadow VICTIM anyway;
-// the classification only ever suppresses, never mis-warns.
+// A warning is emitted only when the literal rule data proves the later rule can
+// never take effect; undecidable comparisons are skipped, costing recall but
+// never precision.
 
 /** The structural slice the analysis reads — `PolicyRuleV2`/`PolicyRuleDto`
- * satisfy it as-is (mirrors `DiffableRule`, with typed targets). */
+ * satisfy it as-is. */
 export interface OverlapRule {
   logicalId: string;
   isDefault: boolean;
@@ -76,10 +42,9 @@ export interface OverlapWarning {
   /** The rule that can never take effect. */
   logicalId: string;
   /**
-   * duplicate — an identical earlier rule with the same verdict (redundant);
-   * conflict — an identical earlier rule with a DIFFERENT verdict (the later
-   * verdict never applies); shadowed — a broader earlier rule matches
-   * everything this rule matches, so it is never reached.
+   * duplicate — an identical earlier rule with the same verdict; conflict — an
+   * identical earlier rule with a different verdict; shadowed — a broader
+   * earlier rule matches everything this rule matches.
    */
   kind: "duplicate" | "conflict" | "shadowed";
   /** The earlier rule responsible. */
@@ -112,9 +77,9 @@ const targetSig = (r: OverlapRule): string =>
   r.targets.map(targetEntry).sort().join(",");
 
 /**
- * Canonical condition set, mirroring the gateway's all-or-nothing
- * `parse_conditions`: a non-array, or ANY element missing target/operator/value
- * strings, makes the WHOLE conditions match unconditionally (= empty set).
+ * Canonical condition set. A non-array, or any element missing
+ * target/operator/value strings, makes the whole conditions match
+ * unconditionally (an empty set).
  */
 const conditionSet = (conditions: unknown): Set<string> => {
   if (!Array.isArray(conditions)) return new Set();
@@ -146,8 +111,8 @@ const verdictSig = (r: OverlapRule): string =>
 
 // ── Sound cover rules (shadow detection) ────────────────────────────────────
 
-/** Identical entries behave identically, so a subset of AND-ed conditions
- * matches a superset of requests — sound without knowing entry semantics. */
+/** A subset of AND-ed conditions matches a superset of requests — sound
+ * without knowing what the entries mean. */
 const conditionsCover = (r1: OverlapRule, r2: OverlapRule): boolean => {
   const c1 = conditionSet(r1.conditions);
   const c2 = conditionSet(r2.conditions);
@@ -161,12 +126,8 @@ const identitiesCover = (r1: OverlapRule, r2: OverlapRule): boolean => {
   return r2.identities.every((i) => set1.has(`${i.type}:${i.id}`));
 };
 
-/** A target that can match a request at all (see the evaluator). Every kind is
- * now live: an empty-tools app target matches the whole app (its provider's
- * catalog hosts), and a connection target resolves at connect to its
- * provider's whole app (empty only if the connection is gone — unknowable
- * statically, so treated as live). Kept as a switch so a future inert kind has
- * an obvious home. */
+/** Whether a target can match a request at all. Every kind currently can; kept
+ * as a switch so a future inert kind has an obvious home. */
 const isLive = (t: OverlapTarget): boolean => {
   switch (t.kind) {
     case "connection":
@@ -177,11 +138,10 @@ const isLive = (t: OverlapTarget): boolean => {
   }
 };
 
-/** Whether the rule drives credential injection at connect (step 8): an ALLOW
- * rule (inject-select collects allow rules only — a block never injects) with
+/** Whether the rule drives credential injection at connect: an allow rule with
  * a connection target, a secret target, or an app target with a
- * `connectionScope`. Such a rule keeps live effect even when its decision
- * surface is shadowed — see the truthfulness fence in the header. */
+ * `connectionScope`. Such a rule keeps effect even when its decision surface is
+ * shadowed, so it is never reported as a shadow victim. */
 const hasInjectionEffect = (r: OverlapRule): boolean =>
   r.action === "allow" &&
   r.targets.some(
@@ -191,18 +151,15 @@ const hasInjectionEffect = (r: OverlapRule): boolean =>
       (t.kind === "app" && t.connectionScope !== null),
   );
 
-/** Targets whose matching IGNORES the rule's conditions (host-only arms in
- * both engines): whole-app and secret. Connection is included CONSERVATIVELY
- * (a tool-narrowed connection actually honors conditions via the fan-out) —
- * inert because a connection rule is injection-bearing and never a shadow
- * victim, so this only ever suppresses a warn, never mis-warns. See the
- * conditions-asymmetry guard in the header. */
+/** Targets that match with the rule's conditions ignored: whole-app and secret.
+ * Connection is included conservatively — it is injection-bearing and so never
+ * a shadow victim, making the inclusion inert. */
 const ignoresConditions = (t: OverlapTarget): boolean =>
   (t.kind === "app" && t.tools.length === 0) ||
   t.kind === "secret" ||
   t.kind === "connection";
 
-/** A network target that matches EVERY request — host "*", any path, any
+/** A network target that matches every request — host "*", any path, any
  * method. The one coverer that soundly covers app/secret targets too. */
 const isUniversal = (t: OverlapTarget): boolean =>
   t.kind === "network" &&
@@ -212,11 +169,11 @@ const isUniversal = (t: OverlapTarget): boolean =>
 
 const hostCover = (pattern1: string, pattern2: string): boolean => {
   if (pattern1 === "*") return true;
-  // ASCII fold like the real matcher — JS toLowerCase folds the full Unicode
-  // range (K→k), which would claim covers hostMatches doesn't deliver.
+  // ASCII fold like the real matcher; `toLowerCase` folds Unicode (K→k) and
+  // would claim covers `hostMatches` does not deliver.
   if (asciiLower(pattern1) === asciiLower(pattern2)) return true;
-  // A concrete (wildcard-free) later host is a one-element set — reuse the real
-  // matcher. wildcard⊇wildcard is skipped (undecidable without edge risk).
+  // A wildcard-free later host is a one-element set, so the real matcher decides
+  // it. wildcard ⊇ wildcard is skipped as undecidable.
   return !pattern2.includes("*") && hostMatches(pattern2, pattern1);
 };
 
@@ -238,9 +195,9 @@ const networkCover = (
 
   const p1 = t1.pathPattern;
   const p2 = t2.pathPattern;
-  // A git-receive-pack pattern ALSO matches the GET info/refs push-discovery
-  // request regardless of its own method (the endpoint-match bridge) — only an
-  // any-path+any-method earlier target, or the identical path, soundly covers.
+  // A git-receive-pack pattern also matches the GET info/refs push-discovery
+  // request regardless of its own method, so only an any-path/any-method earlier
+  // target, or the identical path, soundly covers it.
   if (p2 !== null && p2.endsWith(GIT_PUSH_SUFFIX)) {
     const universalPath = (p1 === null || p1 === "*") && t1.method === null;
     const samePath =
@@ -253,7 +210,7 @@ const networkCover = (
     p1 === "*" ||
     (p2 !== null &&
       (p1 === p2 ||
-        // Concrete later path = a one-element set — reuse the real matcher.
+        // A wildcard-free later path is a one-element set.
         (!p2.includes("*") &&
           !p1.endsWith(GIT_PUSH_SUFFIX) &&
           pathMatches(p2, p1))));
@@ -273,12 +230,9 @@ const targetCover = (t1: OverlapTarget, t2: OverlapTarget): boolean => {
     return networkCover(t1, t2);
   }
   if (t1.kind === "app" && t2.kind === "app") {
-    // Same provider; a WHOLE-app t1 (no tools = host-only on every catalog
-    // host of the provider) covers ANY same-provider t2 — each tool's host is
-    // in that set, and a whole-app t2 is the identical surface. A tools-named
-    // t1 covers only a tools-subset t2 (never a whole-app one — it is
-    // narrower). `connectionScope` never affects matching (injection-only), so
-    // it plays no part in coverage.
+    // A whole-app t1 (no tools) covers any same-provider t2; a tools-named t1
+    // covers only a tools-subset t2. `connectionScope` is injection-only and
+    // plays no part in coverage.
     return (
       t1.provider === t2.provider &&
       (t1.tools.length === 0 ||
@@ -286,8 +240,7 @@ const targetCover = (t1: OverlapTarget, t2: OverlapTarget): boolean => {
           t2.tools.every((tool) => t1.tools.includes(tool))))
     );
   }
-  // Cross-kind, secret hosts, connection targets (provider unknowable
-  // statically): undecidable → no.
+  // Cross-kind, secret hosts and connection targets are undecidable here.
   return false;
 };
 
@@ -297,12 +250,10 @@ const ruleCovers = (r1: OverlapRule, r2: OverlapRule): boolean => {
   if (!identitiesCover(r1, r2)) return false;
   if (!conditionsCover(r1, r2)) return false;
   const liveTargets = r2.targets.filter(isLive);
-  // A rule with no live targets matches nothing — different phenomenon, no warn.
+  // A rule with no live targets matches nothing — a different phenomenon.
   if (liveTargets.length === 0) return false;
-  // CONDITIONS ASYMMETRY: a whole-app/secret victim target matches with r2's
-  // conditions IGNORED, but a conditioned r1's network/tools targets match
-  // only their conditioned slice — the subset test above is not enough there.
-  // Such victims are provably covered only by an UNCONDITIONED coverer.
+  // A whole-app/secret victim matches with its conditions ignored, so only an
+  // unconditioned coverer can provably cover it.
   if (
     liveTargets.some(ignoresConditions) &&
     conditionSet(r1.conditions).size > 0
@@ -316,11 +267,10 @@ const ruleCovers = (r1: OverlapRule, r2: OverlapRule): boolean => {
 // ── The analysis ────────────────────────────────────────────────────────────
 
 /**
- * Analyze ONE level's rules (the editable table's scope) for provably-dead
- * rules. Input order is irrelevant — rules are re-sorted by priority exactly
- * like the evaluator's first-match walk. Disabled rules and the Default Rule
- * are excluded on both sides. At most one warning per rule, most specific
- * first: conflict > duplicate > shadowed.
+ * Analyze one level's rules for provably-dead rules. Input order is irrelevant:
+ * rules are re-sorted by priority like the evaluator's first-match walk.
+ * Disabled rules and the Default Rule are excluded on both sides. At most one
+ * warning per rule, most specific first: conflict > duplicate > shadowed.
  */
 export const findPolicyOverlaps = (
   rules: readonly OverlapRule[],
@@ -333,8 +283,8 @@ export const findPolicyOverlaps = (
   const warnings: OverlapWarning[] = [];
   const warned = new Set<string>();
 
-  // Duplicates/conflicts: identical match signature — the first occurrence
-  // wins first-match; every later twin is dead.
+  // Duplicates/conflicts: identical match signature, so the first occurrence
+  // wins and every later twin is dead.
   const firstBySig = new Map<string, OverlapRule>();
   for (const r of ordered) {
     const sig = matchSig(r);
@@ -344,11 +294,9 @@ export const findPolicyOverlaps = (
       continue;
     }
     const kind = verdictSig(head) === verdictSig(r) ? "duplicate" : "conflict";
-    // An OPPOSITE-action conflict on an injection-bearing ALLOW twin is fenced:
-    // the block head contributes no injection while the allow twin keeps
-    // injecting (position-independent union), so "its verdict never applies"
-    // would invite deleting live injection. Duplicates and same-action
-    // (modifier-only) conflicts contribute identically — those warns stand.
+    // An opposite-action conflict on an injection-bearing allow twin is
+    // suppressed: the block head injects nothing while the allow twin still
+    // injects, so warning here would invite deleting a rule with live effect.
     if (
       kind === "conflict" &&
       head.action !== r.action &&
@@ -366,9 +314,7 @@ export const findPolicyOverlaps = (
   }
 
   // Shadows: an earlier rule provably matches everything a later one matches.
-  // Injection-bearing rules are exempt VICTIMS (never coverers-exempt): their
-  // decision surface may be covered, but they still inject at connect — the
-  // truthfulness fence in the header.
+  // Injection-bearing rules are exempt as victims (but still act as coverers).
   for (let i = 1; i < ordered.length; i++) {
     const r2 = ordered[i];
     if (!r2 || warned.has(r2.logicalId) || hasInjectionEffect(r2)) continue;

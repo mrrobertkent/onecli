@@ -78,8 +78,8 @@ export const appRoutes = () => {
     const auth = c.get("auth");
     const projectId = requireProjectId(auth);
 
-    // EE (orgAppConfig seam): org-level configs surface on apps that have no
-    // project row, marked `source: "organization"`. OSS: no seam — empty map.
+    // Org-level configs surface on apps with no project row, marked
+    // `source: "organization"`. No seam wired (OSS) means an empty map.
     const [configs, connections, orgConfigsResult] = await Promise.all([
       db.appConfig.findMany({
         where: { projectId },
@@ -216,8 +216,7 @@ export const appRoutes = () => {
   // the param route.
   app.get("/configured", authMiddleware, async (c) => {
     const auth = c.get("auth");
-    // EE (orgAppConfig seam): org-level configs count as configured for every
-    // project in the org. OSS: no seam — project rows only, as before.
+    // Org-level configs count as configured for every project in the org.
     const [providers, orgConfigs] = await Promise.all([
       listConfiguredProviders({ projectId: requireProjectId(auth) }),
       getOrgAppConfig()?.listEnabledConfigs(auth.organizationId),
@@ -227,11 +226,9 @@ export const appRoutes = () => {
   });
 
   // ── GET /apps/available ── app-availability allowlist for this project ──
-  // Backs the connect-picker filter (policy-engine step 7). `restricted:false`
-  // (OSS — no seam — or an "open" org) means every app is available and the
-  // picker is unfiltered; `restricted:true` carries the exact provider set a
-  // project may connect, mirroring the gateway's runtime availability read.
-  // Registered before /:provider so "available" is not captured as a provider.
+  // Backs the connect-picker filter. `restricted:false` means the picker is
+  // unfiltered; `restricted:true` carries the exact provider set a project may
+  // connect. Registered before /:provider so "available" is not read as one.
   app.get("/available", authMiddleware, async (c) => {
     const auth = c.get("auth");
     const projectId = requireProjectId(auth);
@@ -239,8 +236,8 @@ export const appRoutes = () => {
       projectId,
       auth.organizationId,
     );
-    // `undefined` (no seam / OSS) and `null` (org in "open" mode) both mean
-    // unrestricted — never leak an empty allowlist as "nothing available".
+    // `undefined` (no seam) and `null` (org in "open" mode) both mean
+    // unrestricted, not an empty allowlist.
     return c.json(
       providers == null
         ? { restricted: false, providers: [] as string[] }
@@ -265,10 +262,9 @@ export const appRoutes = () => {
   });
 
   // ── GET /apps/permission-definitions ── tool catalogs (all providers) ──
-  // Public projection only (id/name/description per tool); the endpoint
-  // mapping never leaves the server. Registered before the /:provider param
-  // routes; filtered through getApp so editions that register a permission
-  // definition without its app (e.g. onprem's aws-role) don't advertise it.
+  // Public projection only (id/name/description per tool); the endpoint mapping
+  // never leaves the server. Registered before the /:provider param routes, and
+  // filtered through getApp so a definition without a registered app is hidden.
   app.get(
     "/permission-definitions",
     auth({ requireProject: false }),
@@ -306,9 +302,8 @@ export const appRoutes = () => {
     ]);
     const connection = providerConnections[0] ?? null;
 
-    // EE (orgAppConfig seam): an org-level config stands in when the project
-    // has no row of its own (inventory-faithful: a project row, even disabled,
-    // is shown as-is). OSS: no seam — always null.
+    // An org-level config stands in only when the project has no row of its
+    // own; a project row, even disabled, is shown as-is.
     const orgConfig = config
       ? null
       : ((await getOrgAppConfig()?.getEnabledConfig(
@@ -323,9 +318,8 @@ export const appRoutes = () => {
 
     const hint = isConfigured
       ? `Your MCP server needs local credential stub files to start. Create them in the format and location the MCP server expects, but use 'onecli-managed' as a placeholder for all secrets. See ${docsBaseURL}/${provider}.md for examples (fallback: ${docsBaseURL}/general-app.md ). The OneCLI gateway handles real OAuth token exchange at request time.`
-      : // The caller's origin is the fallback so an unconfigured self-hosted
-        // instance hands out a link that actually resolves for them, rather
-        // than the localhost default nobody but a local dev can open.
+      : // Fall back to the caller's origin so a self-hosted instance hands out
+        // a link that resolves for them, not the localhost default.
         `This app is not configured yet. Go to ${dashboardUrl(
           `/connections?connect=${provider}`,
           { projectId },
@@ -410,9 +404,9 @@ export const appRoutes = () => {
       const rawAgentName = c.req.query("agent_name");
       const agentName = rawAgentName ? rawAgentName.slice(0, 128) : undefined;
 
-      // Decide where the browser goes *after* consent here, at the authenticated
-      // end, and sign it: the callback is unauthenticated, so re-deriving it
-      // there from request headers lets the caller influence the destination.
+      // Sign the post-consent destination here, at the authenticated end: the
+      // callback is unauthenticated, so deriving it there from request headers
+      // would let the caller choose where the browser lands.
       const state = signOAuthState({
         projectId,
         provider,
@@ -465,28 +459,20 @@ export const appRoutes = () => {
     const provider = c.req.param("provider")!;
     const apiOrigin = getRequestOrigin(c.req.raw);
 
-    // Resolve the state before anything else can redirect or render. It arrives
-    // in the query, or in the `oauth_state` cookie `/authorize` set on this exact
-    // path (SameSite=Lax, so the provider's top-level GET still carries it) —
-    // which is why the fragment-bridge branch below can rely on it even though
-    // its provider returns everything else in the URL fragment. That branch
-    // renders the origin inside a <script>, so it is the last place that should
-    // be trusting request headers.
+    // Resolved first because every branch below — including the fragment
+    // bridge, which renders the origin inside a <script> — redirects using it.
+    // The state arrives in the query or in the `oauth_state` cookie
+    // `/authorize` set on this exact path.
     const stateParam = c.req.query("state") ?? getCookie(c, "oauth_state");
     const state = stateParam ? verifyOAuthState(stateParam) : null;
-    // Only a state this request would actually accept gets to choose the
-    // destination — never one we are about to reject as belonging to another
-    // provider.
+    // Only a state this request would accept may choose the destination, never
+    // one about to be rejected as belonging to another provider.
     const signedOrigin =
       state?.provider === provider ? state.origin : undefined;
 
-    // Two different questions, and conflating them is what broke this before.
-    // `apiOrigin` is who answered the callback — it must build the redirect_uri
-    // for the token exchange below. `appOrigin` is where the browser goes next,
-    // which is a dashboard page and may live on another host entirely, so it
-    // comes from the origin committed to at `/authorize` rather than from this
-    // unauthenticated request's headers. A state minted before that field
-    // existed leaves it undefined and resolves exactly as it did before.
+    // `apiOrigin` answered the callback and builds the redirect_uri for the
+    // token exchange; `appOrigin` is the dashboard the browser goes to next and
+    // may be another host, so it comes from the state signed at `/authorize`.
     const appOrigin = getAppOrigin(c.req.raw, signedOrigin);
 
     const appDef = getApp(provider);
@@ -522,8 +508,6 @@ export const appRoutes = () => {
         return errorRedirect("Invalid provider");
       }
 
-      // Both resolved at the top so `appOrigin` could be derived from the state;
-      // the checks stay here so the error responses are unchanged.
       if (!stateParam) {
         return errorRedirect("Missing state parameter");
       }
@@ -561,7 +545,7 @@ export const appRoutes = () => {
           if (state.agentName) {
             successParams.set("agent_name", state.agentName as string);
           }
-          // Same attach-step params as the primary success path — this IS the
+          // Same attach-step params as the primary success path — this is the
           // success redirect for the connection the first callback created.
           successParams.set("connected", justCreated.id);
           successParams.set("projectId", state.projectId);
@@ -612,9 +596,8 @@ export const appRoutes = () => {
 
       await getConnectionHooks().beforeConnect(stateOrgId, appDef);
 
-      // The freshly-CREATED connection id rides the success redirect so the
-      // popup can offer the post-connect attach step. Reconnects deliberately
-      // don't — the existing connection keeps whatever grants it has.
+      // Only a freshly created connection id rides the success redirect, so the
+      // popup can offer the attach step; a reconnect keeps its existing grants.
       let createdId: string | null = null;
 
       if (reconnectId) {
@@ -657,9 +640,8 @@ export const appRoutes = () => {
       if (state.agentName) {
         successParams.set("agent_name", state.agentName as string);
       }
-      // `connected` (NOT `connectionId` — that param means "re-authenticate
-      // this connection" on the popup page) + the project, so the popup can
-      // offer grants for the brand-new connection.
+      // `connected`, not `connectionId` — the latter means "re-authenticate
+      // this connection" on the popup page.
       if (createdId) {
         successParams.set("connected", createdId);
         successParams.set("projectId", state.projectId);
@@ -733,16 +715,14 @@ export const appRoutes = () => {
     const projectId = requireProjectId(auth);
     await getConnectionHooks().beforeConnect(auth.organizationId, appDef);
 
-    // Project-scoped connect starts with no config link — body-provided
-    // credentials have no minting config. The credentials-import branch below
-    // re-links to the project config it saves; the explicit `undefined` also
-    // clears any stale link when reconnecting an existing connection.
+    // Body-provided credentials have no minting config, so the link starts
+    // empty; the credentials-import branch below re-links to the config it
+    // saves, and the explicit `undefined` clears a stale link on reconnect.
     const projectConnectionOpts = { ...connectionOpts, appConfigId: undefined };
 
     let connection: { id: string };
-    // The freshly-CREATED connection (never a reconnect/duplicate): the popup's
-    // post-connect attach step only offers grants for brand-new connections —
-    // an existing one already has whatever grants it has.
+    // Set only for a brand-new connection, never a reconnect or duplicate —
+    // the popup's attach step only offers grants for new ones.
     let created: { id: string; label: string | null } | null = null;
 
     if (body?.connectionId) {
@@ -812,8 +792,8 @@ export const appRoutes = () => {
 
     invalidateGatewayCache(c.req.raw);
 
-    // `connection` is present only for a brand-new connection — the popup's
-    // attach step keys on it (reconnects keep their existing grants).
+    // `connection` is present only for a brand-new connection; the popup's
+    // attach step keys on it.
     return c.json(
       created ? { success: true, connection: created } : { success: true },
     );
@@ -852,10 +832,9 @@ export const appRoutes = () => {
     );
     if (config?.enabled) return c.json(config);
 
-    // EE (orgAppConfig seam): no enabled project row — report the org-level
-    // config as configured, marked `source: "organization"` so the project
-    // config form knows there is no project row to edit. Org settings are
-    // deliberately not exposed on the project surface.
+    // No enabled project row: report the org-level config as configured, marked
+    // `source: "organization"` so the form knows there is no project row to
+    // edit. The org settings themselves are not exposed here.
     const orgConfig = await getOrgAppConfig()?.getEnabledConfig(
       auth.organizationId,
       provider,

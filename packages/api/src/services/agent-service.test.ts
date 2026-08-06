@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // In-memory `@onecli/db` mock covering only what `createAgent` touches. The
-// load-bearing case since attach-model step 5: EVERY new agent is created
-// `selective` with nothing attached — no default-to-all, and no parent-mode
-// inheritance (an unconverted "all" parent minting new all-mode children would
-// keep step 7's zero-"all" gate from ever converging).
+// load-bearing case: every new agent is created `selective` with nothing
+// attached — no default-to-all and no parent-mode inheritance.
 
 interface AgentRow {
   id: string;
@@ -91,11 +89,8 @@ describe("createAgent — always selective (attach-model step 5)", () => {
   });
 
   it("does NOT inherit an all-mode parent's mode during the grace window", async () => {
-    // The step-5 law: inheritance is gone (the parameter itself was removed —
-    // the route still accepts `parentIdentifier` but no longer threads it).
-    // An unconverted "all" parent must never mint new all-mode agents — the
-    // gateway no longer reads the column (step 7), but the converter's
-    // workload and step 8's drop census both depend on no new "all" rows.
+    // The route still accepts `parentIdentifier` but no longer threads it, so
+    // an unconverted "all" parent cannot mint new all-mode agents.
     seedParent("parent", "all");
     await createAgent("p1", "Child", "child");
     expect(lastCreated().secretMode).toBe("selective");

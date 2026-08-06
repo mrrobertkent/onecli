@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Focused unit tests for step-6 identity authz + plan-gate: the level restriction
-// (project → agent/any; org → user/group/any), the org-scoped
-// ownership check (the IDOR guard), and the directory-identity plan token. Both
-// helpers are DB-light, so we mock @onecli/db with the project lookup + the
-// per-kind counts (each returns a fixed number the test sets to match/mismatch
-// the ids it passes).
+// The db mock supplies the project lookup plus a per-kind count each test sets
+// to match or mismatch the ids it passes.
 const state = vi.hoisted(() => ({
   projectOrg: "org-1" as string | null,
   counts: { agent: 0, user: 0, group: 0 },
@@ -142,9 +138,8 @@ describe("assertIdentitiesValid — ownership (IDOR guard)", () => {
   });
 });
 
-// The mechanism `publishPolicy` uses to re-gate a stored draft set on Apply — a
-// directory-identity row must still map to the enterprise gate, so a downgraded
-// org can't publish a grandfathered directory rule.
+// `publishPolicy` re-gates stored draft rows through this, so a downgraded org
+// cannot publish a grandfathered directory rule.
 describe("rowHasDirectoryIdentity (publish re-gate source)", () => {
   type IdRows = Parameters<typeof rowHasDirectoryIdentity>[0];
 

@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The grant compiler's laws, at the service layer with the db mocked at the
-// boundary (recorder pattern — where/create shapes are asserted; the SQL
-// behavior itself is proven by grants-service.pg.test.ts against real PG):
-// catalog validation, the plan gate for ask-tools, the org-permitting fence,
-// the compiled stack shape, and write-skipping idempotence.
+// The grant compiler at the service layer, with the db mocked at the boundary
+// so where/create shapes can be asserted. The SQL behavior itself is covered by
+// grants-service.pg.test.ts against real PostgreSQL.
 
 const gate = vi.hoisted(() => ({ assertAllowed: vi.fn(async () => {}) }));
 
@@ -130,8 +128,8 @@ const callsOf = (model: string, op: string) =>
 const draftCreates = () =>
   callsOf("policyRuleV2", "create")
     .map((c) => (c.args as { data: Record<string, unknown> }).data)
-    // The grant stack only — ensureDefault also creates the (draft) Default
-    // Rule on first publish, and the snapshot writes published copies.
+    // The grant stack only — ensureDefault also creates the draft Default Rule
+    // on first publish, and the snapshot writes published copies.
     .filter((d) => d.status === "draft" && d.isDefault !== true);
 
 beforeEach(() => {
@@ -259,8 +257,8 @@ describe("setConnectionGrant", () => {
         where: Record<string, unknown>;
       }
     ).where;
-    // The attach pool: own project OR org-shared under the acting org —
-    // deliberately wider than assertTargetsValid, never foreign/partner.
+    // The attach pool: own project or org-shared under the acting org — wider
+    // than assertTargetsValid, but never foreign or partner.
     expect(where).toEqual({
       id: "conn-foreign",
       OR: [

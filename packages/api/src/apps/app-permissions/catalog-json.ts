@@ -1,19 +1,13 @@
 import { allGroupTools, type AppPermissionDefinition } from "./types";
 
-// The gateway-facing projection of the #626 catalog: per provider, per tool id,
-// the host + path(×alias) + method(s) that tool fans into — exactly the inputs
-// `allRuleVariants` + `appTargetMatches` use. The Rust gateway `include_str!`s
-// the generated JSON and re-expands an `app` target the identical way, so a
-// backfilled app-target rule enforces byte-for-byte like today's network rows
-// (§7.7). Single source of truth: the TypeScript catalog is authored; the JSON
-// is DERIVED from it and drift-checked in CI, so the TS API and the Rust
-// gateway can never disagree.
+// The gateway-facing projection of the catalog: per provider, per tool id, the
+// host + path(×alias) + method(s) that tool fans into. The TypeScript catalog is
+// authored; this JSON is derived from it and drift-checked in CI, so the API and
+// the gateway cannot disagree.
 //
-// SERVER-ONLY: the endpoint mapping must never reach a client bundle. The JSON
-// is read only by the gateway (compile-time embed) and the cloud backfill.
+// Server-only: the endpoint mapping must never reach a client bundle.
 
-/** One tool's endpoint fan-out. `methods: []` = any method (mirrors the
- * `[tool.method ?? null]` fallback in `allRuleVariants`). */
+/** One tool's endpoint fan-out. Empty `methods` means any method. */
 export interface CatalogTool {
   hostPattern: string;
   paths: string[];
@@ -36,12 +30,9 @@ export const buildCatalogJson = (
         tools[tool.id] = {
           hostPattern: tool.hostPattern,
           paths: [tool.pathPattern, ...(tool.aliasPatterns ?? [])],
-          // INVARIANT: empty `methods` means "any method" (the gateway's
-          // catalog.rs reads `[]` as any). A tool must therefore never be
-          // authored with an *explicit* empty `methods: []` to mean "no method" —
-          // that would fan out to zero variants in TS `allRuleVariants` (matches
-          // nothing) but any-method in the gateway (fail-open). Use a real method
-          // list, or omit both `method`/`methods` for genuine any-method tools.
+          // Empty `methods` means "any method", so never author an explicit
+          // `methods: []` to mean "no method": TS would match nothing while the
+          // gateway matches everything. Omit `method`/`methods` instead.
           methods: tool.methods ?? (tool.method ? [tool.method] : []),
         };
       }
@@ -56,7 +47,6 @@ export const buildCatalogJson = (
   );
 };
 
-/** Canonical serialization (stable key order, trailing newline) — the exact
- * bytes committed and drift-checked. */
+/** Canonical serialization — the exact bytes committed and drift-checked. */
 export const serializeCatalogJson = (catalog: CatalogJson): string =>
   `${JSON.stringify(catalog, null, 2)}\n`;

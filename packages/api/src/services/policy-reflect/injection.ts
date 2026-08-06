@@ -4,18 +4,16 @@ import type { SecretHostSet } from "../policy-simulate/secret-hosts";
 import { hostMatches } from "../../lib/path-match";
 import { providerHostMatches } from "../policy-translation/translate/app-catalog";
 
-// The shared injection law for the 9.7b reflections — a faithful mirror of the
-// gateway's `inject_select.rs` + `connect.rs` connect-time credential selection,
-// so the "credential attached" and "hasInjections" signals across all three
-// reflections agree with what the gateway would actually inject.
+// Mirror of the gateway's connect-time credential selection (`inject_select.rs`
+// + `connect.rs`), so the reflections' "credential attached" and
+// "hasInjections" signals agree with what the gateway would inject.
 
 /**
- * `inject_select.rs::identity_matches`: injection requires an EXPLICIT identity
- * in the agent's principal set (own id, or an inherited user / group). Unlike
- * the block/allow engine — where empty identities mean "any" — an
- * EMPTY identity here NEVER matches (a credential must not inject to every
- * agent; also the orphan guard: a deleted agent's cascaded-empty rule must not
- * widen to "any").
+ * Whether a rule's identities cover this agent for injection purposes.
+ *
+ * Unlike the block/allow engine, empty identities never match here — a
+ * credential must not inject to every agent, and a deleted agent leaves rules
+ * with cascaded-empty identities behind.
  */
 export const injectionIdentityMatches = (
   identities: SimRuleRow["identities"],
@@ -27,20 +25,17 @@ export const injectionIdentityMatches = (
     if (i.agentId != null) return i.agentId === agentId;
     if (i.userId != null) return principals.userIds.includes(i.userId);
     if (i.groupId != null) return principals.groupIds.includes(i.groupId);
-    // No principal (the DB one_principal CHECK makes this unreachable) — never
-    // widen to "any".
+    // No principal — unreachable given the one_principal CHECK, and never
+    // widened to "any".
     return false;
   });
 
 /**
- * Which SECRETS a selective agent's published rules grant it: specific ids, plus
- * any whole-level grants (a `secretScope` target widens to that level's pool).
- * The id-level counterpart of `buildInjectionProbe`, for callers that need the
- * secrets themselves rather than a host predicate — the container config picks
- * the agent's LLM credential this way.
+ * Which secrets a selective agent's published rules grant it: specific ids, plus
+ * any whole-level grants. The id-level counterpart of `buildInjectionProbe`, for
+ * callers needing the secrets themselves rather than a host predicate.
  *
- * Pure: the caller supplies the already-fenced rules, so a foreign id can only
- * come back if it was already in the caller's own scope.
+ * Pure — the caller supplies already-fenced rules.
  */
 export const grantedSecretSelection = (
   rules: SimRuleRow[],
@@ -64,19 +59,15 @@ export const grantedSecretSelection = (
 };
 
 /**
- * Build the host-match predicate for whether a credential would INJECT for an
- * agent + host (the deny-default carve's `hasInjections` input). The injectable
- * set is the union of:
- *  - the pool credentials (`poolSecretHostPatterns` / `poolProviders`, already
- *    loaded — the whole fenced pool for the agent-less BASELINE; empty for an
- *    agent, whose grants are the whole story since step 7);
- *  - for an AGENT, its published v2 RULE GRANTS (allow rules whose explicit
- *    identity matches): a `secret` target → its host (by id, or the level
- *    pool's hosts), a `connection` target → its provider, an `app` target WITH
- *    `connectionScope` → its provider (an app target WITHOUT one is
- *    block/allow only, never injection). Resolved through the already-fenced
- *    `secretHosts` / `connectionProviders` maps, so a foreign/deleted id
- *    contributes nothing (fail-closed).
+ * Build the host predicate for whether a credential would inject for an agent +
+ * host (the deny-default carve's `hasInjections` input). The injectable set is
+ * the pool credentials, plus — for an agent — the targets of its published
+ * allow rules whose identity matches: a `secret` target's host, a `connection`
+ * target's provider, and an `app` target's provider when it carries a
+ * `connectionScope` (without one it is block/allow only, never injection).
+ *
+ * Resolved through the already-fenced `secretHosts` / `connectionProviders`
+ * maps, so a foreign or deleted id contributes nothing.
  */
 export const buildInjectionProbe = (params: {
   agent: { id: string } | null;
@@ -117,15 +108,9 @@ export const buildInjectionProbe = (params: {
             (t.appConnectionScope === "project" ||
               t.appConnectionScope === "organization")
           ) {
-            // Provider-level: we fold the provider without checking that a live
-            // connection of it exists, so a scope grant with zero connected
-            // connections can over-report `hasInjections` (a tool the grant's
-            // own tools don't cover would then read "block" via the deny-default
-            // rather than "unmanaged"). This errs MORE restrictive — safe for a
-            // read-only reflection — and is the documented injection-probe
-            // approximation. In the common no-tool-narrowing case the grant also
-            // permits the provider's hosts in the block/allow engine, so the
-            // verdict is "allow" and `hasInjections` is moot.
+            // Folded without checking a live connection exists, so a scope
+            // grant with no connections can over-report `hasInjections`. Errs
+            // more restrictive, which is safe for a read-only reflection.
             providers.add(t.appProvider);
           }
         }

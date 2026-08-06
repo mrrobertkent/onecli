@@ -10,18 +10,14 @@ import type {
   PolicyRequest,
 } from "./types";
 
-// ── The new first-match policy engine ───────────────────────────────────────
+// ── The first-match policy engine ───────────────────────────────────────────
 // Two-level: per-scope first-match (org, then project), combined by strictest,
-// with each level's Default Rule as its fallback verdict (deny wins). This is the
-// engine step 4 (shadow) and step 5 (cutover) adopt; the golden corpus asserts
-// evaluateNew(translatePolicy(state)) == evaluateOracle(state).
+// with each level's Default Rule as its fallback verdict (deny wins).
 //
-// Why two levels rather than one merged list: the gateway lets a PROJECT
-// agent-scoped rule shadow (loosen or tighten) a project all-agents rule, but
-// NEVER lets a project rule override an org rule. A single merged first-match
-// can honor at most one of "agent loosens all-agents" (needs identity to beat
-// strictness) and "org is un-overridable" (needs strictness to beat identity).
-// Splitting org/project and combining by strictest honors both.
+// Two levels rather than one merged list because a single merged first-match
+// can honor either "an agent rule loosens an all-agents rule" (identity beats
+// strictness) or "an org rule is un-overridable" (strictness beats identity),
+// not both.
 
 const identityMatches = (rule: NewRule, request: PolicyRequest): boolean =>
   rule.identities.length === 0 ||
@@ -52,12 +48,9 @@ const targetMatches = (
         })
       );
     case "app":
-      // NO tools = the WHOLE app (the dialog's "All connections" and an
-      // empty-tools resolved `connection` target): host-only against every
-      // catalog tool host of the provider — any path/method, conditions ignored
-      // — the `secret` mirror (`catalog.rs::app_target_matches`, empty-tools
-      // branch). Named tools = the fan-out (honors path/method/conditions). The
-      // `connectionScope` is injection-only either way (never affects matching).
+      // No tools means the whole app: host-only against every catalog tool host
+      // of the provider, ignoring path/method/conditions. Named tools fan out
+      // and honor them. `connectionScope` is injection-only either way.
       if (target.tools.length === 0) {
         return providerHostMatches(request.host, target.provider);
       }
@@ -68,13 +61,10 @@ const targetMatches = (
         rule.conditions,
       );
     case "connection": {
-      // A RESOLVED connection target (provider present) binds to the account
-      // that won injection: it matches only when this request's winning
-      // injected connection is exactly this one AND the provider/tools fan-out
-      // hits (the same expansion as `app`; empty tools = the whole app). No
-      // winner, or an UNRESOLVED provider-less target (deleted/foreign
-      // connection) → never matches — fail-closed for allow AND block.
-      // Mirrors evaluate.rs `Target::Connection`.
+      // A resolved connection target binds to the account that won injection:
+      // it matches only when the request's winning connection is this one and
+      // the provider/tools fan-out hits. No winner, or a provider-less target
+      // (deleted/foreign connection), never matches — fail-closed.
       const provider = target.provider;
       if (
         provider === undefined ||
@@ -89,20 +79,17 @@ const targetMatches = (
       return appTargetMatches(request, provider, target.tools, rule.conditions);
     }
     case "secret":
-      // A secret gates its host (step 8): permit on allow / block on block, like an
-      // `app` target. Matches when the request host matches ANY resolved host
-      // pattern (host-only, mirroring the connect-time injection filter — permit ⟺
-      // inject). Empty patterns = unresolved/deleted secret → never matches.
+      // A secret gates its host, like an `app` target: host-only, mirroring the
+      // connect-time injection filter. Empty patterns mean an unresolved or
+      // deleted secret, which never matches.
       return target.hostPatterns.some((h) => hostMatches(request.host, h));
   }
 };
 
-// Mirror of evaluate.rs `rule_matches`: a non-default rule matches only when it
-// names at least one target AND one of them matches. Empty targets = matches
-// NOTHING (fail-closed) — "match everything" is the Default Rule's terminal or an
-// explicit wildcard, never an empty target list. This also neutralizes an orphaned
-// rule whose sole connection/secret target was deleted (the FK cascade leaves zero
-// targets). Only non-default rules reach here (the default is pulled separately).
+// A non-default rule matches only when it names at least one target and one of
+// them matches. Empty targets match nothing, which is also what neutralizes a
+// rule whose sole connection/secret target was deleted. "Match everything" is
+// the Default Rule or an explicit wildcard, never an empty target list.
 const ruleMatches = (rule: NewRule, request: PolicyRequest): boolean =>
   identityMatches(rule, request) &&
   rule.targets.length > 0 &&
@@ -118,11 +105,8 @@ const firstMatch = (
   rules: NewRule[],
   request: PolicyRequest,
 ): LevelMatch | null => {
-  // Stable sort by priority: equal-priority rules keep their loader order, which
-  // is `ORDER BY priority, id` — so first-match matches the gateway's
-  // `ORDER BY r.priority, r.id`. The row id isn't on the pure NewRule (it rides as
-  // sim metadata), so the (priority, id) order is established by the loaders, not
-  // re-derived here; JS Array.sort is stable, so ties are preserved.
+  // Ties keep loader order, which is `ORDER BY priority, id` — the row id isn't
+  // on NewRule, so that half of the ordering comes from the loaders.
   const ordered = [...rules].sort((a, b) => a.priority - b.priority);
   for (const rule of ordered) {
     if (ruleMatches(rule, request)) {
@@ -146,17 +130,14 @@ const toDecision = (rule: NewRule): Decision => {
 };
 
 /**
- * Decide `request` against a translated rule set, ATTRIBUTED: the outcome names
+ * Decide `request` against a translated rule set, attributed: the outcome names
  * the deciding rule (or Default Rule). `evaluateNew` collapses it to a bare
- * `Decision` — the corpus-gated contract — so this core IS the engine, not a
- * parallel one.
+ * `Decision`.
  *
- * The uniform per-level default law (step 9): each level's verdict is its first
- * matching rule, else its Default Rule; the stricter verdict wins (deny-wins).
- * A level with no rules and no Default Rule contributes no verdict.
- * Default-Block verdicts are gated by the `enforceDeny` carve (managed, non-LLM
- * requests only); explicit rule blocks are unconditional. Mirrors
- * `evaluate_outcome` (evaluate.rs).
+ * Each level's verdict is its first matching rule, else its Default Rule; the
+ * stricter verdict wins. A level with no rules and no Default Rule contributes
+ * nothing. Default-Block verdicts are gated by the `enforceDeny` carve;
+ * explicit rule blocks are unconditional.
  */
 export const evaluatePolicyOutcome = (
   rules: NewRule[],
@@ -178,20 +159,16 @@ export const evaluatePolicyOutcome = (
   const orgMatch = firstMatch(orgExplicit, request);
   const projectMatch = firstMatch(projectExplicit, request);
 
-  // A Default Rule Block is a HARD FLOOR at its level: the org default's Block
-  // may not be opened by a project ALLOW (only an org allow rule or an org allow
-  // posture opens the door), and symmetrically a project default Block
-  // (allowlist mode) may not be opened by an org ALLOW — an org allow is
-  // "permission"; the project mirrors the allows it wants.
+  // A Default Rule Block is a hard floor at its level: neither level's default
+  // block can be opened by the other level's allow.
   const enforceDeny = request.hasInjections && !request.isLlmHost;
   const orgDefaultBlocks = orgDefault?.action === "block" && enforceDeny;
   const projectDefaultBlocks =
     projectDefault?.action === "block" && enforceDeny;
 
-  // A lone org ALLOW can't punch through the project default Block (allowlist
-  // mode) — drop it so it falls through to the deny-default. An org BLOCK still
-  // applies (it only tightens). Approval/rate rules are action "allow", so they
-  // defer too — symmetric with the org floor below.
+  // A lone org allow can't punch through the project default block; drop it so
+  // it falls through to the deny-default. An org block still applies. Approval
+  // and rate rules have action "allow", so they defer too.
   const effectiveOrg =
     projectMatch === null &&
     orgMatch?.rule.action === "allow" &&
@@ -199,9 +176,8 @@ export const evaluatePolicyOutcome = (
       ? null
       : orgMatch;
 
-  // A lone project ALLOW can't punch through the org default Block — drop it so it
-  // falls through to the deny-default. A project BLOCK still applies (it only
-  // tightens); an allow-posture org lets the project allow win.
+  // The mirror image: a lone project allow can't punch through the org default
+  // block. An allow-posture org lets the project allow win.
   const effectiveProject =
     orgMatch === null &&
     projectMatch?.rule.action === "allow" &&
@@ -209,9 +185,8 @@ export const evaluatePolicyOutcome = (
       ? null
       : projectMatch;
 
-  // Combine the two level results by strictest (lower rank = stricter); on a tie
-  // keep the org match (reduce's left bias) so the org rate modifier wins,
-  // matching the oracle's org-first Pass 3.
+  // Strictest wins (lower rank = stricter); a tie keeps the org match, so an
+  // org rate modifier beats a project one.
   const candidates = [effectiveOrg, effectiveProject].filter(
     (m): m is LevelMatch => m !== null,
   );
@@ -220,8 +195,8 @@ export const evaluatePolicyOutcome = (
     return { kind: "rule", rule: best.rule };
   }
 
-  // No explicit rule survived → the level defaults decide; deny wins.
-  // Attribution is org-first (the org default is checked first at the gateway).
+  // No explicit rule survived, so the level defaults decide; deny wins, and
+  // attribution is org-first.
   if (orgDefaultBlocks) {
     return {
       kind: "denyDefault",
@@ -239,7 +214,7 @@ export const evaluatePolicyOutcome = (
   return { kind: "allow", managed: enforceDeny };
 };
 
-/** Collapse an attributed outcome to the bare corpus-contract `Decision`. */
+/** Collapse an attributed outcome to a bare `Decision`. */
 export const outcomeToDecision = (outcome: PolicyOutcome): Decision => {
   switch (outcome.kind) {
     case "rule":
@@ -252,9 +227,8 @@ export const outcomeToDecision = (outcome: PolicyOutcome): Decision => {
 };
 
 /**
- * Decide `request` against a translated rule set — the corpus-gated contract
- * (`evaluateNew(translatePolicy(state)) == evaluateOracle(state)`). A thin
- * collapsing wrapper over `evaluatePolicyOutcome`.
+ * Decide `request` against a translated rule set. A collapsing wrapper over
+ * `evaluatePolicyOutcome`.
  */
 export const evaluateNew = (
   rules: NewRule[],

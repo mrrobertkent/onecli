@@ -1,13 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The boot pass walks EVERY project on EVERY boot, forever — long after the last
-// instance has converted. So the steady state has to be cheap: one count, and no
-// read of the deprecated tables at all. Without the fast path a converted
-// instance re-reads `policy_rules` and every agent's grants for each project on
-// each boot, purely to throw the result away at the idempotency check.
-//
-// This is a query-shape test because that is the property: the pg suite proves
-// the conversion is CORRECT, and nothing there can see how much work it did.
+// The boot pass walks every project on every boot, so a converted project must
+// cost one count and no read of the deprecated tables. This asserts on query
+// shape; the pg suite proves the conversion itself is correct.
 
 const calls = vi.hoisted(() => ({ log: [] as string[] }));
 const state = vi.hoisted(() => ({
@@ -77,8 +72,7 @@ describe("the steady state costs one count and touches no deprecated table", () 
     state.legacyCount = 0;
     const result = await cutoverOssProject("p1", "allow");
     expect(result).toEqual({ status: "skipped", ruleCount: 0 });
-    // The ONLY deprecated-table access is the legacy count that decides whether
-    // there is anything left to say. No rule read, no grant read, no write.
+    // The only deprecated-table access is the legacy count.
     expect(calls.log).toEqual(["policyRuleV2.count", "policyRule.count"]);
   });
 
@@ -92,8 +86,8 @@ describe("the steady state costs one count and touches no deprecated table", () 
   });
 
   it("still catches a user publish that pre-empted the conversion", async () => {
-    // The fast path must not swallow this: a published generation that is NOT
-    // the migration's own means the legacy rules were never carried over.
+    // A published generation that isn't the migration's own means the legacy
+    // rules were never carried over.
     state.publishedCount = 1;
     state.legacyCount = 3;
     state.activeDefaultDescription = "a user's own default";

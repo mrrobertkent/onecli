@@ -4,25 +4,17 @@ import {
 } from "../validations/policy";
 
 /**
- * Resource axes — the TS twin of the gateway's `ee/granular_access.rs`
- * `ResourceAxis`, and the single definition of what "one resource is inside
- * another" means for a session policy ("Resources": which repositories or
- * folders an injected credential may reach).
+ * Resource axes: what "one resource is inside another" means for a session
+ * policy — which repositories or folders an injected credential may reach.
  *
- * It lives here, outside `ee/`, because the shared reflection and grants
- * services compose scopes and must build standalone. The functions are pure and
- * inert in editions that store no session policies.
- *
- * ⚠ These rules must stay byte-identical to the gateway's — the gateway is what
- * actually enforces them, and a divergence would show the operator one scope
- * while applying another. That extends to value semantics, not just structure:
- * case folding is ASCII-only and Dropbox targets must be absolute, because that
- * is precisely what `to_ascii_lowercase` and `path_allowed` do in Rust. The
- * Rust tests and `resource-axis.test.ts` cover the same cases on purpose.
+ * The gateway (`ee/granular_access.rs`) is what actually enforces these rules,
+ * so any change here has to match it exactly, down to ASCII-only case folding
+ * and requiring absolute Dropbox paths. Divergence would show the operator one
+ * scope while a different one is applied.
  */
 
-/** `str::to_ascii_lowercase` — NOT `toLowerCase()`, which also folds non-ASCII
- * (so `/Ärende` would match `/ärende` here but not at the gateway). */
+/** Matches Rust's `to_ascii_lowercase`; `toLowerCase()` also folds non-ASCII,
+ * so `/Ärende` would match `/ärende` here but not at the gateway. */
 const asciiLower = (value: string): string =>
   value.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
@@ -60,8 +52,7 @@ const folders: ResourceAxis = {
     const normalized = boundary.map((b) => folders.normalize(b));
     // A root boundary contains every path.
     if (normalized.some((b) => b === "")) return true;
-    // Only absolute paths are verifiable (`id:`/`rev:` refs are not), mirroring
-    // the gateway's `path_allowed`.
+    // Only absolute paths are verifiable; `id:`/`rev:` refs are not.
     if (!entry.startsWith("/")) return false;
     const target = folders.normalize(entry);
     if (target === "") return false; // the account root is not "inside" anything
@@ -93,13 +84,12 @@ const rawEntries = (
 };
 
 /**
- * Whether a policy restricts its credential to NOTHING — an explicitly empty
- * allowlist. It is how an empty scope composition is represented, and reading
- * it as "unrestricted" would be the worst possible default: for GitHub an empty
- * list omitted from the mint request yields a token for EVERY repository.
+ * Whether a policy restricts its credential to nothing — an explicitly empty
+ * allowlist, which is how an empty scope composition is represented. Reading it
+ * as "unrestricted" would mint a token for every repository.
  *
- * Deliberately evaluated on the raw entries: normalization drops values like
- * `"/"`, and a policy that listed only those still means "restrict".
+ * Evaluated on the raw entries because normalization drops values like `"/"`,
+ * and a policy that listed only those still means "restrict".
  */
 export const deniesEverything = (policy: unknown): boolean => {
   const axis = axisOf(policy);
@@ -114,10 +104,8 @@ export const coveredBy = (entry: string, boundary: unknown): boolean => {
   return axis.coveredBy(entry, rawEntries(boundary, axis) ?? []);
 };
 
-/** The entries of `policy` that fall outside `boundary` — what a write-time
- * containment check reports back to the user. Axes that disagree overlap in
- * nothing, so every entry is outside (the same fail-closed reading the gateway
- * applies when composing). */
+/** The entries of `policy` that fall outside `boundary`. Mismatched axes
+ * overlap in nothing, so every entry counts as outside. */
 export const entriesOutside = (
   policy: unknown,
   boundary: unknown,
@@ -137,10 +125,9 @@ export const entriesOutside = (
  * overlap of both. `null`/absent on either side means "unrestricted there", so
  * the other side stands alone.
  *
- * SYMMETRIC — an entry survives when it is inside the other side, whichever
- * side it came from. For nesting axes that keeps the narrower of a nested pair
- * (boundary `/clients/acme` with selection `/clients` yields `/clients/acme`)
- * instead of discarding a real overlap.
+ * Symmetric: an entry survives when it is inside the other side, whichever side
+ * it came from, so a nested pair keeps the narrower entry (boundary
+ * `/clients/acme` with selection `/clients` yields `/clients/acme`).
  */
 export const intersectPolicies = (
   a: unknown,
@@ -152,8 +139,8 @@ export const intersectPolicies = (
     return axisB && isSessionPolicy(b) ? b : null;
   if (!axisB || !isSessionPolicy(b)) return a;
   if (axisA.key !== axisB.key) {
-    // Different dimensions cannot overlap (one provider, one axis) — a
-    // misconfiguration, and the safe reading is "nothing is in both".
+    // Different dimensions cannot overlap; the safe reading is "nothing is in
+    // both".
     return axisA.build([]);
   }
   const entriesA = rawEntries(a, axisA) ?? [];
@@ -162,7 +149,7 @@ export const intersectPolicies = (
     ...entriesA.filter((entry) => axisA.coveredBy(entry, entriesB)),
     ...entriesB.filter((entry) => axisA.coveredBy(entry, entriesA)),
   ].map((entry) => axisA.normalize(entry));
-  // Deterministic: the composed value is part of the gateway's injection cache
-  // key, so an unstable order would multiply cache misses.
+  // Sorted because the composed value is part of the gateway's injection cache
+  // key, and an unstable order would multiply cache misses.
   return axisA.build([...new Set(kept)].sort());
 };

@@ -1,18 +1,12 @@
 //! Default interceptions: gateway-authored responses for a small set of
-//! predefined endpoints, served WITHOUT forwarding upstream and independent of
-//! whether any secret or app connection is configured.
+//! predefined endpoints, short-circuiting the request instead of forwarding it,
+//! and independent of any configured secret or app connection.
 //!
-//! Unlike secret/app injection (which rewrites a request that is then forwarded),
-//! a default interception short-circuits the request entirely. These are
-//! protocol workarounds that ship with the gateway, so the registry is static.
-//!
-//! First case: Codex (the OpenAI agent) runs against a stub `~/.codex/auth.json`
-//! whose tokens are the `"onecli-managed"` placeholder. When the stub's
-//! `last_refresh` ages past Codex's ~8-day window, Codex proactively
-//! `POST`s `auth.openai.com/oauth/token` to refresh — which can never succeed
-//! against the placeholder `refresh_token` and produces a retry storm. We answer
-//! that refresh with a synthetic `200`; Codex stamps `last_refresh = now` itself
-//! and goes quiet. The real token is still injected at the actual API call.
+//! Codex runs against a stub `~/.codex/auth.json` holding `"onecli-managed"`
+//! placeholders, and once they age it retries `auth.openai.com/oauth/token`
+//! forever, since a placeholder `refresh_token` can never succeed. A synthetic
+//! `200` makes it stamp `last_refresh` and go quiet; the real token is still
+//! injected at the actual API call.
 
 use hyper::{Method, StatusCode};
 
@@ -70,22 +64,15 @@ pub(crate) fn match_target(
 }
 
 /// Seconds advertised in the synthetic refresh response's `expires_in`. Codex
-/// does not read this field (its refresh timing comes from the access-token JWT
-/// `exp` and the `last_refresh` age), so the value is cosmetic; it is kept large
-/// (~30 days) so any other client that did read it would not refresh frequently.
+/// ignores it; kept large (~30 days) so a client that does read it refreshes rarely.
 const SYNTHETIC_EXPIRES_IN_SECS: u64 = 30 * 24 * 60 * 60;
 
 /// Handler for Codex refreshing its `onecli-managed` placeholder OAuth token.
 ///
-/// Codex's refresh response type has all-optional fields and ignores any others,
-/// and on any `2xx` Codex stamps `last_refresh = now` to disk itself — so echoing
-/// the placeholders is enough to make it stop retrying. `id_token` is intentionally
-/// omitted: Codex keeps its existing valid one, and a placeholder JWT here would
-/// fail Codex's claim parsing and break the refresh. `token_type`/`expires_in` are
-/// not read by Codex and exist only to mirror a standard OAuth token response.
-///
-/// Real Codex logins carry a real `refresh_token`, fail the sentinel check, and
-/// are forwarded to the real `auth.openai.com` untouched.
+/// Any `2xx` makes Codex stamp `last_refresh` and stop retrying, so echoing the
+/// placeholders suffices. `id_token` is omitted deliberately: a placeholder JWT
+/// would fail Codex's claim parsing. Real logins carry a real `refresh_token`,
+/// fail the sentinel check, and forward untouched.
 fn codex_oauth_refresh(body: &[u8]) -> Option<SyntheticResponse> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     if json.get("grant_type").and_then(|v| v.as_str()) != Some("refresh_token") {

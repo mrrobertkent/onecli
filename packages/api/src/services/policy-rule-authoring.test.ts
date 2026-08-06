@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Layer-2 authoring guard for the unified policy engine: a NON-DEFAULT rule must
-// name at least one target. An empty target list would match NOTHING at the
-// gateway (fail-closed — see the evaluator), so it is never a valid authored
-// rule. The service rejects it with 422 on both create and update; OMITTING
-// `targets` on update (the editor's locked-rule preserve) stays allowed. The db /
-// providers are mocked only as far as the guard's reach.
+// A non-default rule must name at least one target: an empty target list would
+// match nothing at the gateway, so create and update both reject it with 422.
+// Omitting `targets` on update stays allowed. The db and providers are mocked
+// only as far as the guard's reach.
 
 const gate = vi.hoisted(() => ({ assertAllowed: vi.fn(async () => {}) }));
 
@@ -14,8 +12,7 @@ const state = vi.hoisted(() => ({
   existing: null as unknown,
 }));
 
-// A RuleRow the DTO mapper can read (identities/targets empty → []). Its shape is
-// incidental — every test asserts the guard's control flow, not the row's data.
+// A RuleRow the DTO mapper can read; its shape is incidental.
 const ruleRow = vi.hoisted(() => (overrides: Record<string, unknown> = {}) => ({
   id: "r1",
   scope: "project",
@@ -71,8 +68,8 @@ const { createPolicyRule, updatePolicyRule } = await import("./policy-service");
 
 const SCOPE = { projectId: "p1" };
 const USER = "user-1";
-// A network target reaches no db in `assertTargetsValid` (no owned id to fence),
-// so it isolates the guard without a connection/secret ownership mock.
+// A network target reaches no db in `assertTargetsValid`, so it isolates the
+// guard without an ownership mock.
 const NETWORK_TARGET = {
   kind: "network" as const,
   hostPattern: "api.example.com",

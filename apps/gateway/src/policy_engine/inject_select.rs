@@ -1,26 +1,21 @@
-//! The OSS inject-selection subset: derive which credentials the published
-//! project rules ALLOW the requesting agent to have injected — pure and
-//! DB-free over the already-loaded rows. Since attach-model step 7 this
-//! selection is the whole story for the org/project tiers — every agent is
-//! rule-selected, and the retired `agents.secret_mode` column is never read.
+//! Derive which credentials the published project rules allow the requesting
+//! agent to have injected — pure and DB-free over the already-loaded rows.
 //!
-//! Two locked narrowings vs the EE selector: identities match the AGENT ONLY
-//! (no principal set — directory identities are a OneCLI Cloud capability),
-//! and a connection's sessionPolicy is NEVER attached (the map value is always
-//! `None`) — granular resource scoping is Cloud-only and the OSS gateway has
-//! no guard to enforce it, so nothing may ever populate it here.
+//! Two narrowings vs the EE selector: identities match the agent only, and a
+//! connection's sessionPolicy is never attached (the map value is always
+//! `None`) — the OSS gateway has no guard to enforce granular scoping, so
+//! nothing may populate it here.
 //!
-//! Reads the RAW rows (not the assembler, which resolves connection/secret
-//! targets away) so the specific credential ids survive.
+//! Reads the raw rows rather than the assembler, which resolves
+//! connection/secret targets away, so the specific credential ids survive.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::db::{InjectSelection, PolicyIdentityRow, PolicyV2Rules};
 
-/// Injection requires an EXPLICIT agent identity: empty identities NEVER match
-/// (a credential must name who receives it — and an agent deleted out of an
-/// equipment rule must not leak its credentials to everyone), and directory
-/// identity rows never match in OSS.
+/// Injection requires an explicit agent identity: empty identities never match,
+/// so an agent deleted out of an equipment rule cannot leak its credentials to
+/// everyone. Directory identity rows never match in OSS.
 fn identity_matches(identities: &[PolicyIdentityRow], agent_id: &str) -> bool {
     !identities.is_empty()
         && identities

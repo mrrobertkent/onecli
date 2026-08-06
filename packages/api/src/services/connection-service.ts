@@ -102,10 +102,8 @@ export const reconnectConnection = async (
     JSON.stringify(credentials),
   );
 
-  // Provenance is rewritten only when the caller expresses one: a re-mint
-  // passes `appConfigId` (a value to link, or `undefined` to clear a stale
-  // link); a bare token-persist omits the key entirely so the existing link is
-  // preserved (Prisma treats an absent field as "leave unchanged").
+  // The link is rewritten only when the caller passes `appConfigId` at all;
+  // omitting the key entirely preserves the existing link.
   const provenanceUpdate =
     options && "appConfigId" in options
       ? { appConfigId: options.appConfigId ?? null }
@@ -127,9 +125,8 @@ export const reconnectConnection = async (
 };
 
 /**
- * Record which AppConfig minted a connection, after the fact — used by the
- * credentials-import path, where the project config row is saved only after the
- * connection is created. Scope-guarded so it can only touch the caller's own row.
+ * Record which AppConfig minted a connection, after the fact — the
+ * credentials-import path saves the config row after creating the connection.
  */
 export const linkConnectionToAppConfig = async (
   scope: ResourceScope,

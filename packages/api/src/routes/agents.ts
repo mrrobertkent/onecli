@@ -23,8 +23,7 @@ export const agentRoutes = () => {
   const app = new Hono<ApiEnv>();
   app.use("*", authMiddleware);
 
-  // GET /agents[?include=grants-summary] — the plain list, or (the first
-  // `?include=` projection) each agent with its attach-list chips summary.
+  // GET /agents[?include=grants-summary]
   app.get("/", async (c) => {
     const auth = c.get("auth");
     const projectId = requireProjectId(auth);
@@ -59,10 +58,9 @@ export const agentRoutes = () => {
 
     const projectId = requireProjectId(auth);
 
-    // The agent quota gates *new* agents only -- re-creating an existing
-    // identifier consumes no slot. Skip the quota check when it already exists
-    // so createAgent returns the canonical 409 instead of a 403 that shadows it
-    // at the cap and breaks idempotent ensureAgent. See onecli/node-sdk#40.
+    // The quota gates new agents only. Skipping the check for an existing
+    // identifier keeps createAgent's 409 from being shadowed by a 403 at the
+    // cap, which would break idempotent ensureAgent. See onecli/node-sdk#40.
     if (!(await agentExistsByIdentifier(projectId, parsed.data.identifier))) {
       await getResourceHooks().beforeCreateAgent(
         auth.organizationId,
@@ -70,10 +68,8 @@ export const agentRoutes = () => {
       );
     }
 
-    // `parentIdentifier` stays ACCEPTED in the schema (the CLI sends it on
-    // sub-agent creation) but is no longer threaded anywhere: it only ever
-    // drove secret-mode inheritance, and since attach-model step 5 every new
-    // agent is selective.
+    // `parentIdentifier` is still accepted by the schema because the CLI sends
+    // it, but it drives nothing: every new agent is selective.
     const agent = await createAgent(
       projectId,
       parsed.data.name,
@@ -96,9 +92,8 @@ export const agentRoutes = () => {
   // GET /agents/:agentId — registered after /default so the literal path wins.
   app.get("/:agentId", async (c, next) => {
     const agentId = c.req.param("agentId");
-    // `/granular-access` is a step-10 tombstone: fall through to the 410 shim
-    // (`removedAgentEquipmentRoutes`, mounted after this router) instead of
-    // answering 404 for a path that must keep saying what replaced it.
+    // Fall through to the 410 shim in `removedAgentEquipmentRoutes` (mounted
+    // after this router) rather than answering 404 for a removed path.
     if (agentId === "granular-access") return next();
     const auth = c.get("auth");
     const agent = await getAgentDetail(requireProjectId(auth), agentId);
@@ -149,9 +144,8 @@ export const agentRoutes = () => {
     return c.json(result);
   });
 
-  // PATCH /:agentId/secret-mode was removed in attach-model step 5 — the
-  // sub-path 410 lives in `removedAgentEquipmentRoutes`, mounted after this
-  // router.
+  // PATCH /:agentId/secret-mode is gone; its 410 lives in
+  // `removedAgentEquipmentRoutes`, mounted after this router.
 
   return app;
 };

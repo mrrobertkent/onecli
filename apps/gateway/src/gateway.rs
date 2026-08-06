@@ -1,17 +1,8 @@
 //! HTTP gateway server: connection handling, MITM interception, and tunneling.
 //!
-//! This module owns the `GatewayServer` struct and the core request flow:
-//! accept → authenticate → resolve (via [`connect`]) → MITM or tunnel.
-//!
-//! Axum handles normal HTTP routes (/healthz). CONNECT requests are intercepted
-//! before reaching the router via a `tower::service_fn` wrapper, following the
-//! official Axum http-proxy example pattern.
-//!
-//! Sub-modules handle specific stages of the proxy pipeline:
-//! - [`forward`]: request forwarding, header filtering, unconnected app interception
-//! - [`mitm`]: TLS interception with generated leaf certificates
-//! - [`tunnel`]: direct TCP tunneling for non-intercepted domains
-//! - [`response`]: pre-built gateway error responses
+//! The core request flow is accept → authenticate → resolve (via [`connect`]) →
+//! MITM or tunnel. Axum serves the normal HTTP routes; CONNECT is intercepted by
+//! a `tower::service_fn` wrapper before it reaches the router.
 
 mod body;
 #[cfg(edition_cloud)]
@@ -29,8 +20,7 @@ pub(crate) mod hooks;
 #[path = "ee/hooks.rs"]
 pub(crate) mod hooks;
 mod mitm;
-// `pub(crate)` so `main` can report at startup whether dashboard links will be
-// built from a configured APP_URL or from the fallback.
+// `pub(crate)` so `main` can report at startup which APP_URL dashboard links use.
 pub(crate) mod response;
 mod transforms;
 mod tunnel;
@@ -62,8 +52,8 @@ use crate::db;
 use crate::inject;
 use crate::vault;
 
-/// Pause before retrying a failed `accept`, so a persistent error (a truly
-/// exhausted fd table) cannot spin the loop at full tilt.
+/// Pause before retrying a failed `accept`, so a persistent error (an exhausted
+/// fd table) cannot spin the loop.
 const ACCEPT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
 // ── GatewayState ───────────────────────────────────────────────────────
@@ -97,8 +87,7 @@ pub(crate) struct GatewayState {
     /// not serve — validates TLS certificates.
     pub ws_connector: TlsConnector,
     /// No-verify WebSocket connector — skips TLS certificate validation.
-    /// Selected for hosts matched by `skip_verify_hosts`, exactly as
-    /// `http_client_no_verify` is.
+    /// Selected for hosts matched by `skip_verify_hosts`.
     pub ws_connector_no_verify: TlsConnector,
     pub policy_engine: Arc<PolicyEngine>,
     pub cache: Arc<dyn CacheStore>,
@@ -130,12 +119,8 @@ fn build_http_client(accept_invalid_certs: bool) -> reqwest::Client {
 /// Accepts any server certificate, for the hosts an operator has explicitly
 /// exempted from verification.
 ///
-/// This is deliberately the same posture `reqwest`'s `danger_accept_invalid_certs`
-/// gives the HTTP path: chain, hostname *and* handshake signature all go
-/// unchecked. Parity is the point — an operator who exempts an internal host
-/// expects it to work over both protocols, and the appliances that need the
-/// exemption at all are exactly the ones with certificates and signature
-/// algorithms nothing modern will accept.
+/// Same posture as `reqwest`'s `danger_accept_invalid_certs` on the HTTP path:
+/// chain, hostname *and* handshake signature all go unchecked.
 #[derive(Debug)]
 struct AcceptAnyServerCert;
 
@@ -171,16 +156,11 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
         Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
     }
 
-    /// This list is load-bearing, not decoration: it becomes the ClientHello's
-    /// `signature_algorithms`. Return nothing and the server finds no acceptable
-    /// scheme and aborts *before sending a certificate* — the verifier above
-    /// never runs, and skipping verification manifests as an unexplained
-    /// handshake failure.
-    ///
-    /// Copied from reqwest so the two paths advertise the same thing. It
-    /// deliberately includes schemes our own provider cannot verify (SHA-1,
-    /// Ed448) — harmless, because nothing here verifies anything, and it is
-    /// what lets a legacy appliance find something it can sign with.
+    /// Becomes the ClientHello's `signature_algorithms`. Return nothing and the
+    /// server aborts *before sending a certificate*, so skipping verification
+    /// manifests as an unexplained handshake failure. Schemes our own provider
+    /// cannot verify (SHA-1, Ed448) are included so a legacy appliance can find
+    /// something it can sign with.
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
         use rustls::SignatureScheme;
         vec![
@@ -203,16 +183,13 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
 
 /// Build the TLS config used to dial upstream WebSocket servers.
 ///
-/// The sibling of [`build_http_client`], and built the same way for the same
-/// reason: the WebSocket leg dials the same upstreams as the HTTP leg, so it
-/// has to honor the same verification exemptions. Built once at startup rather
-/// than per upgrade — a rustls config is expensive to assemble.
+/// Honors the same verification exemptions as [`build_http_client`], and is
+/// built once at startup rather than per upgrade.
 ///
 /// # Panics
 ///
 /// Requires the process-default [`rustls::crypto::CryptoProvider`] that `main`
-/// installs at startup: with both `ring` and `aws_lc_rs` compiled in, rustls
-/// cannot choose one itself and `ClientConfig::builder()` panics.
+/// installs at startup.
 fn build_ws_tls_config(accept_invalid_certs: bool) -> Arc<rustls::ClientConfig> {
     let mut config = if accept_invalid_certs {
         rustls::ClientConfig::builder()
@@ -233,11 +210,8 @@ fn build_ws_tls_config(accept_invalid_certs: bool) -> Arc<rustls::ClientConfig> 
 
 /// Parse `GATEWAY_SKIP_VERIFY_HOSTS` into a list of hostname patterns.
 ///
-/// Patterns support:
-/// - Exact match: `internal.corp`
-/// - Wildcard subdomain prefix: `*.internal.corp`
-///
-/// Falls back to empty (no hosts skip verification) if the variable is unset.
+/// Patterns support exact match (`internal.corp`) and wildcard subdomain prefix
+/// (`*.internal.corp`). Unset falls back to empty — no host skips verification.
 fn parse_skip_verify_hosts() -> Vec<String> {
     std::env::var("GATEWAY_SKIP_VERIFY_HOSTS")
         .unwrap_or_default()
@@ -249,9 +223,7 @@ fn parse_skip_verify_hosts() -> Vec<String> {
 
 /// Returns true if `host` matches any pattern in `patterns`.
 ///
-/// - `*.example.com` matches `sub.example.com` but NOT `example.com` itself.
-/// - `example.com` matches only `example.com`.
-///
+/// `*.example.com` matches `sub.example.com` but not `example.com` itself.
 /// Patterns are pre-lowercased by `parse_skip_verify_hosts`.
 fn host_matches_skip_verify(host: &str, patterns: &[String]) -> bool {
     let host = host.to_lowercase();
@@ -306,14 +278,12 @@ impl GatewayServer {
             .await
             .context("binding TCP listener")?;
 
-        // Report what we actually bound rather than what we asked for: with
-        // `--port 0` the OS assigns the port, and the requested address would
-        // report `:0` — leaving no way to discover where the gateway is listening.
+        // With `--port 0` the OS assigns the port, so report what was bound
+        // rather than what was asked for.
         let bound_addr = listener.local_addr().context("reading bound address")?;
 
         info!(addr = %bound_addr, "listening for connections");
 
-        // CORS configuration for browser → gateway requests.
         // credentials: true requires explicit headers/methods (not wildcard *).
         let cors_layer = CorsLayer::new()
             .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
@@ -321,9 +291,8 @@ impl GatewayServer {
                 hyper::header::CONTENT_TYPE,
                 hyper::header::AUTHORIZATION,
                 hyper::header::ACCEPT,
-                // Cloud scopes browser → gateway vault calls to the active
-                // project via this header; it must be allow-listed or the CORS
-                // preflight blocks the request. (OSS never sends it.)
+                // Must be allow-listed or the CORS preflight blocks the cloud
+                // vault calls that carry it. (OSS never sends it.)
                 hyper::header::HeaderName::from_static("x-project-id"),
             ])
             .allow_methods([
@@ -336,7 +305,6 @@ impl GatewayServer {
             .allow_credentials(true);
 
         // Build the Axum router for non-CONNECT routes.
-        // The fallback returns 400 Bad Request for anything other than defined routes.
         let axum_router = Router::new()
             .route("/healthz", axum::routing::get(healthz))
             .route("/me", axum::routing::get(me))
@@ -417,9 +385,8 @@ impl GatewayServer {
                 axum::routing::post(submit_approval_decision),
             );
 
-        // Org-scoped routes are mounted via an edition-swapped seam
-        // (`ee/org_routes.rs` for cloud + onprem, an identity stub for OSS — see
-        // `main.rs`), so the org handler never reaches the OSS build.
+        // Org-scoped routes mount through an edition-swapped seam, so the org
+        // handler never reaches the OSS build.
         let axum_router = crate::org_routes::mount(axum_router)
             .layer(cors_layer)
             .fallback(fallback)
@@ -432,10 +399,9 @@ impl GatewayServer {
                 accepted = listener.accept() => match accepted {
                     Ok(conn) => conn,
                     Err(e) => {
-                        // Accept failures are almost always transient and
-                        // self-healing (EMFILE clears as connections close,
-                        // ECONNABORTED is a client that gave up mid-handshake).
-                        // Propagating one would tear down every healthy
+                        // Accept failures are transient (EMFILE clears as
+                        // connections close, ECONNABORTED is a client that gave
+                        // up); propagating one would tear down every healthy
                         // connection this proxy is carrying.
                         warn!(error = %e, "accept failed; retrying");
                         tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
@@ -457,10 +423,8 @@ impl GatewayServer {
             });
         }
 
-        // Closing the port is what stops new work: anything that connects from
-        // here on is refused rather than accepted into a process on its way
-        // out. Dropped explicitly rather than at the end of the scope so the
-        // port is provably shut before the line below claims it is.
+        // Closing the port is what stops new work. Dropped explicitly rather
+        // than at end of scope, so it is shut before the line below says so.
         drop(listener);
         info!("listener closed — draining connections");
         Ok(())
@@ -571,9 +535,8 @@ async fn get_pending_approvals(
         if pending.is_empty() {
             long_polled = true;
             let mut shutdown_signal = crate::shutdown::subscribe();
-            // A poller holding a connection open for 30 seconds would pin the
-            // drain for its whole window. Answer "nothing pending" at once and
-            // let the SDK re-poll against the replacement instance.
+            // A 30-second poll would pin the drain for its whole window; answer
+            // at once and let the SDK re-poll against the replacement instance.
             let got_new = tokio::select! {
                 got_new = state.approval_store.wait_for_new(
                     &org_id,
@@ -712,9 +675,9 @@ fn is_http_proxy_request<T>(req: &Request<T>) -> bool {
 
 /// Handle a single client connection.
 ///
-/// Uses a `service_fn` wrapper that intercepts CONNECT requests before they reach
-/// the Axum router (CONNECT URIs like `host:port` don't match Axum's path-based routing).
-/// All other HTTP routes (vault API, healthz, etc.) go through the Axum router.
+/// A `service_fn` wrapper intercepts CONNECT before the Axum router, whose
+/// path-based routing cannot match `host:port` URIs. Everything else routes
+/// through Axum.
 async fn handle_connection(
     stream: TcpStream,
     peer_addr: SocketAddr,
@@ -752,11 +715,9 @@ async fn handle_connection(
 
     let mut shutdown_signal = crate::shutdown::subscribe();
 
-    // One select, no loop: the signal is monotonic, so once it fires there is
-    // nothing left to race against. `graceful_shutdown` turns off keep-alive —
-    // an idle connection closes at once, an in-flight request still gets its
-    // response, and a CONNECT that has already upgraded is unaffected (its
-    // session runs in its own task, under its own guard).
+    // `graceful_shutdown` turns off keep-alive: an idle connection closes at
+    // once, an in-flight request still gets its response, and a CONNECT that has
+    // already upgraded is unaffected — its session runs in its own task.
     tokio::select! {
         result = conn.as_mut() => result.context("serving HTTP connection"),
         _ = shutdown_signal.wait() => {

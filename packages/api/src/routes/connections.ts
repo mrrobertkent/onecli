@@ -24,8 +24,7 @@ import {
 type Auth = ApiEnv["Variables"]["auth"];
 
 // Ownership: a project-scoped row in the caller's project, or an org-scoped
-// row in the caller's organization (project members may manage org rows via
-// the project surface — longstanding behavior).
+// row in the caller's organization.
 const findOwnedConnection = (auth: Auth, connectionId: string) =>
   db.appConnection.findFirst({
     where: {
@@ -41,9 +40,8 @@ const findOwnedConnection = (auth: Auth, connectionId: string) =>
   });
 
 /**
- * Disconnect flow shared by /v1/connections/:id and its legacy alias
- * /v1/apps/connections/:id — audit (auto-flushes), then blocklist cleanup
- * with a re-flush when the provider's last connection went away.
+ * Disconnect flow shared by /v1/connections/:id and its /v1/apps alias: audit,
+ * then blocklist cleanup once the provider's last connection goes away.
  * Returns false when the connection isn't owned by the caller (404).
  */
 export const disconnectOwnedConnection = async (
@@ -125,10 +123,10 @@ export const renameOwnedConnection = async (
   );
 };
 
-// Connections as a top-level resource. The legacy /v1/apps/connections* paths
-// remain as aliases (routes/apps.ts) sharing the cores above; unlike them,
-// this surface filters via ?provider= (never the path — the single-segment
-// GET slot stays reserved for get-by-id) and returns bare arrays.
+// Connections as a top-level resource; /v1/apps/connections* remain as aliases
+// (routes/apps.ts) sharing the cores above. This surface filters via ?provider=
+// — the single-segment GET slot is reserved for get-by-id — and returns bare
+// arrays.
 export const connectionRoutes = () => {
   const app = new Hono<ApiEnv>();
   app.use("*", authMiddleware);

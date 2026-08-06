@@ -34,10 +34,8 @@ pub(crate) struct AgentRow {
 #[derive(Debug, FromRow)]
 pub(crate) struct SecretRow {
     pub id: String,
-    /// "project" | "organization" | "partner". Lets the budget layer identify the
-    /// partner-tier credential by its actual scope — regardless of how the secret
-    /// was resolved (inherited vs. selectively assigned to an agent). Read only by
-    /// the cloud budget module (`BudgetSecret` impl), hence the cfg'd allow.
+    /// "project" | "organization" | "partner" — the secret's own scope, not how
+    /// it was resolved. Read only by the cloud budget module.
     #[cfg_attr(not(edition_cloud), allow(dead_code))]
     pub scope: String,
     #[sqlx(rename = "type")]
@@ -56,8 +54,6 @@ pub(crate) struct SecretRow {
 }
 
 /// A user row from the `users` table.
-///
-/// Only the external-auth lookup below returns it, so it is gated with that.
 #[cfg(not(edition_oss))]
 #[derive(Debug, FromRow)]
 pub(crate) struct UserRow {
@@ -73,9 +69,8 @@ pub(crate) struct ApiKeyRow {
 
 /// An org-scoped API key row from the `api_keys` table.
 ///
-/// EE-only (cloud + onprem): org keys are mintable only via the cloud UI and
-/// the onprem bootstrap, and only those editions' auth forks consult them —
-/// gating them out keeps org-key auth out of the OSS build entirely.
+/// EE-only: org keys are mintable only from the cloud UI and the onprem
+/// bootstrap, so the OSS build carries no org-key auth at all.
 #[cfg(not(edition_oss))]
 #[derive(Debug, FromRow)]
 pub(crate) struct OrgApiKeyRow {
@@ -98,9 +93,8 @@ pub(crate) struct VaultConnectionRow {
 
 /// Look up a user by their external auth ID (e.g. an IdP `sub` claim).
 ///
-/// EE-only since the OSS session path moved to Better Auth: `auth_sessions`
-/// names `users.id` directly, so OSS has nothing left to resolve. The editions
-/// whose browser sessions are still IdP tokens (cloud Cognito) keep needing it.
+/// EE-only: only the editions whose browser sessions are IdP tokens (cloud
+/// Cognito) have anything to resolve here.
 #[cfg(not(edition_oss))]
 pub(crate) async fn find_user_by_external_auth_id(
     pool: &PgPool,
@@ -113,19 +107,12 @@ pub(crate) async fn find_user_by_external_auth_id(
         .context("querying user by external_auth_id")
 }
 
-/// Resolve a Better Auth session token to the id of the user it belongs to,
-/// treating an expired session as absent.
+/// Resolve a Better Auth session token to its user id, treating an expired
+/// session as absent.
 ///
-/// Expiry is filtered in SQL, so "unknown token" and "expired token" are one
-/// answer and one round trip. `NOW() AT TIME ZONE 'UTC'`, not bare `NOW()`:
-/// Prisma writes `expires_at` as `timestamp(3)` WITHOUT a zone holding a UTC
-/// instant, and comparing that against `NOW()` (a `timestamptz`) would coerce it
-/// through the connection's `TimeZone` — shifting every expiry by that offset on
-/// any non-UTC session.
-///
-/// Gated with [`find_default_project_id_by_user`] and for the same reason: the
-/// cloud edition's browser sessions are Cognito tokens, so `auth_sessions` rows
-/// never exist there and nothing in that build may reach for one.
+/// `NOW() AT TIME ZONE 'UTC'` rather than bare `NOW()`: `expires_at` is a
+/// zone-less `timestamp(3)` holding a UTC instant, so comparing it against a
+/// `timestamptz` would shift every expiry by the session's `TimeZone` offset.
 #[cfg(not(edition_cloud))]
 pub(crate) async fn find_auth_session_user_id(
     pool: &PgPool,
@@ -145,30 +132,13 @@ pub(crate) async fn find_auth_session_user_id(
     Ok(row.map(|(user_id,)| user_id))
 }
 
-/// Find the default project ID for a user (OSS only).
+/// The user's own oldest project in their oldest active org membership.
 ///
-/// Resolves user → active organization membership → the OLDEST project in that
-/// organization THE USER CREATED, matching the web's `findUserDefaultProject()`
-/// (packages/api/src/services/organization-service.ts), which `resolveUser()`
-/// falls back to.
+/// The `created_by_user_id` filter is load-bearing under shared tenancy:
+/// without it every session resolves to the first user's project.
 ///
-/// `created_by_user_id` is the whole point of the filter, not a tiebreaker:
-/// without it this returns the oldest project in the org regardless of owner,
-/// which is harmless only while every org has exactly one member. Under shared
-/// tenancy (one org, many users) it hands every gateway session the FIRST user's
-/// project — someone else's secrets, agents and rules.
-///
-/// Divergence to know about: the web picks its oldest active membership and then
-/// looks only in THAT org, whereas this scans every active membership in that
-/// order — so for a multi-org user whose first org holds no project of theirs,
-/// the web resolves nothing and this resolves the next org's. Unreachable in the
-/// editions that compile this (single org), and the ordering is total either way
-/// (`p.id` breaks equal timestamps).
-///
-/// OSS-only: the cloud edition is multi-project and never falls back to a
-/// default project — it requires an explicit `X-Project-Id` and validates it
-/// with [`user_can_access_project`]. Gating this `not(cloud)` makes that a
-/// compile-time guarantee (a cloud caller fails to build).
+/// Not compiled for cloud, which is multi-project and instead requires an
+/// explicit `X-Project-Id` validated by [`user_can_access_project`].
 #[cfg(not(edition_cloud))]
 pub(crate) async fn find_default_project_id_by_user(
     pool: &PgPool,
@@ -234,9 +204,7 @@ pub(crate) async fn verify_project_in_org(
     Ok(row.is_some())
 }
 
-/// Verify that a user may access a project — i.e. the project belongs to an
-/// organization the user is a member of. Scopes cloud browser (Cognito)
-/// requests to the `X-Project-Id` they specify instead of a default project.
+/// Whether the project belongs to an organization the user is a member of.
 #[cfg(edition_cloud)]
 pub(crate) async fn user_can_access_project(
     pool: &PgPool,
@@ -259,32 +227,21 @@ pub(crate) async fn user_can_access_project(
     Ok(row.is_some())
 }
 
-/// Whether a project API key's user may still USE its project — re-checked on
-/// every project-key auth so a key stops working once its user loses access
-/// (demotion, suspension, removal, or an unshared project).
+/// Whether a project API key's user may still use its project: an active member
+/// of the project's organization, and either an org admin/owner or the holder of
+/// a `ProjectAccess` binding (direct or via a group).
 ///
-/// Named `manage` for historical reasons; it is really the project-key *usage*
-/// gate, and it mirrors the web's `canAccessProjectAsUser`
-/// (`packages/api/src/middleware/auth/resolve.ts`) exactly: the user must be an
-/// ACTIVE (non-suspended) member of the project's organization, and then either
-/// an org admin/owner, or the holder of a `ProjectAccess` binding — directly
-/// (`user_id`) or through a group they belong to. Bindings are the sole
-/// per-project grant since step 13b; `created_by_user_id` is no longer read
-/// (pure provenance), so a creator who is no longer an active member — suspended
-/// or removed — is denied like anyone else.
-///
-/// Compiled into every edition: under shared tenancy (one org, many users) an
-/// unchecked project key reaches every other user's project.
+/// Re-checked on every project-key auth, in every edition — under shared tenancy
+/// an unchecked key reaches every other user's project. Project creation grants
+/// no access on its own; `created_by_user_id` is provenance only.
 pub(crate) async fn user_can_manage_project(
     pool: &PgPool,
     user_id: &str,
     project_id: &str,
 ) -> Result<bool> {
     let row: Option<(String,)> = sqlx::query_as(
-        // Active-membership INNER JOIN is the suspension/removal gate (mirrors
-        // `if (!role) return false`); then admin-or-binding. The two EXISTS are
-        // the two `projectAccessBindingArms` — a direct user binding, or one via
-        // a group the user is a member of.
+        // The INNER JOIN is the suspension/removal gate; the two EXISTS arms are
+        // the direct and group-mediated bindings.
         r#"SELECT p.id
            FROM projects p
            INNER JOIN organization_members om
@@ -419,17 +376,14 @@ pub(crate) async fn update_secret_value(
 
 // ── New-model policy queries (policy_rules_v2) ─────────────────────────────
 //
-// Shared since step 9.5: every edition's engine loads the ACTIVE published
-// generation of a scope's rules with their identities + targets aggregated as
-// JSON (parsed by the engine's assembler), ordered by `priority` (first-match
-// order). The differentiating loaders (org scope, principal set, availability)
-// live in the EE overlay (`ee/policy_engine/loaders.rs`) and are never part of
-// the OSS build.
+// Every edition loads the active published generation of a scope's rules, with
+// identities and targets aggregated as JSON and ordered by `priority`
+// (first-match). The org-scope, principal-set and availability loaders are
+// EE-only and live in the EE overlay.
 
 /// One aggregated identity (from `json_agg`, camelCase keys). Exactly one of the
-/// three principal columns is set per row (the DB `one_principal` CHECK); the
-/// engine decodes it to the matching `Identity` variant. The non-agent kinds
-/// are cloud/EE-only (OSS decodes them fail-closed).
+/// three principal columns is set per row (the `one_principal` CHECK). OSS
+/// decodes the non-agent kinds fail-closed.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PolicyIdentityRow {
@@ -438,11 +392,10 @@ pub(crate) struct PolicyIdentityRow {
     pub group_id: Option<String>,
 }
 
-/// One aggregated target (camelCase keys). `app_connection_id`/`secret_id`
-/// (step 8) name a specific credential to INJECT at connect — and the block/allow
-/// engine ALSO gates their hosts: a secret target by its resolved host pattern,
-/// a connection target by its provider's catalog hosts (permit on allow, block on
-/// block — the app/secret symmetry).
+/// One aggregated target (camelCase keys). `app_connection_id`/`secret_id` name
+/// a specific credential to inject at connect, and the block/allow engine also
+/// gates their hosts — a secret by its resolved host pattern, a connection by
+/// its provider's catalog hosts.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PolicyTargetRow {
@@ -450,34 +403,33 @@ pub(crate) struct PolicyTargetRow {
     pub app_provider: Option<String>,
     #[serde(default)]
     pub app_tools: Vec<String>,
-    /// kind=app (step 8): "organization" | "project" → inject ALL the agent's
-    /// connections of `app_provider` at that level; NULL = the app-permission
+    /// kind=app: "organization" | "project" injects every one of the agent's
+    /// connections of `app_provider` at that level; NULL is the app-permission
     /// block/allow rule (no injection).
     pub app_connection_scope: Option<String>,
     pub app_connection_id: Option<String>,
     pub secret_id: Option<String>,
-    /// kind=secret (step 8): "organization" | "project" → inject ALL the agent's
-    /// secrets at that level; NULL = a specific `secret_id` target.
+    /// kind=secret: "organization" | "project" injects every one of the agent's
+    /// secrets at that level; NULL is a specific `secret_id` target.
     pub secret_scope: Option<String>,
     pub host_pattern: Option<String>,
     pub path_pattern: Option<String>,
     pub method: Option<String>,
 }
 
-/// A published `policy_rules_v2` rule with its identity + target rows aggregated
-/// into JSON arrays, DECODED into typed vectors at load (`Json<Vec<…>>`). Serde so
-/// it rides in `ConnectResponse` — loaded once at connection resolution (cached
-/// 60s), so the per-request decision path never touches the DB and, because the
-/// JSON is parsed here at load, never re-parses the aggregate per request either.
+/// A published `policy_rules_v2` rule, with its identities and targets decoded
+/// at load and carried in `ConnectResponse`, so the per-request decision path
+/// neither queries nor re-parses anything.
 #[derive(Debug, Clone, PartialEq, FromRow, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PolicyRuleV2Row {
     pub id: String,
-    /// Generation-stable identity — the rate counter keys on it (survives republishes).
+    /// Generation-stable identity the rate counter keys on, so counts survive a
+    /// republish.
     pub logical_id: String,
     pub name: String,
     /// Rule origin (custom | app_permission | blocklist | default | equipment).
-    /// `equipment` (step 8) rules are INJECTION-ONLY — the block/allow assembler
-    /// drops them; the connect-time inject-selection reads them.
+    /// `equipment` rules are injection-only: the block/allow assembler drops
+    /// them and only the connect-time inject-selection reads them.
     pub source: String,
     pub priority: i32,
     pub is_default: bool,
@@ -490,10 +442,9 @@ pub(crate) struct PolicyRuleV2Row {
     pub targets: Json<Vec<PolicyTargetRow>>,
 }
 
-/// The agent's principal context for a connection — a cloud/EE-only shape,
-/// resolved by the EE loaders at connection resolution. Always empty in OSS
-/// (agent-only identities); part of the shared `ConnectResponse` so both
-/// builds serialize the same struct.
+/// The agent's principal context for a connection. Always empty in OSS, which
+/// has agent-only identities; it lives here so both builds serialize the same
+/// `ConnectResponse`.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PrincipalSet {
     /// Human users the agent's project grants via ProjectAccess — directly, or as
@@ -504,73 +455,57 @@ pub(crate) struct PrincipalSet {
     pub group_ids: Vec<String>,
 }
 
-/// The published new-model rules for a connection's org + project scopes, loaded
-/// during connection resolution (cached with `ConnectResponse`). Empty when the
-/// engine is off, the org isn't backfilled, or a load errored — the enforce seam
-/// then reverts to the legacy path. Shared so `ConnectResponse` can carry it;
-/// only cloud ever populates it.
+/// The published rules for a connection's org + project scopes, loaded during
+/// connection resolution. Empty when the engine is off, the org isn't
+/// backfilled, or a load errored — the enforce seam then takes the legacy path.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PolicyV2Rules {
     pub org: Vec<PolicyRuleV2Row>,
     pub project: Vec<PolicyRuleV2Row>,
-    /// The connection's resolved principal set (step 6). Empty unless some
-    /// loaded rule targets a user/group identity (lazy). Only cloud ever
-    /// populates it.
+    /// The connection's resolved principal set. Resolved lazily — empty unless a
+    /// loaded rule targets a user or group identity. Cloud-only.
     #[serde(default)]
     pub principals: PrincipalSet,
-    /// The org+project custom secrets' host patterns (step 8), so a `secret` target
-    /// can permit/deny its host DB-free per request. Empty unless a loaded rule has
-    /// a secret target (lazy). Populated by both the OSS core and the EE engine
-    /// (`find_secret_hosts` is shared).
+    /// The org+project custom secrets' host patterns, so a `secret` target can
+    /// permit/deny its host without a query. Empty unless a loaded rule has a
+    /// secret target.
     #[serde(default)]
     pub secret_hosts: SecretHosts,
     /// The org+project app connections' providers, so a `connection` target can
-    /// resolve to its provider's catalog hosts and permit/deny them DB-free per
-    /// request (the step-8 secret symmetry). Empty unless a loaded rule has a
-    /// connection target (lazy). Only cloud ever populates it.
+    /// resolve to its provider's catalog hosts without a query. Empty unless a
+    /// loaded rule has a connection target. Cloud-only.
     #[serde(default)]
     pub connection_providers: ConnectionProviders,
 }
 
-/// The host patterns of the acting org+project custom secrets, resolved ONCE at
-/// connection resolution (cached with `PolicyV2Rules`) so the block/allow engine
-/// can let a `secret` target PERMIT/deny its host DB-free per request (step 8).
-/// `by_id` serves a specific `secret_id` target; `project_hosts`/`org_hosts` serve
-/// a `secret_scope` ("all secrets at a level") target. Each secret contributes ALL
-/// the hosts its credential injects on (`secret_inject::secret_host_patterns`) — a
-/// list, because a typed secret (OpenAI) is valid on several hosts — so enforcement
-/// covers exactly the injection surface. Populated whenever a loaded rule has a
-/// secret target (the lazy skip leaves it empty otherwise).
+/// The host patterns of the acting org+project custom secrets, resolved once at
+/// connection resolution so a `secret` target can permit/deny its host without a
+/// query. Each secret contributes every host its credential injects on, so the
+/// enforcement surface matches the injection surface exactly.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SecretHosts {
     /// A specific secret's id → every host pattern its credential injects on.
     pub by_id: std::collections::HashMap<String, Vec<String>>,
-    /// Every PROJECT-scoped secret's host patterns (for `secret_scope="project"`).
+    /// Host patterns for `secret_scope = "project"`.
     pub project_hosts: Vec<String>,
-    /// Every ORG-scoped secret's host patterns (for `secret_scope="organization"`).
+    /// Host patterns for `secret_scope = "organization"`.
     pub org_hosts: Vec<String>,
 }
 
-/// The providers of the acting org+project app connections, resolved ONCE at
-/// connection resolution (cached with `PolicyV2Rules`) so the block/allow engine
-/// can decode a `connection` target to its provider — whose catalog hosts it then
-/// permits/denies, symmetric with a `secret` target (step 8). Fenced at load
-/// (`find_connection_providers`), so a forged/foreign connection id resolves to
-/// nothing (the target never matches — fail-closed, like a deleted secret). Empty
-/// in OSS and whenever no loaded rule has a connection target (the lazy skip).
+/// The providers of the acting org+project app connections, so a `connection`
+/// target resolves to its provider's catalog hosts without a query. The map is
+/// org+project-fenced at load, so a foreign connection id resolves to nothing
+/// and its target never matches.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ConnectionProviders {
     /// A connection's id → its `provider` (e.g. "gmail").
     pub by_id: std::collections::HashMap<String, String>,
 }
 
-/// The specific credentials the connect's published v2 rules ALLOW the
-/// requesting agent to have injected — derived ONCE at connect-resolution from
-/// the already-loaded `PolicyV2Rules` (pure, DB-free). Since attach-model step 7
-/// this selection is the WHOLE story for the org/project tiers — every agent is
-/// rule-selected, and the retired `agents.secret_mode` column is never read.
-/// NOT cached on its own — it feeds the resolvers whose output
-/// (`injection_rules` / `app_connections`) is what rides `ConnectResponse`.
+/// The credentials the published rules allow the requesting agent to have
+/// injected, folded once at connect from the already-loaded `PolicyV2Rules`.
+/// This is the only selection for the org/project tiers; it feeds the resolvers
+/// whose output rides `ConnectResponse` and is not cached itself.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InjectSelection {
     /// Specific `Secret` ids named by the agent's matching `kind=secret` allow
@@ -580,27 +515,22 @@ pub(crate) struct InjectSelection {
     /// conditions — the granular guard) for `kind=connection` allow targets.
     pub connections: std::collections::HashMap<String, Option<serde_json::Value>>,
     /// (provider, level) pairs from `kind=app` allow targets carrying a
-    /// `connection_scope`: inject ALL the agent's connections of `provider` at
-    /// that org/project `level`. The grant itself carries no per-connection
-    /// sessionPolicy — but the connections it resolves to are still bounded by
-    /// `boundaries` below, applied where those ids are read from the database.
+    /// `connection_scope`: inject every one of the agent's connections of
+    /// `provider` at that level. No per-connection sessionPolicy, but the
+    /// connections it resolves to are still bounded by `boundaries`.
     pub app_scopes: Vec<(String, String)>,
-    /// Connection id → the ORG's resource boundary for it, when the
-    /// organization restricts how far that credential may reach. Kept separate
-    /// from `connections` because a boundary is not a grant: it applies to
-    /// whatever the agent ends up with, including a connection pulled in by an
-    /// `app_scopes` (provider-level) grant, which is resolved from the database
-    /// long after the rules are folded. Always empty in OSS.
+    /// Connection id → the org's resource boundary for it. Kept separate from
+    /// `connections` because a boundary is not a grant: it also applies to
+    /// connections pulled in by a provider-level `app_scopes` grant, which are
+    /// resolved long after the rules are folded. Always empty in OSS.
     pub boundaries: std::collections::HashMap<String, serde_json::Value>,
-    /// Levels ("organization" | "project") from `kind=secret` allow targets
-    /// carrying a `secret_scope`: inject ALL the agent's secrets at that level
-    /// (a level selection, no per-secret guard).
+    /// Levels from `kind=secret` allow targets carrying a `secret_scope`: inject
+    /// every one of the agent's secrets at that level, with no per-secret guard.
     pub secret_scopes: Vec<String>,
 }
 
-/// The apps a connection's project may reach (a cloud/EE-only posture,
-/// resolved by the EE loaders at connection resolution). `restricted = false`
-/// — the default, and always in OSS — means EVERY app is available and the
+/// The apps a connection's project may reach. `restricted = false` — the
+/// default, and always the case in OSS — means every app is available and the
 /// per-request pre-check is a no-op.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AvailableApps {
@@ -660,15 +590,11 @@ struct SecretHostRow {
     type_: String,
 }
 
-/// Resolve the host patterns of the acting org+project custom secrets so the
-/// block/allow engine can let a `secret` target permit/deny its host (step 8).
-/// ORG+PROJECT-FENCED on every arm — a project secret via `project_id = $2` (a
-/// project id is unique and belongs to one org, mirroring `find_secrets_by_project`),
-/// an org secret via `organization_id = $1 AND scope = 'organization'` — so a
-/// forged/foreign `secret_id` or scope can NEVER pull another org's host (it simply
-/// isn't in the fenced set). Partner secrets are excluded (custom secrets are
-/// project/org). Run once at connect (cached with `PolicyV2Rules`); the per-request
-/// path never touches the DB.
+/// Resolve the host patterns of the acting org+project custom secrets.
+///
+/// Both arms are org+project-fenced, so a foreign `secret_id` or scope cannot
+/// pull another org's host — it is simply absent from the set. Partner secrets
+/// are out of scope. Run once at connect.
 pub(crate) async fn find_secret_hosts(
     pool: &PgPool,
     organization_id: &str,
@@ -689,8 +615,8 @@ pub(crate) async fn find_secret_hosts(
 
     let mut hosts = SecretHosts::default();
     for row in rows {
-        // Expand each secret to EVERY host its credential injects on (a typed
-        // secret like OpenAI covers several), so enforcement == injection.
+        // A typed secret injects on several hosts, so expand to all of them and
+        // keep the enforcement surface equal to the injection surface.
         let patterns = crate::secret_inject::secret_host_patterns(&row.type_, &row.host_pattern);
         match row.scope.as_str() {
             "project" => hosts.project_hosts.extend(patterns.iter().cloned()),
@@ -702,16 +628,11 @@ pub(crate) async fn find_secret_hosts(
     Ok(hosts)
 }
 
-/// Resolve the providers of the acting org+project app connections so the
-/// block/allow engine can decode a `connection` target to its provider's catalog
-/// hosts (the secret symmetry). ORG+PROJECT-FENCED exactly like
-/// `find_secret_hosts` — a project connection via `project_id = $2`, an org
-/// connection via `organization_id = $1 AND scope = 'organization'` — so a
-/// forged/foreign connection id can NEVER resolve (it simply isn't in the fenced
-/// set → the target never matches). No status filter: the row's existence is the
-/// reference (deletion cascades the target row away; this map only covers the
-/// ~60s cache window). Run once at connect (cached with `PolicyV2Rules`); the
-/// per-request path never touches the DB.
+/// Resolve the providers of the acting org+project app connections.
+///
+/// Org+project-fenced like [`find_secret_hosts`], so a foreign connection id
+/// never resolves and its target never matches. No status filter: the row's
+/// existence is the reference, and deletion cascades the target row away.
 pub(crate) async fn find_connection_providers(
     pool: &PgPool,
     organization_id: &str,
@@ -786,19 +707,14 @@ pub(crate) async fn find_app_config_by_org(
     .context("querying app_config by organization_id + provider")
 }
 
-/// Find the enabled BYOC app config that minted a specific connection, via the
-/// provenance link `app_connections.app_config_id`.
+/// Find the enabled BYOC app config that minted a specific connection, via
+/// `app_connections.app_config_id`.
 ///
 /// A connection's OAuth refresh token is bound to the client that minted it, so
-/// refresh must reuse exactly that config — even when the resolver's tier order
-/// (project → org) would now select a different row. Returns `None` when the
-/// link is null (env-minted, a no-config method, or pre-dating the link), or the
-/// config has since been disabled/removed, or (defence-in-depth) points at a
-/// different provider. The `provider` guard keeps a mislinked FK from ever
-/// handing one provider's client secret to another provider's token endpoint;
-/// every writer links same-provider by construction, so it only ever excludes
-/// corrupt data. Shared across editions: project-tier links exist in OSS; org
-/// rows simply never exist there.
+/// refresh must reuse that config even when the resolver's tier order would now
+/// pick a different row. The `provider` guard stops a mislinked row handing one
+/// provider's client secret to another's token endpoint. `None` when the link is
+/// null, or the config is disabled, removed, or for another provider.
 pub(crate) async fn find_app_config_by_connection(
     pool: &PgPool,
     connection_id: &str,

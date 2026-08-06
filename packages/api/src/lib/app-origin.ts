@@ -1,23 +1,6 @@
 /**
- * Resolving "where does this instance live?" — the two primitives every
- * origin-dependent call site composes.
- *
- * The rule, applied everywhere: the app origin is the **explicitly configured**
- * `APP_URL`; failing that, the origin of the request in hand; failing that, the
- * caller's own last resort.
- *
- * The distinction that matters is *configured* vs *defaulted*: `lib/env.ts`
- * gives `APP_URL` a `http://localhost:10254` fallback, so that constant can
- * never be falsy and can never tell the two apart. Reading it as a
- * configured-or-not signal silently strands self-hosters on localhost — see
- * `configuredAppUrl` below.
- */
-
-/**
- * Structural shape of a header bag. Deliberately not `Headers`: this package
- * must not import from `next/`, and Next's `ReadonlyHeaders` (from
- * `next/headers`) satisfies this without the two ever meeting in the type
- * system. A DOM/undici `Headers` satisfies it too.
+ * Structural shape of a header bag, rather than `Headers`, so that Next's
+ * `ReadonlyHeaders` satisfies it without this package importing from `next/`.
  */
 interface HeaderLookup {
   get(name: string): string | null | undefined;
@@ -27,12 +10,9 @@ interface HeaderLookup {
  * A syntactically valid `host` or `host:port` — a registered name or an IP
  * literal, optionally bracketed for IPv6.
  *
- * Header values are attacker-influenceable and the origins built from them end
- * up in `Location` headers and, on the OAuth fragment-bridge path, inside a
- * `<script>` block. `JSON.stringify` does not escape `</script>`, so an
- * unvalidated host could close the script element. Constraining the character
- * set at the source removes that sink for every consumer, and drops malformed
- * origins rather than emitting a redirect that goes nowhere.
+ * Header-derived origins reach `Location` headers and, on the OAuth
+ * fragment-bridge path, a `<script>` block, so constraining the character set
+ * here removes that injection sink for every consumer.
  */
 const HOST_PATTERN = /^(?:[A-Za-z0-9._~-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/;
 
@@ -47,17 +27,12 @@ const firstConfigured = (...values: (string | undefined)[]) => {
 
 /**
  * The public app URL the operator explicitly configured, or `undefined` when
- * they configured none.
+ * they configured none — empty and whitespace-only values count as
+ * unconfigured. Trailing slashes are stripped.
  *
- * `undefined` is the whole point: it is what lets a call site say "…and if
- * nothing was configured, use the request origin instead". Never use the
- * `APP_URL` constant from `lib/env.ts` for that decision — it is defaulted, so
- * `APP_URL || fallback` is dead code and the fallback never runs.
- *
- * Empty and whitespace-only values count as unconfigured, so an env var that is
- * merely *present* (an `APP_URL=` line, a compose passthrough) does not
- * masquerade as a configured URL. Trailing slashes are stripped so the result
- * concatenates cleanly with a leading-slash path.
+ * Use this, not the `APP_URL` constant in `lib/env.ts`, to decide whether an
+ * origin was configured: that constant is defaulted to localhost and so is
+ * never falsy.
  */
 export const configuredAppUrl = (): string | undefined =>
   firstConfigured(
@@ -66,52 +41,39 @@ export const configuredAppUrl = (): string | undefined =>
   )?.replace(/\/+$/, "");
 
 /**
- * Validate an origin that reached us as data rather than as request headers —
- * today, the one signed into the OAuth state at `/authorize`.
+ * Validate an origin that reached us as data rather than as request headers,
+ * such as one signed into the OAuth state at `/authorize`.
  *
  * Returns the normalized `scheme://host[:port]`, or `undefined` for anything
- * that is not a well-formed http(s) origin (including non-strings). Same host
- * rules as `originFromHeaders`, so the two agree on what an origin may look
- * like, and `javascript:`/`data:` can never survive into a redirect.
- *
- * Fail-*soft* on purpose: a bad value falls through to the caller's next
- * fallback rather than stranding the user mid-connect. Tampering is not the
- * threat model here — a modified state fails its HMAC long before this runs, so
- * a malformed value means we signed something malformed, which is our bug.
+ * that is not a well-formed http(s) origin. Fails soft so a bad value falls
+ * through to the caller's next fallback rather than stranding the user
+ * mid-connect; tampering is already ruled out by the state's HMAC.
  */
 export const normalizeOrigin = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
   const match = /^(https?):\/\/(.+)$/i.exec(value.trim().replace(/\/+$/, ""));
   const [, scheme, host] = match ?? [];
-  // `HOST_PATTERN` allows no `/`, `@` or `?`, so a path, query, or `user:pass@`
-  // prefix lands in `host` and is rejected here rather than surviving into a
-  // redirect — the greedy `.+` above exists to make that happen.
+  // The greedy `.+` above pulls any path, query or `user:pass@` prefix into
+  // `host`, where `HOST_PATTERN` rejects it.
   if (!scheme || !host || !HOST_PATTERN.test(host)) return undefined;
   return `${scheme.toLowerCase()}://${host}`;
 };
 
 /**
  * Origin (scheme + host) the client used to reach us, or `undefined` when the
- * headers carry no usable host.
+ * headers carry no usable host. Trusts `X-Forwarded-Host`/`X-Forwarded-Proto`
+ * and falls back to `Host`.
  *
- * Trusts reverse-proxy headers (`X-Forwarded-Host` / `X-Forwarded-Proto`) so
- * this works behind nginx, Caddy, Cloudflare Tunnel, ngrok, etc., and falls
- * back to `Host` for direct access (e.g. a Docker port-forward).
- *
- * `fallbackProto` is only consulted on the `Host` path; a forwarded host with
- * no forwarded proto stays `http`, preserving long-standing behavior.
- *
- * A present-but-blank `X-Forwarded-Host` falls through to `Host` rather than
- * yielding a hostless `http://`. That is the one intentional departure from the
- * inlined version this replaced, which returned the broken string.
+ * `fallbackProto` applies only on the `Host` path: a forwarded host with no
+ * forwarded proto stays `http`.
  */
 export const originFromHeaders = (
   headers: HeaderLookup,
   fallbackProto = "http",
 ): string | undefined => {
   const rawProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  // Only the two schemes we serve; anything else (javascript:, data:, a
-  // malformed value) is discarded rather than propagated into a redirect.
+  // Only the two schemes we serve; anything else is discarded rather than
+  // propagated into a redirect.
   const forwardedProto =
     rawProto === "https" || rawProto === "http" ? rawProto : undefined;
 
