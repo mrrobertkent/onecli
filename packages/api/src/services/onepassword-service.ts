@@ -1,10 +1,7 @@
 /**
- * 1Password SDK service — the only place that talks to 1Password.
- *
- * The gateway holds the (decrypted) Service-Account token and sends it with
- * each call, so this service is a stateless `token + op:// → value` function;
- * it never reads our database. SDK clients are cached by a hash of the token
- * to avoid re-initializing the WASM core on every request.
+ * 1Password SDK service. Stateless: the caller supplies the Service-Account
+ * token on every call, so nothing here reads our database. SDK clients are
+ * cached by token hash to avoid re-initializing the WASM core per request.
  */
 import { createClient, type Client } from "@1password/sdk";
 import { createHash } from "node:crypto";
@@ -37,8 +34,8 @@ const tokenKey = (token: string): string =>
 const errMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
-// Node's fetch (undici) puts the real failure in `err.cause`; the 1Password SDK
-// hides it behind a vague "error sending request", so surface the cause for logs.
+// The SDK reports transport failures as a vague "error sending request"; the
+// real one is in `err.cause`.
 const errCause = (err: unknown): string | undefined => {
   const cause = (err as { cause?: unknown }).cause;
   if (cause == null) return undefined;
@@ -48,14 +45,10 @@ const errCause = (err: unknown): string | undefined => {
 };
 
 // ── undici isolation ────────────────────────────────────────────────────────
-// The 1Password SDK's WASM core makes HTTP through the global fetch/Request/
-// Response/Headers and undici's global dispatcher. Prisma (@onecli/db) bundles
-// its own copy of undici and installs *its* Agent as the global dispatcher, so
-// the SDK's fetch would stream response bodies from a different undici instance
-// than the one decoding them and fail with "request library compatibility issue:
-// error sending request". We pin every SDK call onto one self-consistent undici
-// (its fetch + Request/Response/Headers + a dedicated Agent passed per request,
-// so the global dispatcher is never touched), restoring the originals after.
+// Prisma installs its own bundled undici Agent as the global dispatcher, which
+// leaves the SDK's WASM core streaming response bodies through a different
+// undici than the one decoding them ("request library compatibility issue").
+// Pinning every SDK call onto one self-consistent undici avoids it.
 // See https://github.com/1Password/onepassword-sdk-js/issues/134.
 const sdkAgent = new Agent();
 const pinnedFetch = ((

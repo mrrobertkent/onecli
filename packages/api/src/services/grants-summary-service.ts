@@ -6,21 +6,18 @@ import { resolvePrincipalSet } from "./policy-simulate/principal-set";
 
 /**
  * The agents-list chips feed (`GET /v1/agents?include=grants-summary`): per
- * agent, the distinct credentials that would INJECT for it — the attach list,
- * not effective verdicts (Usable/Limited/Blocked stays a per-agent-page
- * reflection; chips must be cheap for a whole list).
+ * agent, the distinct credentials that would inject for it. This is the attach
+ * list, not effective verdicts — Usable/Limited/Blocked stays a per-agent-page
+ * reflection, since chips have to be cheap for a whole list.
  *
- * Derived from the INJECTION LAW across every rule source — inject_select's
- * predicate: published, enabled, non-default allow rules whose identity
- * explicitly names the agent (own id, or an inherited user/group principal) —
- * NOT from `source:"grant"` alone: until the step-5 migration, agents' access
- * lives in `equipment`/`custom` rows and the all-mode pool, and a
- * source-filtered summary would blank every pre-existing agent's chips.
+ * Derived from the injection predicate across every rule source (published,
+ * enabled, non-default allow rules whose identity names the agent), not from
+ * `source:"grant"` alone — pre-migration agents keep their access in
+ * `equipment`/`custom` rows and a source filter would blank their chips.
  *
- * Constant query count regardless of agent count: one agent list, one
- * principal-set resolution (agent-independent by design), two injection-rule
- * loads (org + project, equipment kept), then batched fenced resolutions over
- * the cross-agent unions. Zero engine evaluations.
+ * The query count is constant in the number of agents: one agent list, one
+ * principal-set resolution, two injection-rule loads, then batched fenced
+ * resolutions over the cross-agent unions. No engine evaluations.
  */
 
 export type GrantsSummaryEntry =
@@ -33,8 +30,8 @@ export type GrantsSummaryEntry =
   | { kind: "secret" | "llm"; id: string; name: string };
 
 export interface AgentGrantsSummary {
-  /** Always `"grants"` since step 7 (the gateway is grants-only); the `"all"`
-   * arm stays for wire compat and narrows away with the column in step 8. */
+  /** Always `"grants"` — the gateway is grants-only; the `"all"` arm stays for
+   * wire compatibility until the column retires. */
   mode: "all" | "grants";
   entries: GrantsSummaryEntry[];
   total: number;
@@ -81,7 +78,7 @@ export const listAgentsWithGrantsSummary = async (
     connectionIds: Set<string>;
     secretLevels: Set<"organization" | "project">;
     /** `${provider}\n${level}` pairs — the level picks org- vs project-scoped
-     * connections of the provider (inject_select's app_scopes law). */
+     * connections of the provider. */
     providerLevels: Set<string>;
   }
   const perAgent = new Map<string, Collected>();

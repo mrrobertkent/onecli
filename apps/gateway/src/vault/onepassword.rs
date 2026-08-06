@@ -1,16 +1,12 @@
 //! 1Password vault provider.
 //!
-//! Owns the connection — the encrypted Service-Account token stored in
-//! `vault_connection` — plus the per-project session and a small resolve cache.
-//! 1Password is **not** a hostname-matched vault racer like Bitwarden; it is a
-//! *value source* for explicit secrets. A secret with `value_source =
-//! "onepassword"` carries an `op://vault/item/field` reference that the
-//! [`PolicyEngine`](crate::connect::PolicyEngine) resolves here at request time
-//! (instead of decrypting a stored `encrypted_value`).
-//!
-//! The actual 1Password SDK work (validate token, resolve `op://`, browse
-//! vaults/items/fields for the picker) is delegated to the Node "1Password SDK
-//! service" via [`super::onepassword_api`]; the gateway never runs the `op` CLI.
+//! Owns the encrypted Service-Account token in `vault_connection`, the
+//! per-project session, and a small resolve cache. Unlike Bitwarden it is not a
+//! hostname-matched vault racer but a value source: a secret with
+//! `value_source = "onepassword"` carries an `op://vault/item/field` reference
+//! that the [`PolicyEngine`](crate::connect::PolicyEngine) resolves at request
+//! time. SDK work is delegated to the Node service via
+//! [`super::onepassword_api`]; the gateway never runs the `op` CLI.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -37,11 +33,10 @@ const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
 
 // ── Config & session types ──────────────────────────────────────────────
 
-/// Persisted in `vault_connection.connection_data`. Rows written before the
-/// value-source refactor also carry a `mappings` key; serde ignores it.
+/// Persisted in `vault_connection.connection_data`. Legacy rows also carry a
+/// `mappings` key; serde ignores it.
 ///
-/// Deliberately no `Debug`/`Clone`: the struct carries only a credential (the
-/// encrypted SA token), so it must not be `{:?}`-logged or cloned around.
+/// No `Debug`/`Clone` by design: it holds the encrypted SA token.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct OnePasswordConfig {
     pub encrypted_service_account_token: String,
@@ -66,8 +61,7 @@ struct OnePasswordSession {
 }
 
 impl OnePasswordSession {
-    /// Whether the session is still within its post-error cooldown window (set
-    /// when a `Transient` 1Password failure was last seen).
+    /// Whether the session is still within its post-error cooldown window.
     fn in_error_cooldown(&self) -> bool {
         self.error_until
             .lock()
@@ -170,13 +164,9 @@ impl OnePasswordVaultProvider {
 
     // ── Value-source resolution (the secret-injection path) ──────────────
 
-    /// Resolve an `op://vault/item/field` reference to its secret value for a
-    /// project's 1Password connection. Cached by `op_ref` with the same TTL /
-    /// cooldown as before. Errors classify so the caller can skip the secret the
-    /// same way it skips one whose stored value fails to decrypt.
-    ///
-    /// There is one 1Password connection per project, so the reference resolves
-    /// via that project's connection (the `project_id` session).
+    /// Resolve an `op://vault/item/field` reference to its secret value, cached
+    /// by `op_ref`. Errors are classified so the caller can skip a secret that
+    /// cannot be resolved.
     pub(crate) async fn resolve_ref(
         &self,
         project_id: &str,

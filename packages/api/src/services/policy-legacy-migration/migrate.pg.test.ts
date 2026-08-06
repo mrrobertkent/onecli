@@ -405,10 +405,8 @@ describe.skipIf(!PROOF_URL)(
       cutover = await import("./migrate");
 
       expect(result.status).toBe("diverged");
-      // Before step 10 this compensated by DELETING the v2 rows, because "no
-      // published generation" meant the gateway fell back to the legacy engine.
-      // That fallback is gone — an empty rule set decides Allow — so the written
-      // generation must survive, enforcing the translation rather than nothing.
+      // The written generation has to survive: an empty rule set decides allow,
+      // so deleting it would enforce nothing rather than the translation.
       const kept = await published(ids.p3);
       expect(kept.length).toBeGreaterThan(0);
       expect(kept.some((r) => r.isDefault && r.action === "block")).toBe(true);
@@ -451,14 +449,11 @@ describe.skipIf(!PROOF_URL)(
       expect(result.preempted).toBe(true);
     }, 60_000);
 
-    // ── What the conversion actually DOES, not what it wrote ────────────────
+    // ── What the conversion does, not what it wrote ─────────────────────────
     //
-    // Every other assertion here is about ROWS: the right count, the right
-    // order, the right canonical form. None of them would notice a conversion
-    // that produced a well-formed generation with the wrong meaning. The
-    // old-vs-new parity that used to cover that (the production shadow bake and
-    // the translation oracle) retired with the old engine, so this drives the
-    // converted policy through the real evaluator and asserts DECISIONS.
+    // The assertions above are about rows — count, order, canonical form — and
+    // none would notice a well-formed generation with the wrong meaning. These
+    // drive the converted policy through the real evaluator instead.
 
     /** Decide a request against P1's converted, published policy — the same
      * composition `policy-simulate` uses in production. Every OSS-translated
@@ -494,11 +489,9 @@ describe.skipIf(!PROOF_URL)(
         path: req.path,
         method: req.method ?? "GET",
         body: req.body,
-        // Default to the agent NO rule names, so each assertion isolates the
-        // rule under test. `agentSel` carries a whole-host agent-scoped allow;
-        // pointing these at it would instead exercise the documented
-        // agent-shadow divergence (plan §7.7 case (a)), which is not what this
-        // suite is for — the dedicated case below covers that.
+        // Default to an agent no rule names, so each assertion isolates the
+        // rule under test — `agentSel` carries a whole-host agent-scoped allow
+        // that would shadow it (covered by its own case below).
         agentId: req.agentId ?? ids.agentAll,
         hasInjections: req.hasInjections ?? false,
         isLlmHost: req.isLlmHost ?? false,

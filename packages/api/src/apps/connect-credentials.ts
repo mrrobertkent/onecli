@@ -27,22 +27,18 @@ export type ResolvedConnectCredentials =
 
 /**
  * Resolve a direct-connect request body into stored credentials: pick the
- * connection method, validate the submitted fields, and exchange/shape them
- * into `{credentials, scopes, metadata}`. Shared by the project-scoped
- * (`POST /apps/:provider/connect`) and org-scoped
- * (`POST /org/apps/:provider/connect`) endpoints — every guard returns the
- * exact error string the project endpoint has always produced, so extraction
- * is behavior-preserving.
+ * connection method, validate the submitted fields, and shape them into
+ * `{credentials, scopes, metadata}`. Shared by the project- and org-scoped
+ * connect endpoints.
  */
 export const resolveConnectCredentials = async (
   provider: string,
   appDef: AppDefinition,
   body: ConnectRequestBody | null,
 ): Promise<ResolvedConnectCredentials> => {
-  // Resolve which connection method to use. Apps with `additionalMethods`
-  // (e.g. Attio: OAuth primary + API key alternate) pass `method` to select
-  // one; otherwise the primary `connectionMethod` is used. An explicit but
-  // unrecognized `method` is rejected rather than silently falling back.
+  // Apps with `additionalMethods` pass `method` to select one; otherwise the
+  // primary `connectionMethod` is used. An unrecognized `method` is rejected
+  // rather than silently falling back.
   const requestedMethod = body?.method;
   const activeMethod = requestedMethod
     ? ((appDef.additionalMethods ?? []).find(

@@ -73,9 +73,8 @@ export const AppToolsPicker = ({
   const selected = useMemo(() => new Set(value), [value]);
 
   const needle = q.trim().toLowerCase();
-  // Search filters only the RENDERED rows; every group keeps its FULL row for
-  // all state logic (header, count, toggle), so a filtered view can never make
-  // a "select all" / umbrella toggle act on a partial set.
+  // Filters only the rendered rows; header/count/toggle state still reads the
+  // full group, so select-all can never act on a partial set.
   const visibleGroups = useMemo(
     () =>
       groups
@@ -101,12 +100,9 @@ export const AppToolsPicker = ({
 
   const isWildcardOn = (g: AppToolGroupSummary): boolean =>
     !!g.wildcard && selected.has(g.wildcard.id);
-  // The header acts as the umbrella when the group's wildcard genuinely covers
-  // the whole group (server-computed `wildcardComplete`) — OR when an
-  // incomplete one is already selected (a legacy/API value), so it stays
-  // visible + uncheckable. An incomplete wildcard is never OFFERED fresh: it
-  // would author a misleading "all X" that misses uncovered endpoints (e.g.
-  // Jira JQL POST search).
+  // True when the wildcard covers the whole group, or when an incomplete one is
+  // already selected so it stays visible and uncheckable. An incomplete
+  // wildcard is never offered fresh — it would author a misleading "all X".
   const umbrellaActive = (g: AppToolGroupSummary): boolean =>
     !!g.wildcard && (g.wildcardComplete === true || isWildcardOn(g));
 
@@ -117,14 +113,11 @@ export const AppToolsPicker = ({
     onChange(orderedAllIds.filter((tid) => next.has(tid)));
   };
 
-  // Always operates on the FULL group (never the search-filtered rows), so the
-  // umbrella-check drops the WHOLE group's concrete ids and select-all covers
-  // the whole group even under an active search.
+  // Operates on the full group, never the search-filtered rows.
   const toggleGroup = (group: AppToolGroupSummary, checked: boolean) => {
     const next = new Set(selected);
     if (group.wildcard && umbrellaActive(group)) {
-      // The umbrella: checking it stores the one wildcard id and drops this
-      // group's now-subsumed concrete ids; unchecking removes just the wildcard.
+      // Checking the umbrella drops the group's now-subsumed concrete ids.
       if (checked) {
         next.add(group.wildcard.id);
         group.tools.forEach((t) => next.delete(t.id));
@@ -132,7 +125,6 @@ export const AppToolsPicker = ({
         next.delete(group.wildcard.id);
       }
     } else {
-      // Plain "select all concrete tools".
       const ids = new Set(group.tools.map((t) => t.id));
       if (checked) ids.forEach((tid) => next.add(tid));
       else ids.forEach((tid) => next.delete(tid));
@@ -140,8 +132,7 @@ export const AppToolsPicker = ({
     onChange(orderedAllIds.filter((tid) => next.has(tid)));
   };
 
-  // Concrete tools of the group currently selected (0 when the umbrella is on,
-  // since selecting it drops them).
+  // Zero when the umbrella is on, since selecting it drops the concrete ids.
   const groupSelectedCount = (group: AppToolGroupSummary): number =>
     group.tools.filter((t) => selected.has(t.id)).length;
 

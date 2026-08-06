@@ -77,25 +77,9 @@ fn content_length_at_most(headers: &hyper::HeaderMap, max: usize) -> bool {
 
 // ── Request forwarding ──────────────────────────────────────────────────
 
-/// Forward a single HTTP request to the real upstream server and stream the response back.
-///
-/// Both request and response bodies are streamed — no full buffering in memory.
-/// This is critical for SSE (Server-Sent Events) and large payloads.
-///
-/// The flow:
-/// 1. Check policy rules (block/rate-limit → 403/429)
-/// 2. Apply injection rules to request headers
-/// 3. Send to upstream
-/// 4. If no credentials were injected and upstream returns 401/403, check if the
-///    host belongs to a known app → return an actionable error for the agent
-/// 5. Stream response back to client
-///
-/// For `ManualApproval`, the gateway peeks a bounded prefix of the body to build
-/// a human-readable approval summary and a redacted preview, then chains it back
-/// with the remaining stream for forwarding. No full-body buffering — the body
-/// stays in the TCP pipe during the approval wait. 16 KB is enough to decode the
-/// RFC822 headers / first MIME part for the summary while staying tiny next to a
-/// multi-megabyte attachment.
+/// Bounded prefix of a request body peeked to build a manual-approval summary
+/// and redacted preview; the rest stays in the TCP pipe during the wait. Enough
+/// to decode RFC822 headers / the first MIME part, tiny next to an attachment.
 const APPROVAL_BODY_PEEK: usize = 16 * 1024;
 
 /// Maximum response body to buffer when checking if a 400 is auth-related.

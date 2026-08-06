@@ -68,7 +68,7 @@ describe("resolvePrincipalSet (find_principal_set mirror)", () => {
       { userId: null, groupId: "g1" },
     ]);
     state.results.set("group.findMany", [{ id: "g1" }]);
-    // groupMember is read twice (group→members, then user→groups) — the shared
+    // groupMember is read twice (group→members, then user→groups); the shared
     // stub row carries both fields so each read maps its own column.
     state.results.set("groupMember.findMany", [
       { userId: "u2", groupId: "g1" },
@@ -379,8 +379,8 @@ describe("toSimRule (decode_row mirror, full fidelity)", () => {
   });
 
   it("leaves a connection target inert when its id is missing from the fenced map", () => {
-    // Deleted in the cache window, or foreign/forged (the fence excluded it) —
-    // the target stays an unresolved connection target (never matches).
+    // Deleted, or fenced out as foreign: the target stays unresolved and never
+    // matches.
     const { rule } = toSimRule(
       simRow({
         targets: [targetRow({ kind: "connection", appConnectionId: "c-gone" })],
@@ -394,9 +394,8 @@ describe("toSimRule (decode_row mirror, full fidelity)", () => {
   });
 
   it("keeps a degenerate identity row as a never-matching entry (gateway mirror)", () => {
-    // A no-principal row is impossible per the DB CHECK, but the mirror must
-    // not INVERT it: dropping the entry would flip `identities: []` = "any
-    // agent" (the gateway keeps `Identity::Unresolved` — never matches).
+    // The DB CHECK makes a no-principal row impossible, but dropping the entry
+    // would flip the rule to `identities: []`, meaning "any agent".
     const { rule } = toSimRule(
       simRow({ identities: [identityRow({})] }),
       emptyHosts,

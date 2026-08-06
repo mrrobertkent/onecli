@@ -1,8 +1,6 @@
-// Pure companion to `PUT /policy/rules/order`: the API takes the FULL ordered
-// id list (every non-default draft rule exactly once — customs, derived, and
-// hidden equipment rows), while the editor only ever lets the user rearrange
-// the CUSTOM rules. This rebuilds the full permutation from a new custom
-// relative order without moving anything else.
+// `PUT /policy/rules/order` takes the full ordered id list, while the editor
+// only lets the user rearrange the custom rules. This rebuilds the full
+// permutation from a new custom relative order.
 
 /** The minimal row shape the rebuild needs (satisfied by PolicyRuleDto). */
 export interface ReorderableRule {
@@ -11,11 +9,9 @@ export interface ReorderableRule {
 }
 
 /**
- * Walk the complete draft list in its current priority order and fill each
- * custom rule's position from `newCustomOrder` in sequence — non-custom rows
- * keep their positions, so a reorder can only ever change the customs'
- * relative order. Throws when `newCustomOrder` is not exactly the draft's
- * custom id set: both arguments must come from the same list snapshot.
+ * Fill each custom rule's position from `newCustomOrder` in sequence, leaving
+ * non-custom rows where they are. Throws when `newCustomOrder` is not exactly
+ * the draft's custom id set: both arguments must come from the same snapshot.
  */
 export const buildReorderIds = (
   fullDraftRules: readonly ReorderableRule[],

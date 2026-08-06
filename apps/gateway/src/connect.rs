@@ -665,7 +665,6 @@ impl PolicyEngine {
                 }
             }
 
-            // Each provider has exactly one connection — no ambiguity, resolve all
             let mut rules = Vec::new();
             let mut earliest_expires_at: Option<i64> = None;
             let mut resolved_rewrite_host: Option<String> = None;
@@ -700,12 +699,9 @@ impl PolicyEngine {
                 {
                     rules.extend(r);
                     all_pending.extend(pending);
-                    // Tie ALL winner metadata to the connection that actually
-                    // serves THIS request — not merely the first to yield
-                    // rules. A non-serving connection (e.g. a GitHub
-                    // connection on a Dropbox request) still returns `Rules`
-                    // carrying its own policy/finalizer/rewrite, and adopting
-                    // those would mis-apply them to a request it doesn't own.
+                    // Adopt winner metadata only from the connection that serves
+                    // this request, not merely the first to yield rules: a
+                    // non-serving one still returns its own policy and rewrite.
                     if provider_serves_request(&provider, hostname, request_path) {
                         if rewrite_host.is_some() {
                             resolved_rewrite_host = rewrite_host;
@@ -755,10 +751,8 @@ impl PolicyEngine {
         })
     }
 
-    /// Resolve injection rules from a single app connection, with caching.
-    /// Decrypts credentials, resolves/refreshes the access token, and builds
-    /// injection rules. Results are cached per-connection to avoid redundant
-    /// decryption on subsequent requests.
+    /// Resolve injection rules from a single app connection. Results are cached
+    /// per-connection to avoid redundant decryption on later requests.
     async fn resolve_connection_injections(
         &self,
         conn: &db::AppConnectionRow,
@@ -778,9 +772,8 @@ impl PolicyEngine {
         );
 
         if let Some(cached) = cache.get::<CachedAppInjection>(&cache_key).await {
-            // A warm entry already holds the built rules (credential included),
-            // so there is nothing left to defer — the provider call this
-            // request would have made already happened for an earlier one.
+            // A warm entry already holds the built rules, credential included,
+            // so there is nothing left to defer.
             debug!(connection_id = %conn.id, "app injection: cache hit");
             return Ok(AppConnectionResult::Rules {
                 rules: cached.rules,
@@ -813,8 +806,7 @@ impl PolicyEngine {
             }
         };
 
-        // Parse credentials once — reused below for the host gate, credential
-        // headers/params, and host rewrite.
+        // Parsed once, reused for the host gate, headers/params and rewrite.
         let creds: Option<serde_json::Value> = serde_json::from_str(&decrypted_json)
             .map_err(|e| {
                 warn!(provider = %conn.provider, error = %e, "failed to parse app connection credentials JSON");

@@ -1264,8 +1264,7 @@ mod tests {
 
     #[test]
     fn skip_verify_case_insensitive_host() {
-        // Patterns are pre-lowercased by parse_skip_verify_hosts.
-        // The match function lowercases the host input.
+        // Patterns are pre-lowercased; the match function lowercases the host.
         let patterns = vec!["internal.corp".to_string()];
         assert!(host_matches_skip_verify("INTERNAL.CORP", &patterns));
         assert!(host_matches_skip_verify("Internal.Corp", &patterns));
@@ -1328,8 +1327,7 @@ mod tests {
 
     #[test]
     fn http_proxy_not_detected_for_other_schemes() {
-        // Non-http(s) schemes (ws://, ftp://, etc.) shouldn't be treated
-        // as HTTP proxy requests.
+        // Non-http(s) schemes (ws://, ftp://) aren't HTTP proxy requests.
         let req = Request::builder()
             .uri("ws://api.example.com/data")
             .body(())

@@ -123,9 +123,8 @@ pub(crate) fn task_guard() -> Option<TaskGuard> {
     GUARDS.get()?.upgrade().map(|tx| TaskGuard { _tx: tx })
 }
 
-/// Parse the configured total budget. Anything unset, unparseable or zero
-/// falls back to the default rather than producing a shutdown that cannot
-/// finish anything.
+/// Parse the configured total budget. Unset, unparseable or zero falls back to
+/// the default.
 fn parse_shutdown_secs(raw: Option<&str>) -> Duration {
     let secs = raw
         .and_then(|raw| raw.trim().parse::<u64>().ok())
@@ -136,11 +135,8 @@ fn parse_shutdown_secs(raw: Option<&str>) -> Duration {
 
 /// The shutdown clock, started once and consulted by each phase.
 ///
-/// A single budget rather than one timeout per phase: the phases run in
-/// sequence, so independent caps silently add up — and the configured value
-/// would bound only the first of them while the flush that persists data ran
-/// past the point where the orchestrator sends SIGKILL. Every phase asks this
-/// for its slice, so no combination can exceed the total.
+/// One budget rather than a timeout per phase: the phases run in sequence, so
+/// independent caps would add up past the orchestrator's SIGKILL deadline.
 pub(crate) struct Budget {
     deadline: std::time::Instant,
 }
@@ -173,22 +169,20 @@ impl Budget {
 
 /// Wait for every guarded task to finish, up to `deadline`.
 ///
-/// Returns whether they all did. Anything still running when this returns
-/// false is cut when the process exits — which is the intended outcome for the
-/// indefinite pipes (raw CONNECT tunnels, WebSockets) that deliberately hold
-/// no guard, and the accepted cost for anything else that is genuinely stuck.
+/// Returns whether they all did. Anything still running is cut when the
+/// process exits — the intended outcome for the indefinite pipes (raw CONNECT
+/// tunnels, WebSockets) that deliberately hold no guard.
 pub(crate) async fn drain_connections(deadline: Duration) -> bool {
-    // The lock guard is a temporary in this statement and drops at the
-    // semicolon — it must never be held across the await below.
+    // The lock guard drops at the semicolon; it must never be held across the
+    // await below.
     let taken = DRAIN.lock().expect("shutdown drain state").take();
     drain_pair(taken, deadline).await
 }
 
 /// The drain itself, over an owned channel pair.
 ///
-/// Split out from the globals so it can be tested directly: the statics are
-/// process-wide and `drain_connections` consumes them, so tests driving them
-/// would steal each other's state and pass or fail by scheduling order.
+/// Split out from the process-wide statics so tests can drive it without
+/// stealing each other's state.
 async fn drain_pair(
     pair: Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>,
     deadline: Duration,
@@ -198,8 +192,8 @@ async fn drain_pair(
         return true;
     };
 
-    // Dropping the last strong sender here is what lets `recv` report `None`
-    // once every guard is gone.
+    // Dropping the last strong sender is what lets `recv` finish once every
+    // guard is gone.
     drop(tx);
     tokio::time::timeout(deadline, async { while rx.recv().await.is_some() {} })
         .await

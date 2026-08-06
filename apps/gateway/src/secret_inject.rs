@@ -316,8 +316,7 @@ mod tests {
         assert_eq!(OPENAI_CODEX_CLIENT_ID, "app_EMoamEEZ73f0CkXaXp7hrann");
     }
 
-    // Same reasoning: the endpoint is only exercised against the network, so a
-    // wrong URL fails at runtime rather than here.
+    // Same reasoning: the endpoint is only exercised against the network.
     #[test]
     fn token_url_is_the_openai_oauth_endpoint() {
         assert_eq!(OPENAI_TOKEN_URL, "https://auth.openai.com/oauth/token");
@@ -543,12 +542,11 @@ mod tests {
         assert!(injections.is_empty());
     }
 
-    // ── secret_host_patterns (injection == enforcement, the OpenAI bypass) ────
+    // ── secret_host_patterns ───────────────────────────────────────────
 
     #[test]
     fn secret_host_patterns_openai_covers_all_its_hosts() {
-        // One OpenAI credential is valid across api.openai.com, ChatGPT, and the
-        // subdomains — enforcement must resolve the same set injection does.
+        // Enforcement must resolve the same host set injection does.
         assert_eq!(
             secret_host_patterns("openai", "api.openai.com"),
             vec![
@@ -576,7 +574,7 @@ mod tests {
 
     #[test]
     fn secret_host_patterns_other_types_are_just_their_host() {
-        // No expansion for symmetric types — enforcement already == injection.
+        // No expansion for other types.
         assert_eq!(
             secret_host_patterns("anthropic", "api.anthropic.com"),
             vec!["api.anthropic.com".to_string()]

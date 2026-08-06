@@ -137,8 +137,8 @@ pub(super) fn multiple_connections_axum(
 
 /// JSON error response for requests to a known app that has no credentials configured.
 ///
-/// Returned when `injection_count == 0` and the upstream returns 401/403 for a host
-/// that matches a registered app provider. Tells the agent (and user) exactly what to do.
+/// Returned when `injection_count == 0` and the upstream returns 401/403 for a
+/// host that matches a registered app provider.
 pub(crate) fn app_not_connected<S>(
     status: StatusCode,
     provider: &str,
@@ -165,10 +165,9 @@ pub(crate) fn app_not_connected<S>(
     ))
 }
 
-/// JSON error response for requests to a known app host where the specific API path
-/// doesn't match any registered provider (e.g., an unregistered Google API on
-/// `www.googleapis.com`). Directs the user to the apps page with the "Request an
-/// app" dialog pre-opened and pre-filled with the hostname.
+/// JSON error response for requests to a known app host where the API path matches
+/// no registered provider. Directs the user to the apps page with the "Request an
+/// app" dialog pre-filled with the hostname.
 pub(crate) fn app_not_connected_unknown_provider<S>(
     status: StatusCode,
     hostname: &str,
@@ -209,11 +208,8 @@ pub(crate) fn access_restricted<S>(
     display_name: &str,
     project_id: Option<&str>,
 ) -> Response<ForwardBody<S>> {
-    // Point at the app's connections page: since attach-model step 6 the
-    // project policy console is gone, and each account card there carries the
-    // "Agent access" dialog — the surface that actually attaches a credential
-    // to an agent. (Before step 6 this pointed at the policy console, which
-    // was then the only place a grant could be authored.)
+    // The app's connections page: its account cards carry the "Agent access"
+    // dialog, the surface that attaches a credential to an agent.
     let manage_url = scoped_url(
         dashboard_url(),
         &format!("/connections/apps/{provider}"),
@@ -232,9 +228,8 @@ pub(crate) fn access_restricted<S>(
 
 /// JSON error response when no credentials are configured for an unknown host.
 ///
-/// Returned when `injection_count == 0`, upstream returns 401/403, the host is NOT a known
-/// app provider, and the agent is authenticated. Provides a link to create a generic secret
-/// with pre-populated host and path.
+/// Returned when `injection_count == 0`, upstream returns 401/403 and the host is
+/// not a known app provider. Links to create a generic secret for it.
 pub(crate) fn credential_not_found<S>(
     status: StatusCode,
     hostname: &str,

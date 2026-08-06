@@ -10,11 +10,9 @@ import type {
   PolicyRequest,
 } from "./types";
 
-// The v2-native correctness suite for the first-match evaluator (`evaluateNew`):
-// the golden corpus (shared byte-for-byte with the Rust engine) plus
-// per-dimension blocks (directory identities, empty/secret/whole-app targets,
-// the uniform per-level default law), each asserted against a hand-computed
-// expectation.
+// Correctness suite for the first-match evaluator: the golden corpus (shared
+// byte-for-byte with the Rust engine) plus per-dimension blocks, each asserted
+// against a hand-computed expectation.
 
 const canonical = (d: Decision): Decision => ({
   action: d.action,
@@ -24,11 +22,9 @@ const canonical = (d: Decision): Decision => ({
   ...(d.byDefault ? { byDefault: true } : {}),
 });
 
-// ── 1 · Golden corpus (v2-native static JSON, also run by the Rust engine) ───
-// Authored `NewRule` sets run straight through the first-match evaluator (the
-// surviving path). The SAME JSON is `include_str!`'d + run by the Rust
-// `corpus_test`, so both ports stay locked to one hand-computed `expected` — the
-// cross-port parity fence, now independent of the retired old→new translators.
+// ── Golden corpus (static JSON, also run by the Rust engine) ─────────────────
+// The same JSON is `include_str!`'d by the Rust `corpus_test`, so both ports
+// stay locked to one hand-computed `expected`.
 
 interface CorpusCase {
   name: string;
@@ -53,10 +49,8 @@ describe("golden corpus", () => {
   }
 });
 
-// ── 1b · Directory-identity matching (step 6, engine-only) ───────────────────
-// The old oracle can't express a directory-identity rule (the old model is
-// agent-only), so identity matching is validated against the engine directly —
-// the lockstep twin of the Rust `directory_identity_rule_matches_via_principal_set`.
+// ── Directory-identity matching ──────────────────────────────────────────────
+// Lockstep twin of the Rust `directory_identity_rule_matches_via_principal_set`.
 
 describe("directory-identity matching (step 6)", () => {
   const v2Rule = (identities: NewIdentity[], isDefault: boolean): NewRule => ({

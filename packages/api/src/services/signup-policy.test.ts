@@ -47,8 +47,7 @@ describe("getSignupMode fail-closed paths", () => {
   });
 
   it("denies on a value this build does not recognise", async () => {
-    // e.g. written by a newer version, or hand-edited. Admitting on an unknown
-    // value would make a typo an instance-wide opening.
+    // Admitting on an unknown value would make a typo an instance-wide opening.
     state.row = { signupMode: "opne" };
     expect(await getSignupMode()).toBe("closed");
   });
@@ -67,8 +66,7 @@ describe("isSignupAllowed", () => {
   });
 
   it("sso-only admits SSO but NOT password self-registration", async () => {
-    // The reason the setting is three-valued rather than a boolean: these are
-    // different decisions and a boolean forces them together.
+    // Why the setting is three-valued rather than a boolean.
     state.row = { signupMode: "sso-only" };
     expect(await isSignupAllowed("sso")).toBe(true);
     expect(await isSignupAllowed("password")).toBe(false);

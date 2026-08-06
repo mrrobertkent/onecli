@@ -120,19 +120,15 @@ export const removedAgentEquipmentRoutes = () => {
 };
 
 /**
- * Project-scope policy CRUD under `/v1/policy` — retired in attach-model step 6
- * so the project level has exactly one writer, the grants API.
+ * Project-scope policy CRUD under `/v1/policy`, retired so the project level has
+ * exactly one writer, the grants API. The org mirror at `/v1/org/policy/*` keeps
+ * the full surface.
  *
- * Every path is enumerated deliberately: `policyReflectRoutes` shares this base
- * and must keep serving `GET /v1/policy/effective-app-permissions`, so a `/*`
- * shim would swallow a LIVE route (and turn every unknown `/v1/policy/...` into
- * a false 410 instead of a 404 — the property `removed-routes.test.ts` pins).
+ * Every path is enumerated rather than wildcarded: `policyReflectRoutes` shares
+ * this base and must keep serving `GET /v1/policy/effective-app-permissions`.
  *
- * Unlike the `/agents` and `/connections` shims, these answer without auth: the
- * project policy router carried the blanket `authMiddleware` for this base path
- * and went away with it. A tombstone needs no credentials.
- *
- * The ORG mirror at `/v1/org/policy/*` is untouched and keeps the full surface.
+ * These answer without auth — the project policy router carried the blanket
+ * `authMiddleware` for this base path and went away with it.
  */
 export const removedProjectPolicyRoutes = () => {
   const app = new Hono<ApiEnv>();

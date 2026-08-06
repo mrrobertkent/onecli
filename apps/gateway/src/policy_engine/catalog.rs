@@ -210,7 +210,7 @@ mod tests {
             "POST",
             path
         ));
-        // A non-Gmail path on the shared host is NOT Gmail's traffic.
+        // A non-Gmail path on the shared host is not Gmail's traffic.
         assert!(!matches(
             "gmail",
             &[],
@@ -223,8 +223,8 @@ mod tests {
     #[test]
     fn aws_whole_app_covers_uncataloged_services_but_tool_scope_stays_precise() {
         // AWS injects SigV4 on the whole `*.amazonaws.com` zone, but the catalog
-        // lists only ~10 services. A WHOLE-APP AWS rule must cover an
-        // uncataloged service (rds) — closing the highest-impact bypass...
+        // lists only ~10 services, so a whole-app rule must cover an uncataloged
+        // service (rds)...
         assert!(matches(
             "aws",
             &[],
@@ -232,9 +232,9 @@ mod tests {
             "POST",
             "/"
         ));
-        // ...but a TOOL-scoped AWS rule must NOT bleed onto a sibling service
-        // (AWS's rule is a bare suffix with no path prefix), even though the
-        // tool's path pattern is a wildcard. It still matches its own service.
+        // ...but a tool-scoped AWS rule must not bleed onto a sibling service,
+        // even though the tool's path pattern is a wildcard. It still matches
+        // its own service.
         assert!(!matches(
             "aws",
             &["ec2_access"],
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn catalog_only_provider_is_unaffected() {
         // A provider matched purely via its catalog host (no broader injection
-        // surface) keeps matching exactly as before — the union never narrows.
+        // surface) still matches — the union never narrows.
         assert!(matches(
             "github",
             &["create_issue"],
@@ -274,8 +274,7 @@ mod tests {
     #[test]
     fn distinct_endpoint_hosts_are_now_their_own_tools() {
         // The alternate-access hosts are cataloged as their own tools, so a
-        // TOOL-scoped rule can target them (and whole-app/wildcard cover them).
-        // github raw file content — reading a private file via raw is governed.
+        // tool-scoped rule can target them.
         assert!(matches(
             "github",
             &["read_raw_content"],

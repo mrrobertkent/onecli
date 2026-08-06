@@ -561,12 +561,9 @@ export const assertSessionPolicyValid = async (
     ),
   ];
   if (connectionIds.length === 0) {
-    // A session policy scopes a connection's injected credential — illegal (and
-    // unentitled) without a connection target. On CREATE the Zod refine catches
-    // this; on UPDATE there is no refine, so enforce it here against the MERGED
-    // rule state. Without this throw, a later "add a connection target" PATCH
-    // could pair a stored object policy with a connection while never running
-    // the team-tier entitlement gate below (which lives only in the loop).
+    // Create is covered by a Zod refine, update is not — so enforce it here
+    // against the merged state, or a later PATCH adding a connection target
+    // would pair with a stored policy while skipping the gate below.
     throw new ServiceError(
       "UNPROCESSABLE",
       "resource scoping (repositories/folders) requires a connection target",
@@ -652,11 +649,8 @@ export const createPolicyRule = async (
 ): Promise<PolicyRuleDto> => {
   const base = policyScope(scope);
   await assertIdentitiesValid(base, input.identities ?? []);
-  // A rule must name at least one target — an empty target list matches NOTHING at
-  // the gateway (fail-closed), never "any", so it is never a valid authored rule.
-  // `createPolicyRule` only ever makes non-default custom rules (isDefault:false
-  // below), so this is unconditional; the terminal Default Rule is target-less by
-  // construction and created via `setDefault`, not here.
+  // An empty target list matches nothing at the gateway, never "any". Only the
+  // terminal Default Rule is target-less, and it is created by `setDefault`.
   if (!input.targets || input.targets.length === 0) {
     throw new ServiceError(
       "UNPROCESSABLE",
@@ -680,11 +674,9 @@ export const createPolicyRule = async (
     }),
   );
   try {
-    // The max-read + insert run under the per-scope advisory lock every other
-    // priority writer (reorder / publish) takes — without the
-    // retired auto-resort re-densifying after every write, an unlocked
-    // read-then-append could mint DUPLICATE priorities under concurrency, and
-    // tied priorities make the gateway's first-match order nondeterministic.
+    // The max-read and insert run under the per-scope lock every other priority
+    // writer takes: an unlocked read-then-append could mint duplicate
+    // priorities, and ties make the gateway's first-match order nondeterministic.
     const rule = await db.$transaction(async (tx) => {
       await lockScope(tx, base);
       const agg = await tx.policyRuleV2.aggregate({
@@ -719,8 +711,7 @@ export const createPolicyRule = async (
         include: RULE_INCLUDE,
       });
     });
-    // Manual ordering: a new rule APPENDS (max+1 priority above) and stays
-    // where the user can see it; order changes only via explicit reorder.
+    // A new rule appends; order changes only via an explicit reorder.
     return toRuleDto(rule);
   } catch (err) {
     return asReferenceError(err);
@@ -770,12 +761,9 @@ export const updatePolicyRule = async (
   if (input.identities !== undefined) {
     await assertIdentitiesValid(base, input.identities);
   }
-  // Validate connection/secret target references (ownership) only when targets
-  // are being changed. A provided target list must be non-empty — clearing a
-  // rule's targets to [] would leave it matching NOTHING at the gateway
-  // (fail-closed); the editor preserves a rule by OMITTING targets, never by
-  // sending []. (`existing` is fenced to isDefault:false above, so this never hits
-  // the target-less Default Rule.)
+  // Only when targets are being changed. A provided list must be non-empty —
+  // [] would leave the rule matching nothing at the gateway; the editor
+  // preserves a rule's targets by omitting them.
   if (input.targets !== undefined) {
     if (input.targets.length === 0) {
       throw new ServiceError(
