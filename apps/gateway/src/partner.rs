@@ -1,8 +1,6 @@
 //! Partner layer — stub for the OSS build. All functions are no-ops; the cloud
-//! build swaps this module for `ee/partner.rs` via `#[path]` in `main.rs`.
-//!
-//! Keeping the same `pub(crate)` surface in both builds lets the shared call
-//! sites (`connect.rs`, `ee/hooks.rs`) stay identical and inert in OSS.
+//! build swaps this module for `ee/partner.rs` via `#[path]` in `main.rs`. The
+//! `pub(crate)` surface is the same in both, so shared call sites are identical.
 
 use sqlx::PgPool;
 

@@ -12,8 +12,7 @@ const ENV_VAR_ID = "RESOLVE_CREDS_TEST_CLIENT_ID";
 const ENV_VAR_SECRET = "RESOLVE_CREDS_TEST_CLIENT_SECRET";
 
 // One mutable row per scope; `credentials` stays null so the service returns
-// plain `settings` and no crypto is involved (completeness is judged on the
-// merged record either way).
+// plain `settings` and no crypto is involved.
 const store = vi.hoisted(() => ({
   projectRow: null as {
     id: string;
@@ -43,9 +42,8 @@ import { resolveAppCredentials } from "./resolve-credentials";
 import { initOrgAppConfig } from "../providers";
 import type { AppDefinition } from "./types";
 
-// Minimal typed app fixture — the resolver only reads `id` + `configurable`,
-// but the full shape keeps the fixture honest (connect-credentials.test.ts
-// precedent).
+// Minimal typed app fixture: the resolver only reads `id` and `configurable`,
+// but the full shape keeps the fixture honest.
 const app: AppDefinition = {
   id: "testapp",
   name: "Test App",
@@ -157,8 +155,8 @@ describe("resolveAppCredentials — project → org → env", () => {
     it("a disabled project row falls through to the org tier", async () => {
       const seam = orgSeam();
       initOrgAppConfig(seam);
-      // getAppConfigCredentials returns null for disabled rows; mirror that by
-      // the row being invisible on the merged read — the service filters it.
+      // `getAppConfigCredentials` returns null for disabled rows, mirrored here
+      // by the row being invisible on the merged read.
       store.projectRow = {
         id: "proj-cfg",
         settings: { clientId: "p-id", clientSecret: "p-secret" },

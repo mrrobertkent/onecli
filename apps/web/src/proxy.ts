@@ -65,15 +65,11 @@ export const proxy = (request: NextRequest) => {
 
   const requestHeaders = new Headers(request.headers);
 
-  // Scope normally comes from the URL path (/p/<id>, /org/<id>) on org-scoped
-  // editions. The app-connect popup is a top-level window with no scoped path, so it
-  // carries scope in the query string instead — bridge that to the same headers for
-  // EVERY edition, before the flat-edition handling below. Flat editions (onprem-slim)
-  // still resolve per-user projects, so the popup's ?projectId must reach the
-  // downstream resolveProjectContext (which validates membership before trusting
-  // either source); otherwise the connect page checks the viewer's default project and
-  // wrongly reports "Configuration required" for credentials stored on the popup's
-  // project.
+  // The app-connect popup is a top-level window with no scoped path, so it
+  // carries scope in the query string. Bridge that to the same headers for
+  // every edition, ahead of the flat-edition handling below: flat editions
+  // still resolve per-user projects, so the popup's ?projectId must reach
+  // resolveProjectContext or the connect page reads the wrong project.
   const { searchParams } = request.nextUrl;
   const fromQuery = pathname.startsWith("/app-connect");
 
@@ -91,10 +87,8 @@ export const proxy = (request: NextRequest) => {
     requestHeaders.set("x-organization-id", orgId);
   }
 
-  // Flat editions (oss, onprem-slim) don't namespace URLs by org/project — strip any
-  // /p/<id> or /org/<id> prefix (on these editions scope only ever arrives via the
-  // query bridge above; the path never carries it). Org-scoped editions (cloud,
-  // onprem-full) keep the path namespacing captured above.
+  // Flat editions don't namespace URLs by org/project, so strip any prefix;
+  // scope only ever arrives via the query bridge above.
   if (!CAPS.orgScopedUI) {
     const scopeStripped = pathname
       .replace(PROJECT_PATH_RE, "")

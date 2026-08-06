@@ -11,19 +11,9 @@ import {
 import { proofDatabaseUrl } from "../../testing/pg-proof.js";
 
 /**
- * The step-5 converter on REAL PostgreSQL — every law proven through the same
- * read paths production uses. The matrix (per the approved plan): the
- * from-nothing publish (95% of prod), fold parity via the real evaluator
- * before vs after, selective normalization (equipment AND custom injection
- * vehicles, session policies round-tripped through the jsonb publish), the
- * deletion set with the planted blocklist survivor, block-default reset,
- * idempotence, concurrency, the all-or-nothing per-project abort, the planted
- * cross-org negative control (the step-10 lesson), the planted partner-scoped
- * secret staying OUT of grants (the gateway serves that tier), level-scope
- * expansion, user-pinned folds via the real principal set, and the
- * verify-failure path that never flips.
- *
- * Env-gated like the other proof suites; see load-rules.pg.test.ts.
+ * The grant converter against real PostgreSQL, exercised through the same read
+ * paths production uses. Env-gated like the other proof suites; see
+ * load-rules.pg.test.ts.
  */
 
 const PROOF_URL = proofDatabaseUrl();
@@ -350,9 +340,8 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
       scope: "organization",
       projectId: null,
     });
-    // The planted partner tier: reachable by all-mode injection at the
-    // GATEWAY, but grants must never reference it (no vocabulary — the
-    // mode-independent gateway tier serves it).
+    // A partner-scoped secret: the gateway serves that tier itself, so grants
+    // must never reference it.
     await db.partner.create({
       data: {
         id: `${P}partner`,
@@ -382,8 +371,8 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
     expect(result.agentsFlipped).toBe(1);
     expect(await agentMode(agent)).toBe("selective");
 
-    // Stacks: one whole-app allow per pooled connection, one allow per pooled
-    // org/project secret — and NOTHING referencing the partner secret.
+    // One whole-app allow per pooled connection, one per pooled org/project
+    // secret, and nothing referencing the partner secret.
     const rows = await draftRows(w, { source: "grant" });
     const connTargets = rows
       .filter((r) => r.targets[0]?.kind === "connection")
@@ -402,8 +391,8 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
       ),
     ).toBe(true);
 
-    // Published truth: generation 1 exists, its default is allow, and a
-    // catalog request decides allow via the winner (not merely by default).
+    // Generation 1 exists, its default is allow, and a catalog request decides
+    // allow via the winner rather than by default.
     const published = await db.policyRuleV2.findMany({
       where: { projectId: w.project, status: "published", generation: 1 },
     });
@@ -446,9 +435,8 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
         { kind: "app", appProvider: "gmail", appTools: ["create_draft"] },
       ],
     });
-    // The adversarial-review case: a USER-pinned rule reaches agent traffic
-    // through the ProjectAccess principal set — an empty-principals fold
-    // would turn this block into allow.
+    // A user-pinned rule reaches agent traffic through the ProjectAccess
+    // principal set; an empty-principals fold would turn this block into allow.
     await addRule(w, {
       name: "u1 may not search",
       action: "block",
@@ -518,8 +506,8 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
       winner: conn,
     });
     expect(batchA).toMatchObject({ action: "allow", requireApproval: true });
-    // The user-pinned block folded into BOTH agents' stacks (the principal
-    // set applies to every agent of the project).
+    // The principal set applies to every agent, so the user-pinned block folded
+    // into both stacks.
     const searchA = await decide(w, {
       path: "/gmail/v1/users/me/messages",
       method: "GET",
@@ -565,7 +553,7 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
     expect(await agentMode(agent)).toBe("selective");
 
     // Equipment gone; the grants carry the policy on every allow-action row,
-    // draft AND published (the jsonb round-trip the gateway will read).
+    // draft and published — the jsonb round-trip the gateway will read.
     expect(await draftRows(w, { source: "equipment" })).toHaveLength(0);
     for (const status of ["draft", "published"] as const) {
       const rows = await db.policyRuleV2.findMany({
@@ -676,10 +664,9 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
     const result = await convertOne(w);
     expect(result.defaultsReset).toBe(1);
 
-    // The default is allow now — but the connection's stack blocks every
-    // catalog tool (the fold saw block-by-default per tool), so the verdict
-    // is unchanged and there is NO allow row → the gateway never selects the
-    // connection (fail-closed, the recorded shape change).
+    // The default is allow now, but the connection's stack blocks every catalog
+    // tool, so the verdict is unchanged and no allow row remains — the gateway
+    // never selects the connection.
     const defaultRow = (await draftRows(w, { isDefault: true }))[0];
     expect(defaultRow?.action).toBe("allow");
     const after = await decide(w, {
@@ -777,8 +764,8 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
     vi.resetModules();
     convert = await import("./convert");
 
-    // All-or-nothing: the shared guardrail survives, nothing was published,
-    // and BOTH agents are still all-mode (agent A included).
+    // All-or-nothing: the shared guardrail survives, nothing was published, and
+    // both agents are still all-mode.
     expect(await agentMode(agentA)).toBe("all");
     expect(await agentMode(agentB)).toBe("all");
     expect(await draftRows(w, { source: "custom" })).toHaveLength(1);
@@ -848,7 +835,7 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
     expect(result.verifyFailed).toBe(1);
     expect(result.agentsFlipped).toBe(0);
     expect(await agentMode(agent)).toBe("all");
-    // The generation is KEPT — it is what is enforcing.
+    // The generation is kept — it is what is enforcing.
     const published = await db.policyRuleV2.findMany({
       where: { projectId: w.project, status: "published" },
     });

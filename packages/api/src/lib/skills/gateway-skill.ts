@@ -198,9 +198,8 @@ the \`connect_url\` so the user can connect the service in OneCLI.
   the block. Do not retry or circumvent it.
 `;
 
-// Agents that ship the gateway-detection hook (so the skill should stay
-// dormant until the hook fires). "agent" is Cursor's alternate binary name —
-// it must classify the same as "cursor".
+// Agents that ship the gateway-detection hook, so the skill stays dormant until
+// the hook fires. "agent" is Cursor's alternate binary name.
 const HOOK_BASED_AGENTS = new Set([
   "claude",
   "cursor",
@@ -210,11 +209,9 @@ const HOOK_BASED_AGENTS = new Set([
 ]);
 
 export function getGatewaySkill(agent?: string): string {
-  // Hook-based agents — and the no-agent default sent by older CLIs that don't
-  // pass agent_framework — get the conservative "don't auto-load" description;
-  // their detection hook handles activation. The broad "MUST load on auth
-  // errors" variant is reserved for agents explicitly known to lack hook
-  // detection (e.g. hermes) and unrecognized frameworks.
+  // Hook-based agents, and callers that pass no framework, get the conservative
+  // description and let their detection hook handle activation. The broad
+  // variant is for agents known to lack hook detection.
   const frontmatter =
     !agent || HOOK_BASED_AGENTS.has(agent)
       ? FRONTMATTER_HOOK

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { resolveConnectCredentials } from "./connect-credentials";
 import type { AppDefinition } from "./types";
 
-// Minimal typed app fixtures — the helper only reads connectionMethod /
-// additionalMethods, but the full shape keeps the fixtures honest.
+// Minimal typed app fixtures: the helper only reads `connectionMethod` and
+// `additionalMethods`, but the full shape keeps the fixtures honest.
 const apiKeyApp: AppDefinition = {
   id: "keyapp",
   name: "Key App",

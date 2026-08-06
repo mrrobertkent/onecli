@@ -1244,9 +1244,8 @@ impl PolicyEngine {
         // unscoped credential where the credential itself is how the scope is
         // enforced — every mint failure above merely logs and falls through.
         // Providers enforced by a request guard are the opposite case: the plain
-        // stored token is the correct credential, and withholding it would break
-        // granular access rather than tighten anything. So the test is whether
-        // any path will enforce this scope, not whether the provider is scoped.
+        // stored token is the correct credential there, and withholding it would
+        // break granular access rather than tighten anything.
         if needs_scoped_token
             && !scoped_token_minted
             && !crate::ee_apps::has_request_guard(provider)

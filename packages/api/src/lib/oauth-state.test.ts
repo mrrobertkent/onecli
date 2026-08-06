@@ -37,8 +37,7 @@ describe("oauth state", () => {
     expect(verifyOAuthState(signOAuthState(payload))).toEqual(payload);
   });
 
-  // The extension point this change relies on: the payload carries arbitrary
-  // extra keys (origin, connectionId, agentName, …) through the signature.
+  // The payload carries arbitrary extra keys through the signature.
   it("carries unknown keys through the signature", () => {
     const payload = {
       projectId: "p1",
@@ -50,8 +49,7 @@ describe("oauth state", () => {
     expect(verifyOAuthState(signOAuthState(payload))).toEqual(payload);
   });
 
-  // The compatibility case that matters on deploy: states minted by a release
-  // that predates `origin` are still in flight and must keep verifying.
+  // States minted without an `origin` must keep verifying.
   it("verifies a state that carries no origin", () => {
     const verified = verifyOAuthState(
       signOAuthState({ projectId: "p1", provider: "gmail", nonce }),

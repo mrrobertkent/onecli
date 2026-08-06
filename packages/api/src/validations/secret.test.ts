@@ -29,9 +29,8 @@ describe("secret host pattern validation", () => {
     expect(accepts(host)).toBe(true);
   });
 
-  // A wildcard that spans a public suffix would inject the credential across
-  // many unrelated owners — ICANN suffixes and PSL private-section (per-tenant)
-  // suffixes alike — so it is rejected.
+  // A wildcard spanning a public suffix would inject the credential across
+  // unrelated owners, whether the suffix is ICANN or PSL private-section.
   it.each(["*.com", "*.io", "*.co.uk", "*.s3.amazonaws.com", "*.github.io"])(
     "rejects public-suffix wildcard %s",
     (host) => {
@@ -39,9 +38,7 @@ describe("secret host pattern validation", () => {
     },
   );
 
-  // Validation runs on the trimmed value (the service trims on save), so
-  // trailing Unicode whitespace must not smuggle a public-suffix wildcard past
-  // the check, nor reject an otherwise-valid pattern.
+  // Validation runs on the trimmed value, since the service trims on save.
   it("validates the trimmed host pattern", () => {
     expect(accepts("*.com" + NBSP)).toBe(false); // trims to "*.com"
     expect(accepts("*.s3.amazonaws.com" + IDEOGRAPHIC_SPACE)).toBe(false);
@@ -123,8 +120,7 @@ describe("injection config type guards", () => {
   });
 });
 
-// migrate-import.ts validates incoming secrets with this exact union, so this
-// proves param- and path-injected secrets survive an org->project migration.
+// migrate-import.ts validates incoming secrets with this same union.
 describe("injectionConfigSchema (shared union, used by migrate import)", () => {
   it.each([
     ["header", { headerName: "Authorization", valueFormat: "Bearer {value}" }],
