@@ -2,18 +2,12 @@ import { policy } from "@/lib/api";
 import type { PageScope } from "@/lib/api";
 
 /**
- * The OSS publish-mode seam (step 9.5): IMMEDIATE APPLY. OSS's editor has no
- * staged-publish surface (§2.9 keeps preview/publish in OneCLI Cloud), so
- * every write publishes right away — matching the legacy OSS editor, where
- * every change was live on save. Chained inside the mutation, so the button's
- * pending state covers write + publish and the cache invalidation that follows
- * sees the published truth.
+ * The OSS publish-mode seam: immediate apply. Chained inside the mutation, so
+ * the button's pending state covers write plus publish and the invalidation
+ * that follows sees the published truth.
  *
- * If the publish half ever fails, the write IS staged in the draft; the next
- * successful write publishes the WHOLE draft (snapshot semantics), so the
- * state self-heals. The EE editions alias this file to
- * `@/ee/policy-editor/publish-mode` (per-scope since attach-model step 2:
- * project write-through, org staged).
+ * A failed publish leaves the write staged in the draft; the next successful
+ * write publishes the whole draft, so the state self-heals.
  */
 export const afterPolicyWrite = async (scope: PageScope): Promise<void> => {
   await policy.publish(scope);

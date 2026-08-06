@@ -62,8 +62,7 @@ describe("toAppPermissionDefinitionSummary", () => {
             description: "Everything read",
           },
           // The read_one alias "/alias/one" escapes the "/api/*" wildcard, so
-          // the umbrella is NOT a true superset of the group — the picker won't
-          // offer it (see wildcardCoversGroup).
+          // the umbrella is not a true superset and the picker won't offer it.
           wildcardComplete: false,
           tools: [
             { id: "read_one", name: "Read one", description: "Reads one" },

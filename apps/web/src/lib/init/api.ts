@@ -8,26 +8,14 @@ import {
 } from "@onecli/api/services/session-membership";
 
 /**
- * The OSS edition's API wiring. Every EE edition ALIASES THIS FILE AWAY
- * (`next.config.js` → `@/ee/init/api` or `@/ee/onprem/init/api`), so anything
- * here is OSS-only by construction:
- *
- * - the new-project seeder gives fresh projects their published Default Rule —
- *   the per-project enforce signal — pinned to ALLOW since step 6;
- * - the policy validator LOCKS granular resource scoping (a OneCLI Cloud
- *   capability the OSS gateway does not enforce) with a loud 422.
+ * The OSS edition's API wiring. Every EE edition aliases this file away, so
+ * everything here is OSS-only by construction.
  *
  * The two auth registrations are load-bearing for tenant isolation, not
- * optional wiring:
- *
- * - `roleResolver` — with `CAPS.rbac` now true, `canAccessProjectAsUser`
- *   returns false for EVERYONE if no resolver is registered
- *   (`resolve.ts:86`), and every org API key is rejected
- *   (`api-key.ts:52-59`). Removing this line does not loosen the system, it
- *   bricks it.
- * - `sessionHooks.ensureSessionMembership` — the login-time role writer. It is
- *   what makes the resolver's answer meaningful; without it every joiner falls
- *   through to the floor role and the IdP's groups are never consulted.
+ * optional wiring: without `roleResolver`, `canAccessProjectAsUser` returns
+ * false for everyone and every org API key is rejected. Without
+ * `ensureSessionMembership`, every joiner falls through to the floor role and
+ * the IdP's groups are never consulted.
  */
 export const eeOverrides: CreateApiAppOptions | undefined = {
   newOrgPolicySeeder: ossNewProjectPolicySeeder,

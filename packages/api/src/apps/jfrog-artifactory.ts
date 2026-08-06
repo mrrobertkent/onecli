@@ -9,8 +9,8 @@ export const jfrogArtifactory: AppDefinition = {
     "Pull npm, PyPI, and other packages through your JFrog Artifactory instance.",
   connectionMethod: {
     type: "api_key",
-    // Token MUST come first: the connect handler treats fields[0] as the
-    // access token (credentials.access_token = fields[0]). Subdomain second.
+    // The token has to come first: the connect handler treats fields[0] as the
+    // access token.
     fields: [
       {
         name: "token",

@@ -1,18 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The effective-app-permissions reflection's contracts (step 9.7b): the
-// AGREEMENT LAW (per-tool verdicts ≡ an independent per-variant composition of
-// the real evaluator on the same seeded rules), org/project fencing at the
-// query level, the simulate redaction contract (org rule names never reach a
-// non-admin response — planted bait), the DERIVED injection basis (an
-// unconnected app leaves the deny-default unenforced), baseline honesty
-// (variesByIdentity, viewer-scoped), and the no-endpoint-leak constraint. The
-// db is mocked at the boundary; wheres are recorded and asserted.
+// The effective-app-permissions reflection's contracts: per-tool verdicts agree
+// with an independent per-variant composition of the real evaluator, org/project
+// fencing, redaction of org rule names from non-admin responses, the derived
+// injection basis, baseline honesty, and the no-endpoint-leak constraint. The db
+// is mocked at the boundary; wheres are recorded and asserted.
 
 const state = vi.hoisted(() => ({
   calls: [] as { model: string; op: string; args: unknown }[],
   results: new Map<string, unknown>(),
-  /** Args-aware responders for models read more than once CONCURRENTLY. */
+  /** Args-aware responders for models read more than once concurrently. */
   responders: new Map<string, (args: unknown) => unknown>(),
   aggregate: { _max: { generation: null as number | null } },
 }));
@@ -163,9 +160,8 @@ const armStubs = (opts: {
     "agent.findFirst",
     opts.agent !== undefined ? opts.agent : AGENT,
   );
-  // Honour `source: { not: … }` so the DECISION load (equipment dropped) and
-  // the INJECTION load (equipment kept) genuinely differ — without this a test
-  // passes whichever of the two the code happens to read.
+  // Honour `source: { not: … }` so the decision load (equipment dropped) and
+  // the injection load (equipment kept) genuinely differ.
   state.responders.set("policyRuleV2.findMany", (args) => {
     const where = (
       args as { where: { scope: string; source?: { not?: string } } }
@@ -194,7 +190,7 @@ const armStubs = (opts: {
 
 // ── the independent expected-composition (the agreement law's other side) ────
 
-/** In-test substitution, deliberately NOT the service's helper: replace every
+/** In-test substitution, deliberately not the service's helper: replace every
  * `*` with the same token, per segment. */
 const subst = (pattern: string): string =>
   pattern === "*" ? "/oc-any" : pattern.replaceAll("*", "oc-any");
@@ -289,7 +285,7 @@ describe("the agreement law (per-tool verdicts ≡ the evaluator)", () => {
         }),
       ],
     });
-    // Step 7: the injection basis comes from the agent's grants, never a pool.
+    // The injection basis comes from the agent's grants, never a pool.
     const gmailGrant = simRow({
       id: "r-grant",
       logicalId: "grant-gmail",
@@ -414,10 +410,9 @@ describe("derived injection basis", () => {
     armStubs({
       projectRows: [
         projectDefault,
-        // Step 7: attachment comes from a grant, not a pool. EQUIPMENT-source:
-        // it feeds the injection basis but is dropped from decisions — the
-        // injected-yet-undecided shape this carve exists for (an ordinary
-        // attach's allow would first-match past the default).
+        // An equipment-source grant feeds the injection basis but is dropped
+        // from decisions — the injected-yet-undecided shape this carve exists
+        // for; an ordinary attach's allow would first-match past the default.
         simRow({
           id: "r-grant",
           logicalId: "grant-gmail",
@@ -453,12 +448,10 @@ describe("derived injection basis", () => {
   });
 
   it("F1: a selective agent's RULE-GRANTED connection makes its tools managed, not unmanaged", async () => {
-    // Selective agent, ZERO assigned credentials, a project allow rule granting
-    // connection c1 (gmail) narrowed to reads, + project Default Block. The
-    // grant must fold into the injection probe (inject_select.rs) so the WRITE
-    // tools — which the read-only grant doesn't permit — are deny-default
-    // BLOCKED, not "unmanaged". Pre-fix (assigned-only probe) they'd read
-    // unmanaged while the credential dialog said "via rule" — the contradiction.
+    // Selective agent with no assigned credentials, a project allow rule
+    // granting connection c1 narrowed to reads, plus a project deny-default.
+    // The grant folds into the injection probe, so the write tools the grant
+    // doesn't permit read as blocked rather than unmanaged.
     const grant = simRow({
       id: "grant",
       logicalId: "gmail-reads",
@@ -485,8 +478,8 @@ describe("derived injection basis", () => {
     armStubs({
       agent: { id: "agent-1" },
       projectRows: [grant, projectDefault],
-      // c1 resolves to gmail via loadConnectionProviders; it is NOT in the
-      // assigned pool (probeConnections empty) — only the RULE grants it.
+      // c1 resolves to gmail via loadConnectionProviders and is not in the
+      // assigned pool — only the rule grants it.
       providerRows: [{ id: "c1", provider: "gmail" }],
     });
 
@@ -499,7 +492,7 @@ describe("derived injection basis", () => {
     expect(result.basis.credentialAttached).toBe(true);
     const write = result.groups.find((g) => g.category === "write")!;
     for (const tool of write.tools) {
-      expect(tool.verdict).toBe("block"); // deny-default BITES (not unmanaged)
+      expect(tool.verdict).toBe("block"); // deny-default bites (not unmanaged)
     }
   });
 });
@@ -631,7 +624,6 @@ describe("F2: agreeing variants never read as `mixed`", () => {
       ],
     });
     const search = await searchVerdict([getRule, postRule]);
-    // Pre-fix this folded provenance into the key → `mixed`. Now: uniform allow.
     expect(search.verdict).toBe("allow");
     expect(search.decidedBy).toBeNull(); // two sources — can't name one
   });

@@ -13,8 +13,8 @@ import {
 
 const accepts = (host: string) => hostPatternSchema.safeParse(host).success;
 
-// Unicode whitespace that String.prototype.trim() strips but that is NOT the
-// ASCII space the schema rejects: a non-breaking space and an ideographic space.
+// Unicode whitespace that `trim()` strips but that is not the ASCII space the
+// schema rejects: a non-breaking space and an ideographic space.
 const NBSP = String.fromCharCode(0xa0);
 const IDEOGRAPHIC_SPACE = String.fromCharCode(0x3000);
 

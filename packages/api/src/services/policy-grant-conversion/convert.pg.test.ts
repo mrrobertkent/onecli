@@ -841,10 +841,9 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
     });
     expect(published.length).toBeGreaterThan(0);
 
-    // The FIXPOINT property: the customs are already consumed, but the fold
-    // reads the written grant stacks themselves, so a clean re-run reproduces
-    // the same stacks (delete-then-recompile), verifies, and flips — the
-    // verify-failed interim self-heals instead of drifting looser.
+    // The fold reads the written grant stacks, so a clean re-run reproduces the
+    // same stacks, verifies and flips — the verify-failed interim self-heals
+    // instead of drifting looser.
     const healed = await convertOne(w);
     expect(healed.projectsConverted).toBe(1);
     expect(healed.agentsFlipped).toBe(1);
@@ -865,7 +864,7 @@ describe.skipIf(!PROOF_URL)("grant conversion over real PostgreSQL", () => {
       scope: "organization",
       projectId: null,
     });
-    await addConnection(w, "proj-conn"); // project scope — NOT in the org-level expansion
+    await addConnection(w, "proj-conn"); // project scope — not in the org expansion
     const secret = await addSecret(w, "sk");
     await addRule(w, {
       name: "all org gmail",

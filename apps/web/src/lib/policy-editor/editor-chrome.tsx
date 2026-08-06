@@ -4,12 +4,9 @@ import type { PolicyDiff } from "@onecli/api/lib/policy-diff";
 import type { PageScope } from "@/lib/api";
 
 /**
- * The OSS editor chrome (step 9.5) — deliberately empty. The staged publish
- * surface (Apply Changes + review, last-applied), the org
- * guardrails, and directory name resolution are OneCLI Cloud capabilities;
- * OSS's editor is immediate-apply and project-scoped, so this module renders
- * nothing. The EE editions alias this file to `@/ee/policy-editor/editor-chrome`
- * (the real chrome).
+ * The OSS editor chrome, empty by design. Staged publish, org guardrails and
+ * directory name resolution are OneCLI Cloud capabilities; OSS's editor is
+ * immediate-apply and project-scoped.
  */
 
 const NO_DIRECTORY = (): undefined => undefined;
@@ -26,6 +23,6 @@ export const StagedActions: (props: StagedActionsProps) => null = () => null;
 
 export const StagedMeta: (props: { scope: PageScope }) => null = () => null;
 
-/** OSS has no organization level — the evaluation explainer describes the
- * single project list only. The EE arm exports `true`. */
+/** OSS has no organization level, so the evaluation explainer describes the
+ * single project list only. */
 export const ORG_GUARDRAILS_AVAILABLE = false;
