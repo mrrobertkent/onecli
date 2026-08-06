@@ -290,9 +290,8 @@ describe("translateOssProjectRules app-tool grouping", () => {
       }),
       tool("m1", "gmail", "e", { action: "rate_limit", rateLimit: 0 }),
     ]);
-    // Singleton "gmail send" keeps its own name; the two disabled rows are
-    // carried per-row; the two valid rate rows stay per-row (per-row buckets);
-    // the malformed rate row is dropped.
+    // Singleton, disabled and rate rows all stay per-row; the malformed rate
+    // row is dropped.
     expect(rules.map((r) => r.name).sort()).toEqual([
       "gmail a",
       "gmail b",

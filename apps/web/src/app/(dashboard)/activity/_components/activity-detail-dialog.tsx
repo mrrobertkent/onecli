@@ -56,10 +56,8 @@ export const ActivityDetailDialog = ({
   const matchedRuleName = log ? getMatchedRuleName(log) : null;
   const matchedRuleScope = log ? getMatchedRuleScope(log) : null;
   const connectionLabel = log ? getConnectionLabel(log) : null;
-  // Rule attributions below are PLAIN TEXT since step 6: they used to link to
-  // the project policy page, which no longer exists — and a project member
-  // cannot edit the rule anyway (org guardrails and compiled grants are the
-  // only rule sources left).
+  // Rule attributions below are plain text: a project member cannot edit the
+  // rule, so there is nowhere useful to link.
 
   return (
     <Dialog open={!!log} onOpenChange={() => onClose()}>
@@ -127,10 +125,9 @@ export const ActivityDetailDialog = ({
               </Row>
             )}
             {matchedRuleName && !blockedByRule && !defaultDenied && (
-              // The v2 engine's attribution (step 9) for decisions no other
-              // row already names — allowed and approval requests. Blocked/
-              // rate-limited rows show "Blocked/Limited by"; default-denied
-              // rows show the "Reason" row instead.
+              // Attribution for decisions no other row already names: allowed
+              // and approval requests. Blocked and rate-limited rows show
+              // "Blocked/Limited by"; default-denied rows show "Reason".
               <Row label="Decided by rule">
                 <span>{matchedRuleName}</span>
               </Row>
@@ -139,8 +136,8 @@ export const ActivityDetailDialog = ({
               matchedRuleScope === "organization" &&
               !blockedByRule &&
               !defaultDenied && (
-                // An org rule decided, but its details are org-admin-only —
-                // the server redacted the name (the reflections' contract).
+                // An org rule decided, but the server redacts its name for
+                // anyone who is not an org admin.
                 <Row label="Decided by rule">
                   <span className="text-muted-foreground">
                     An organization rule

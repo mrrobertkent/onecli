@@ -1,19 +1,14 @@
 "use client";
 
-// Alias key on purpose — in EE builds this whole module is aliased away, so
-// this import only ever resolves here in the flat editions, where it is the
-// SHARED registry (configs without picker dialogs).
+// Alias key on purpose — in EE builds this module is aliased away, so the
+// import only ever resolves in the flat editions.
 import { granularAccessConfigs } from "@/lib/granular-access";
 import type { Connection } from "@/lib/api";
 
 /**
- * The OSS resource-scope seam (step 9.5): granular per-resource scoping
- * (GitHub repositories / Dropbox folders on a connection's injected
- * credential) is a OneCLI Cloud capability — the OSS gateway has no guard to
- * enforce it and the API locks it with a 422. Rendered only where the real
- * editor would appear (a supported provider, editable context), as a locked
- * capability hint. The EE editions alias this file to
- * `@/ee/policy-editor/resource-scope` (the real fields).
+ * The OSS resource-scope seam. Granular per-resource scoping is a OneCLI Cloud
+ * capability: the OSS gateway has no guard for it and the API 422s it, so this
+ * renders a locked capability hint wherever the real editor would appear.
  */
 
 export interface ResourceScopeFieldsProps {

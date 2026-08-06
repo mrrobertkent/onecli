@@ -664,7 +664,7 @@ describe("F2: agreeing variants never read as `mixed`", () => {
     const asAdmin = await searchVerdict([orgGet, orgPost], true);
     const asMember = await searchVerdict([orgGet, orgPost], false);
     expect(asAdmin.verdict).toBe("allow");
-    expect(asMember.verdict).toBe("allow"); // NOT mixed for one, allow for the other
+    expect(asMember.verdict).toBe("allow"); // not mixed for one, allow for the other
   });
 });
 
@@ -789,7 +789,7 @@ describe("baseline honesty", () => {
       { provider: "gmail" }, // no agentId → baseline
       PROJECT_CTX,
     );
-    // The group-scoped block does NOT bite the baseline…
+    // The group-scoped block does not bite the baseline…
     for (const group of result.groups) {
       for (const tool of group.tools) {
         expect(tool.verdict).toBe("unmanaged");
@@ -852,9 +852,8 @@ describe("org-scope variant", () => {
       },
     );
 
-    // Only the org side was read — no project-scoped rule load happened. There
-    // are two reads (the decision set and the injection set, which differ by
-    // whether `equipment` is included); BOTH must be org-scoped.
+    // Two reads happen — the decision set and the injection set, which differ
+    // by whether `equipment` is included; both must be org-scoped.
     const ruleReads = state.calls.filter(
       (c) => c.model === "policyRuleV2" && c.op === "findMany",
     );
@@ -964,8 +963,8 @@ describe("per-connection reflection (decisions bind to the winner)", () => {
     // Allow via c-work, deny-default via c-personal — the only truthful
     // provider-level answer is `mixed`, never a silent one-account view.
     expect(tools.every((t) => t.verdict === "mixed")).toBe(true);
-    // The resolved connection target is identity-scoped → the baseline-visible
-    // varies counter includes it (the new `connection` relevance arm).
+    // The resolved connection target is identity-scoped, so the varies counter
+    // includes it.
     expect(result.variesByIdentity).toBe(1);
   });
 
@@ -1054,7 +1053,7 @@ describe("orgCeiling (the org level evaluated alone)", () => {
       expect(
         tool.decidedBy?.kind === "rule" && tool.decidedBy.scope === "project",
       ).toBe(true);
-      // …and the org floor is STILL reported — the whole point of the field.
+      // …and the org floor is still reported.
       expect(tool.orgCeiling).toBe("approval");
     }
   });
@@ -1154,7 +1153,7 @@ describe("orgCeiling (the org level evaluated alone)", () => {
       ],
       probeConnections: [{ provider: "gmail" }],
       projectRows: [
-        // Step 7: attachment comes from a grant, not a pool.
+        // Attachment comes from a grant, not a pool.
         simRow({
           id: "r-grant",
           logicalId: "grant-gmail",
@@ -1220,7 +1219,7 @@ describe("orgResources (the org resource floor mirror)", () => {
     expect((await reflect()).orgResources).toEqual({
       repositories: ["org/a"],
     });
-    // The documented disclosure: a non-admin sees the VALUES (never the rule).
+    // The documented disclosure: a non-admin sees the values, never the rule.
     expect((await reflect(false)).orgResources).toEqual({
       repositories: ["org/a"],
     });
@@ -1229,8 +1228,7 @@ describe("orgResources (the org resource floor mirror)", () => {
   it("a later condition-less allow row cannot clear the boundary", async () => {
     // A plain org attach of the same connection restricts nothing, so it is not
     // a boundary — letting it win by sorting later would make the effective
-    // scope depend on unrelated rule ordering. (Deliberately NOT the
-    // last-match-wins law a scope's own selection follows.)
+    // scope depend on unrelated rule ordering.
     armStubs({
       orgRows: [
         orgConnAllow("o1", { repositories: ["org/a"] }),
@@ -1257,9 +1255,8 @@ describe("orgResources (the org resource floor mirror)", () => {
   });
 
   it("an explicit-identity org grant and an org-wide boundary compose (gateway parity)", async () => {
-    // The gateway folds the org GRANT's own policy and every matching boundary;
-    // this is the shape where a naive reflection would report more reach than
-    // the gateway actually allows.
+    // The gateway folds the org grant's own policy and every matching boundary;
+    // a naive reflection would report more reach than the gateway allows.
     const explicitGrant = orgConnAllow("o1", { repositories: ["org/x"] });
     explicitGrant.identities = [identityRow({ id: "i-a", agentId: "agent-1" })];
     armStubs({
@@ -1367,8 +1364,8 @@ describe("resource scopes (org boundary ∩ project selection)", () => {
   };
 
   it("an org rule naming NO identity bounds this agent — the reported case", () => {
-    // The authoring shape an admin reaches for ("applies to every agent").
-    // Under the injection law it bound nothing; as a BOUNDARY it must bind.
+    // The authoring shape an admin reaches for ("applies to every agent"):
+    // it binds nothing for injection, but as a boundary it must bind.
     return reflect({
       orgRows: [
         orgRule("o1", { repositories: ["buckle/electron", "buckle/api"] }),

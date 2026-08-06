@@ -65,9 +65,8 @@ export const AgentDetailContent = ({ agentId }: { agentId: string }) => {
     [searchParams, router, pathname],
   );
 
-  // The `?connection=<id>&manage=1` deep link (the connection dialog's Manage
-  // button target in step 4): open the manage sheet once the pool resolves.
-  // One-shot — consumed at most once per mount (the secrets-content pattern).
+  // The `?connection=<id>&manage=1` deep link: open the manage sheet once the
+  // pool resolves. Consumed at most once per mount.
   const consumedDeepLink = useRef(false);
   const connectionParam = searchParams.get("connection");
   const manageParam = searchParams.get("manage");
@@ -75,7 +74,7 @@ export const AgentDetailContent = ({ agentId }: { agentId: string }) => {
   useEffect(() => {
     if (consumedDeepLink.current) return;
     if (connectionParam === null || manageParam !== "1") return;
-    // The dialog derives its tri-state from the grant ONCE on open — opening
+    // The dialog derives its tri-state from the grant once on open, so opening
     // before the grants resolve would seed a stale "full access" view.
     if (!grantsReady) return;
     if (connections.length === 0) return;
@@ -135,9 +134,8 @@ export const AgentDetailContent = ({ agentId }: { agentId: string }) => {
   const manageGrant = manageConnection
     ? grantByConnection.get(manageConnection.id)
     : undefined;
-  // Org-granted (no project grant, injected by an ORG rule) → read-only view.
-  // A plain unattached connection stays editable: Manage-before-attach saves a
-  // customized grant in one step.
+  // Org-granted connections are read-only. A plain unattached one stays
+  // editable, so Manage-before-attach saves a customized grant in one step.
   const manageCredential = manageConnection
     ? credentialsQuery.data?.connections.find(
         (e) => e.id === manageConnection.id,

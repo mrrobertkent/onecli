@@ -23,11 +23,8 @@ export const eeOverrides: CreateApiAppOptions | undefined = {
   roleResolver: ossRoleResolver,
   sessionHooks: { ensureSessionMembership: ossSessionMembership },
   // The access gate: authenticating is not sufficient to be provisioned. Runs
-  // on every authenticated session, so going straight to a `/v1/*` route does
-  // not bypass it.
-  //
-  // Deliberate consequence: until a bootstrap admin exists and group mappings
-  // are configured, NOBODY is admitted. That is the fail-closed posture, and
-  // why the bootstrap admin has to ship alongside this.
+  // on every authenticated session, so a direct `/v1/*` call cannot bypass it.
+  // Fail-closed — nobody is admitted until a bootstrap admin exists and group
+  // mappings are configured.
   sessionEnforcer: ossSessionEnforcer,
 };

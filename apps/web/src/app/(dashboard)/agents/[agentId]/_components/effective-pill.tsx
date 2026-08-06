@@ -4,10 +4,8 @@ import { Ban, CircleCheck, CircleMinus, Globe } from "lucide-react";
 import { cn } from "@onecli/ui/lib/utils";
 import type { CredentialAccessStatus } from "@/lib/api/policy-visibility";
 
-// The page's effective-access pill. A span, deliberately NOT a disabled button
-// (it stays in the a11y tree with its text label). The three policy-reflect
-// dialogs keep their own unexported copies — extracting a shared one would put
-// this step in collision with step 4's edits to those files.
+// A span rather than a disabled button, so it stays in the a11y tree with its
+// text label. The three policy-reflect dialogs keep their own copies.
 const STATUS_META = {
   usable: {
     label: "Usable",
