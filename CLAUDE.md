@@ -28,7 +28,9 @@ packages/typescript-config/
 ## Environment Variables
 
 - `DATABASE_URL`: PostgreSQL connection string
-- `NEXT_PUBLIC_COGNITO_*`: AWS Cognito config (injected at build time in CI)
+- `AUTH_SECRET`, `APP_URL`: Better Auth signing key and origin
+- `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`: generic OIDC login provider
+- `BOOTSTRAP_ADMIN_*`: seeds the first administrator; `_FILE` variants supported
 - `STRIPE_SECRET_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: Third-party credentials
 
 ## Code Style
@@ -94,8 +96,8 @@ When adding components, use shadcn CLI or copy from ui.shadcn.com.
 
 - Server components by default, add `"use client"` only when needed
 - Pages export `default function` (async for data fetching)
-- Auth: AWS Amplify + Cognito (React context in `providers/`)
-- Server-side auth: `getServerSession()` from `lib/auth.ts`
+- Auth: Better Auth (React context in `providers/`; instance in `lib/auth/better-auth-config.ts`)
+- Server-side auth: `getServerSession()` from `lib/auth/server.ts`
 - Validation: Zod for API inputs
 - **Button loading states** - replace icon with spinner, update text (e.g., "Connecting..."), and disable
 - **Verify library APIs are current** - check official docs for deprecated/legacy patterns before implementing
