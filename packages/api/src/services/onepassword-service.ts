@@ -67,9 +67,8 @@ let savedHttp: Pick<
 > | null = null;
 
 /**
- * Run an SDK operation with a self-consistent undici pinned to the global HTTP
- * primitives. Reference-counted so concurrent calls share one swap window and
- * the originals are restored exactly once.
+ * Run an SDK operation with a self-consistent undici pinned onto the global
+ * HTTP primitives. Reference-counted so concurrent calls share one swap window.
  */
 const withPinnedUndici = async <T>(fn: () => Promise<T>): Promise<T> => {
   if (pinDepth === 0) {
@@ -158,11 +157,9 @@ export const validateToken = async (token: string): Promise<void> =>
   });
 
 /**
- * Resolve an `op://vault/item/field` reference to its secret value.
- *
- * Any resolution failure is surfaced as BAD_REQUEST so the gateway treats the
- * mapping as stale and backs off via its negative cache. Transport failures
- * (gateway → Node) are handled gateway-side and drive the longer cooldown.
+ * Resolve an `op://vault/item/field` reference to its secret value. Any failure
+ * surfaces as BAD_REQUEST so the gateway treats the mapping as stale and backs
+ * off via its negative cache.
  */
 export const resolveSecret = async (
   token: string,
@@ -251,8 +248,8 @@ export const listItems = async (
   });
 
 /**
- * List an item's field labels — NOT values. The plaintext `field.value` the SDK
- * returns stays in this process; only id/title/type/section reach the caller.
+ * List an item's field labels, not values — the plaintext `field.value` the SDK
+ * returns never leaves this process.
  */
 export const getItemFields = async (
   token: string,

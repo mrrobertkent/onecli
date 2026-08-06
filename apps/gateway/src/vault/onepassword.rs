@@ -236,8 +236,7 @@ impl OnePasswordVaultProvider {
     }
 
     // ── Picker passthroughs (browse vaults → items → fields) ─────────────
-    // The browser never sees the SA token or field values — it gets only the
-    // labels/types the Node service returns.
+    // The browser sees only labels/types — never the SA token or field values.
 
     pub(crate) async fn list_vaults(
         &self,
@@ -272,8 +271,7 @@ impl OnePasswordVaultProvider {
             .map_err(op_err_to_vault)
     }
 
-    /// Load a connected session for picker calls, or 404 if not paired. Returns
-    /// the session so callers borrow the SA token instead of cloning it.
+    /// Load a connected session for picker calls, or 404 if not paired.
     async fn picker_session(
         &self,
         project_id: &str,
@@ -323,9 +321,8 @@ impl VaultProvider for OnePasswordVaultProvider {
         })
     }
 
-    /// 1Password is a value-source for explicit secrets (resolved via the
-    /// PolicyEngine secret-injection path), not a hostname-matched vault racer,
-    /// so it never participates in the Bitwarden-style credential race.
+    /// Never participates in the hostname credential race — 1Password is a
+    /// value source for explicit secrets.
     async fn request_credential(
         &self,
         _project_id: &str,
@@ -432,8 +429,7 @@ mod tests {
 
     #[test]
     fn config_ignores_legacy_mappings() {
-        // Rows written before the value-source refactor carry a `mappings` key.
-        // It must deserialize cleanly (ignored) so existing connections keep working.
+        // Legacy rows carry a `mappings` key; it must deserialize cleanly.
         let json = serde_json::json!({
             "encrypted_service_account_token": "iv:tag:ct",
             "mappings": { "api.anthropic.com": "op://API Keys/Anthropic/credential" },
@@ -444,8 +440,7 @@ mod tests {
 
     #[test]
     fn op_error_maps_to_the_right_vault_error_class() {
-        // This mapping is the contract that drives the HTTP status the picker
-        // returns (404 / 400 / 500), so pin each classification.
+        // Drives the HTTP status the picker returns (404 / 400 / 500).
         assert!(matches!(
             op_err_to_vault(OpError::NotFound("x".into())),
             VaultError::NotFound(_)

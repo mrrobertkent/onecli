@@ -15,8 +15,8 @@ const resolveCodexStub = async (projectId: string, organizationId: string) => {
     take: 10,
   });
 
-  // If ALL OpenAI secrets are api-key mode, use the api-key stub.
-  // Otherwise default to OAuth (covers: no secrets, mixed, or all oauth).
+  // Only an entirely api-key set gets the api-key stub; no secrets, a mix, or
+  // all-oauth default to OAuth.
   const hasAny = openaiSecrets.length > 0;
   const allApiKey =
     hasAny &&

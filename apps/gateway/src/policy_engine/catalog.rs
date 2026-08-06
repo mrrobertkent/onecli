@@ -300,18 +300,14 @@ mod tests {
         ));
     }
 
-    /// The invariant (enforcement ⊇ injection): for EVERY provider the gateway
-    /// injects credentials for, a WHOLE-APP rule for that provider must match a
-    /// request on each host it injects on. This is the structural guarantee that
-    /// the two host lists can't diverge into a bypass again — it fails if the
-    /// engine regresses to catalog-only matching, or an injection host is added
-    /// that the app-target matcher can't reach.
+    /// The invariant (enforcement ⊇ injection): for every provider the gateway
+    /// injects credentials for, a whole-app rule must match a request on each
+    /// host it injects on, so the two host lists cannot diverge into a bypass.
     #[test]
     fn whole_app_rules_cover_the_entire_injection_surface() {
         for (provider, host, path) in crate::apps::injection_surface_samples() {
             // Only providers with a permission catalog are targetable by an
-            // app/connection rule (no tools → no rule); the rest have no
-            // enforcement surface to diverge from.
+            // app/connection rule.
             if catalog().get(provider).is_none() {
                 continue;
             }

@@ -774,10 +774,8 @@ export const updatePolicyRule = async (
     await assertTargetsValid(base, input.targets);
     await getPolicyValidator().validateTargets?.(input.targets);
   }
-  // A granular session policy (object conditions) is validated against the rule's
-  // MERGED state — re-checked whenever conditions, targets, OR action change, so a
-  // connection target (or a flip to Allow) added in a LATER PATCH can't pair with a
-  // stored object policy while skipping the allow/connection/entitlement gates.
+  // Re-checked whenever conditions, targets or action change, so a later PATCH
+  // can't pair a stored session policy with a connection target un-gated.
   if (
     input.conditions !== undefined ||
     input.targets !== undefined ||
@@ -860,8 +858,8 @@ export const updatePolicyRule = async (
         include: RULE_INCLUDE,
       });
     });
-    // Manual ordering: an edit NEVER moves the rule (priority is not written
-    // here) — the position the user chose is part of the policy.
+    // An edit never moves the rule: the position the user chose is part of the
+    // policy.
     return toRuleDto(rule);
   } catch (err) {
     return asReferenceError(err);
@@ -878,9 +876,8 @@ export const deletePolicyRule = async (
   });
   if (!existing) throw new ServiceError("NOT_FOUND", "Policy rule not found.");
   await db.policyRuleV2.delete({ where: { id } });
-  // Manual ordering: deleting leaves a priority gap — harmless (only relative
-  // order matters to first-match; the UI numbers rows by index) and renumbered
-  // densely by the next explicit reorder.
+  // Deleting leaves a priority gap: only relative order matters to first-match,
+  // and the next reorder renumbers densely.
 };
 
 export const reorderPolicyRules = async (
@@ -890,9 +887,8 @@ export const reorderPolicyRules = async (
   const base = policyScope(scope);
   try {
     await db.$transaction(async (tx) => {
-      // Validate + write under the per-scope advisory lock publish and the
-      // publish path takes, so a reorder can't interleave with a concurrent
-      // snapshot rewriting the same draft.
+      // Under the per-scope lock, so a reorder can't interleave with a
+      // concurrent snapshot rewriting the same draft.
       await lockScope(tx, base);
       const draft = await tx.policyRuleV2.findMany({
         where: { ...base, status: "draft", isDefault: false },
@@ -935,12 +931,9 @@ export const reorderPolicyRules = async (
   return listPolicyRules(scope, "draft");
 };
 
-// The terminal Default Rule is a per-scope singleton (isDefault). Both scopes
-// now default to ALLOW (the attach-model posture — deny-by-default is the
-// admin's opt-in flip on the org Default Rule): this covers lazy creation
-// (ensureDefault on publish/PATCH) and the virtual default, so an org whose
-// birth seed failed can never resurrect a Block nobody chose. The parameter
-// stays so every call site keeps naming its scope base.
+// The terminal Default Rule is a per-scope singleton. Both scopes default to
+// allow; deny-by-default is an admin's opt-in flip on the org Default Rule. The
+// unused parameter keeps every call site naming its scope base.
 const defaultAction: (base: PolicyScopeBase) => "allow" | "block" = () =>
   "allow";
 
@@ -967,9 +960,7 @@ const findDefault = async (
   return client.policyRuleV2.findFirst({ where, include: RULE_INCLUDE });
 };
 
-// Create the default if absent — callers hold the per-scope lock (writes only).
-// Exported for feature-owned rule compilers (grants) that publish atomically
-// inside their own locked transaction.
+// Create the default if absent — callers hold the per-scope lock.
 export const ensureDefault = async (
   tx: Prisma.TransactionClient,
   base: PolicyScopeBase,
@@ -1052,11 +1043,9 @@ export interface PublishResult {
 // are pruned on publish so frequent republishes don't grow the table unbounded.
 const PUBLISHED_GENERATION_RETENTION = 10;
 
-// Gate-less snapshot of the given draft rows into a fresh published generation
-// (active published set = max(generation)). Callers hold the scope lock and have
-// already read `draftRules`; the plan gate — if any — is the caller's job.
-// Exported for feature-owned rule compilers (grants) that publish atomically
-// inside their own locked transaction.
+// Snapshot the given draft rows into a fresh published generation (the active
+// set is max(generation)). Callers hold the scope lock; the plan gate, if any,
+// is the caller's job.
 export const snapshotDraftRules = async (
   tx: Prisma.TransactionClient,
   base: PolicyScopeBase,
@@ -1093,9 +1082,7 @@ export const snapshotDraftRules = async (
       },
     });
   }
-  // Prune published generations beyond the rollback retention window so frequent
-  // republishes (every coherence-bridge run) can't grow the table unbounded. The
-  // gateway reads only max(generation); older ones exist only for rollback.
+  // The gateway reads only max(generation); older ones exist for rollback.
   if (generation > PUBLISHED_GENERATION_RETENTION) {
     await tx.policyRuleV2.deleteMany({
       where: {
@@ -1109,15 +1096,12 @@ export const snapshotDraftRules = async (
 };
 
 // "Apply Changes": snapshot the scope's draft set into a fresh published
-// generation. Active published set = max(generation); rollback (later) =
-// re-snapshot a prior generation. Draft rows keep their ids (the working copy).
+// generation. Draft rows keep their ids — they stay the working copy.
 export const publishPolicy = async (
   scope: ResourceScope,
   userId: string,
 ): Promise<PublishResult> => {
   const base = policyScope(scope);
-  // Manual ordering: the draft publishes exactly as the user arranged it —
-  // the priorities ARE the policy (top-down first-match).
   return db.$transaction(async (tx) => {
     await lockScope(tx, base);
     await ensureDefault(tx, base);
@@ -1140,10 +1124,9 @@ export const publishPolicy = async (
     if (actions.length > 0) {
       await getRuleActionGate().assertAllowed(scope, actions);
     }
-    // Re-assert the granular-scoping entitlement too — symmetric with the plan
-    // gate above: a session policy entitled at author time must still be entitled
-    // (and still valid against the connection) to go live. No-ops for behavioral /
-    // absent conditions; the per-provider validator is a cheap metadata check.
+    // Likewise the granular-scoping entitlement: a session policy entitled at
+    // author time must still be entitled, and still valid against its
+    // connection, to go live.
     for (const r of draftRules) {
       if (!isSessionPolicy(r.conditions)) continue;
       const connTargets = r.targets

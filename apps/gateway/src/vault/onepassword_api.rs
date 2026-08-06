@@ -1,10 +1,8 @@
 //! Internal HTTP client for the Node "1Password SDK service".
 //!
-//! The gateway holds the (decrypted) 1Password Service-Account token and
-//! delegates the actual SDK work — validating a token and resolving an
-//! `op://` reference — to the Node API over an authenticated, VPC-internal
-//! channel. This replaces the old `op` CLI wrapper: no subprocess, no
-//! third-party binary in the image, no macOS TCC prompts.
+//! The gateway holds the decrypted Service-Account token and delegates SDK work
+//! — token validation, `op://` resolution, picker browsing — to the Node API
+//! over an authenticated, VPC-internal channel.
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -33,18 +31,14 @@ impl std::fmt::Display for OpError {
     }
 }
 
-/// Where the Node app answers when nothing overrides it. The gateway and the
-/// app share a container in every self-hosted layout, so loopback is the
-/// address, not a guess.
+/// Where the Node app answers when nothing overrides it: gateway and app share
+/// a container in self-hosted layouts.
 const INTERNAL_API_URL_DEFAULT: &str = "http://localhost:10254";
 
-/// Base URL of the internal Node API: `INTERNAL_API_URL` when set (cloud points
-/// it at the in-VPC api-server, e.g. `http://api-server:10256`), else loopback.
+/// Base URL of the internal Node API: `INTERNAL_API_URL` when set, else loopback.
 ///
-/// Deliberately **not** `APP_URL`. That is the *public* URL users browse to —
-/// a different concept, and since it can now name a real external host, using
-/// it here would send in-container vault calls out over the internet. Split out
-/// for testability, as [`super::super::gateway::response::dashboard_url`] is.
+/// Never `APP_URL` — that is the public URL, and using it would send
+/// in-container vault calls out over the internet.
 fn resolve_internal_api_url(explicit: Option<&str>) -> String {
     explicit
         .map(str::trim)
@@ -180,8 +174,8 @@ async fn classify(resp: reqwest::Response) -> OpError {
     }
 }
 
-// `op://` reference shape is validated Node-side (`opRefSchema`) at secret
-// write time; the gateway trusts the refs it reads back from validated rows.
+// `op://` reference shape is validated Node-side at secret write time; the
+// gateway trusts the refs it reads back.
 
 #[cfg(test)]
 mod tests {
@@ -195,15 +189,8 @@ mod tests {
         );
     }
 
-    // The regression guard. This used to fall back to APP_URL — the *public*
-    // URL — which, now that APP_URL can name a real external host, would send
-    // in-container vault calls out over the internet. Loopback is the only
-    // correct answer when nothing explicit is set.
-    //
-    // Asserted through the parameter rather than by setting APP_URL in the
-    // environment: the resolver takes its only input as an argument, so there is
-    // nothing for an env var to reach, and mutating process-wide env here would
-    // race the sibling suites that read APP_URL through a cached `OnceLock`.
+    // Loopback is the only correct fallback: `APP_URL` is the public URL and
+    // would send in-container vault calls out over the internet.
     #[test]
     fn falls_back_to_loopback_never_to_a_public_url() {
         assert_eq!(resolve_internal_api_url(None), INTERNAL_API_URL_DEFAULT);

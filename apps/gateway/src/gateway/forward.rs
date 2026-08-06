@@ -91,25 +91,14 @@ const AUTH_CHECK_BODY_LIMIT: usize = 8192;
 const MAX_DEFAULT_INTERCEPT_BODY: usize = 64 * 1024;
 
 /// Mint any deferred credentials and fold their rules into the request's
-/// injection set. Called once the request is allowed — see
-/// [`crate::connect::PendingInjection`].
+/// injection set, once the request is allowed.
 ///
-/// The merge is re-run rather than appended to: `merge_injection_rules` encodes
-/// which rule wins when a secret and an app both cover a host, and appending
-/// would silently hand that contest to the app.
-///
-/// A credential that cannot be resolved BLOCKS. The decision was made on the
-/// premise that one would be injected, so forwarding the request bare would
-/// send it upstream with less authority than the policy assumed — and read to
-/// the agent as an inexplicable upstream 401.
-///
-/// KNOWN GAP: this runs before the manual-approval wait, and before the
-/// `pre_forward` refusals (claim, budget, quota, the Dropbox guard) — those
-/// need `injection_count`, so the ordering is forced. A request denied at any
-/// of those points has therefore already minted. Closing it would mean moving
-/// header injection past the approval hold, which changes what `pre_forward`
-/// inspects for every request — more risk than the case is worth. Requests
-/// blocked by POLICY, the ones that matter, never reach here.
+/// The merge is re-run rather than appended to: appending would silently hand
+/// the secret-versus-app contest to the app. A credential that cannot be
+/// resolved blocks, rather than forwarding with less authority than the policy
+/// assumed. Known gap: the approval wait and the `pre_forward` refusals need
+/// `injection_count`, so they run after this and a request denied there has
+/// already minted; policy-blocked requests never reach here.
 pub(super) async fn materialize_injections<'a>(
     rules: &'a ResolvedRules,
     engine: &crate::connect::PolicyEngine,
@@ -117,8 +106,7 @@ pub(super) async fn materialize_injections<'a>(
     method: &str,
     path: &str,
 ) -> std::result::Result<Cow<'a, [inject::InjectionRule]>, Response<hooks::ForwardResponseBody>> {
-    // Nothing deferred (every request that isn't resource-scoped) borrows the
-    // rules as they are — this sits on the hot path, so it must not allocate.
+    // Hot path: with nothing deferred, borrow the rules rather than allocate.
     if rules.pending_injections.is_empty() {
         return Ok(Cow::Borrowed(&rules.injection_rules));
     }
@@ -158,10 +146,9 @@ pub(super) async fn materialize_injections<'a>(
 pub(crate) async fn forward_request(
     req: Request<Incoming>,
     host: &str,
-    // The original, pre-rewrite host the live policy rules were assembled from —
-    // the host policy must match against. Differs from `host` only when an app
-    // rewrites the upstream to a provider-specific site; `host` stays the actual
-    // forward target (URL, `is_llm_host`, interception).
+    // The pre-rewrite host the policy rules were assembled from, and what policy
+    // matches against. Differs from `host` only when an app rewrites the
+    // upstream; `host` stays the actual forward target.
     policy_host: &str,
     scheme: &str,
     http_client: reqwest::Client,
@@ -181,18 +168,16 @@ pub(crate) async fn forward_request(
     let url = format!("{scheme}://{host}{path}");
 
     // An empty resource scope reaches nothing, so refuse before anything can
-    // hand out or mint a credential — ahead of the token interception below,
-    // which would otherwise serve the connection's access token straight to the
-    // client and bypass every later check.
+    // mint or hand out a credential — ahead of the token interception below,
+    // which would otherwise serve the access token straight to the client.
     if let Some(resp) = hooks::refuse_empty_scope(rules, proxy_ctx, host, method.as_str(), &path) {
         warn!(method = %method, url = %url, "empty resource scope — request denied");
         return Ok(resp);
     }
 
-    // Token endpoint interception: when a client SDK tries to refresh its
-    // own OAuth token through the proxy, serve the cached access token from
-    // the stored app connection instead of forwarding dummy credentials.
-    // Interception targets are defined per-provider in the app registry.
+    // Token endpoint interception: when a client SDK tries to refresh its own
+    // OAuth token through the proxy, serve the cached access token from the
+    // stored app connection instead of forwarding dummy credentials.
     if let Some(ref intercept) = rules.intercept_token {
         if crate::apps::is_intercept_target(super::strip_port(host), &path)
             && method == hyper::Method::POST
@@ -211,18 +196,16 @@ pub(crate) async fn forward_request(
         }
     }
 
-    // Default interceptions: gateway-authored responses for predefined endpoints
-    // (e.g. Codex's onecli-managed OAuth refresh), independent of any connected
-    // secret or app. Cheap host/path/method pre-match for every request; only a
-    // matched, small request gets its body buffered and inspected below.
+    // Default interceptions: gateway-authored responses for predefined
+    // endpoints, independent of any connected secret or app. Cheap
+    // host/path/method pre-match; only a matched, small request gets buffered.
     let default_target =
         default_interceptions::match_target(super::strip_port(host), &path, &method)
             .filter(|_| content_length_at_most(req.headers(), MAX_DEFAULT_INTERCEPT_BODY));
 
-    // Buffer the request body for condition matching, when the request guard needs
-    // to inspect it (e.g. Dropbox folder scoping reads the JSON body), or for a
-    // matched default interception. In OSS, both predicates return false → zero
-    // overhead unless a default interception matched.
+    // Buffer the request body when condition matching or the request guard needs
+    // to inspect it, or for a matched default interception. In OSS both
+    // predicates are false, so nothing is buffered unless one matched.
     let (condition_buffer, req) = if crate::policy_engine::needs_body_buffer(&rules.policy_rules_v2)
         || hooks::needs_request_body(rules, host, method.as_str(), &path)
     {
@@ -256,13 +239,11 @@ pub(crate) async fn forward_request(
 
     let has_injections = rules.injects();
 
-    // Step-7 app-availability pre-check (DB-free — the set was resolved at
-    // connect). Governs ONLY identifiable app providers, so raw/unknown hosts and
-    // the LLM host are structurally never blocked (the enforce-deny carve). "Open"
-    // orgs / OSS / enforcement-off resolve to unrestricted → a no-op here.
-    // Matches on `policy_host` (pre-rewrite + port-stripped — the host the
-    // provider registry knows), NOT the port-bearing / possibly-rewritten `host`,
-    // which would silently identify no provider and never block.
+    // App-availability pre-check (DB-free — the set was resolved at connect).
+    // Governs only identifiable app providers, so raw/unknown hosts and the LLM
+    // host are never blocked; open orgs and OSS resolve to unrestricted. Matches
+    // on `policy_host`, the host the provider registry knows — the rewritten,
+    // port-bearing `host` would identify no provider and never block.
     if let Some(provider) =
         crate::apps::app_availability_block(policy_host, &path, &rules.available_apps)
     {
@@ -368,8 +349,8 @@ pub(crate) async fn forward_request(
         }
     }
 
-    // Sanitize headers for approval metadata (BEFORE injection, so the
-    // approver never sees real credentials). Only built for ManualApproval.
+    // Sanitize headers for approval metadata before injection, so the approver
+    // never sees real credentials. Only built for ManualApproval.
     let sanitized_headers = if matches!(&decision, PolicyDecision::ManualApproval { .. }) {
         Some(
             headers
@@ -386,9 +367,8 @@ pub(crate) async fn forward_request(
 
     hooks::prepare_request(rules, host, &path, &mut headers);
 
-    // The request is allowed: mint any deferred credential now. Everything
-    // above could have refused it, and a refused request must never cause a
-    // live credential to be created upstream.
+    // The request is allowed: mint any deferred credential now. A refused
+    // request must never create a live credential upstream.
     let injection_rules =
         match materialize_injections(rules, engine, cache, method.as_str(), &path).await {
             Ok(rules) => rules,

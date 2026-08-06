@@ -1,25 +1,13 @@
 //! Human-readable summaries of held requests for manual-approval cards.
 //!
-//! When a request matches a `manual_approval` policy rule, the gateway holds it
-//! and asks a human to approve. Showing the raw request body is both useless and
-//! dangerous: a Gmail "send" carries a multi-kilobyte base64 MIME blob (with
-//! embedded image attachments), which is unreadable *and* large enough to break
-//! downstream chat clients that render the approval card (e.g. Telegram's
-//! 4096-char message limit, which fail-closes some consumers to a silent deny).
+//! Raw request bodies are unusable on a card — a Gmail send is a multi-kilobyte
+//! base64 MIME blob, unreadable and large enough to break chat clients that
+//! render the card. This turns a (possibly truncated) body prefix into a compact
+//! [`ApprovalSummary`] plus a bounded plain-text rendering.
 //!
-//! This module turns a (possibly truncated) request-body prefix into a compact,
-//! structured [`ApprovalSummary`] — "Send email · To: a@b.com · Subject: …" —
-//! plus a bounded plain-text rendering for consumers without a structured UI.
-//!
-//! # Adding an app summarizer
-//!
-//! Implement [`RequestSummarizer`] on a zero-sized struct in its own submodule
-//! and register it in [`summarizer`]. OSS apps (Gmail, Google Calendar) live in
-//! `summary/`; cloud-only apps (Outlook, …) register in `cloud_summary` with no
-//! OSS change. Anything not matched falls back to [`generic::summarize`], which
-//! redacts secret-looking values and hard-caps length. This mirrors the
-//! per-provider plugin pattern in `granular_access` and the OSS/cloud provider
-//! split in `apps`.
+//! New apps implement [`RequestSummarizer`] on a zero-sized struct and register
+//! it in [`summarizer`]; anything unmatched falls back to
+//! [`generic::summarize`], which redacts secrets and caps length.
 
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +34,6 @@ pub(crate) const MAX_ATTACHMENTS: usize = 5;
 
 /// A structured, human-readable description of what a held request will do.
 ///
-/// Serialized to the SDK as `summary` alongside the legacy `bodyPreview`.
 /// Consumers with a structured UI render [`details`](Self::details); simpler
 /// ones fall back to [`render_text`](Self::render_text).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

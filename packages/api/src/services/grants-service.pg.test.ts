@@ -3,16 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { proofDatabaseUrl } from "../testing/pg-proof.js";
 
 /**
- * The grant compiler on REAL PostgreSQL — "the write lands somewhere the
- * engine reads". Every law is asserted through the same read path the
- * reflections use (loadRulesForSimulation → toSimRule → evaluateNew), so a
- * grant that compiled into the wrong shape fails here rather than surfacing as
- * a security answer in production: attach injects and decides via the winner,
- * the tri-state enforces per tool, a same-provider sibling sails past (the
- * step-1 winner-binding), detach goes inert, writes are idempotent, hand-edit
- * drift repairs on the next write, org-shared connections attach (the grants
- * fence deliberately differs from assertTargetsValid), and a foreign org's
- * connection is unreachable (the planted cross-org control).
+ * The grant compiler on real PostgreSQL. Every law is asserted through the same
+ * read path the reflections use (loadRulesForSimulation → toSimRule →
+ * evaluateNew), so a grant compiled into the wrong shape fails here rather than
+ * surfacing as a security answer in production.
  *
  * Env-gated like the other proof suites; see load-rules.pg.test.ts.
  */
@@ -203,7 +197,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
     expect(rows[0]?.targets[0]?.appConnectionId).toBe(CONN_WORK);
     expect(rows[0]?.targets[0]?.appTools).toEqual([]);
 
-    // Decides on the provider's catalog surface — via THIS winner only.
+    // Decides on the provider's catalog surface, via this winner only.
     const viaWork = await decide({
       path: "/gmail/v1/users/me/drafts",
       method: "POST",
@@ -258,7 +252,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
     expect(asked).toMatchObject({ action: "allow", requireApproval: true });
 
     // Any other endpoint of the provider dies on the blocked complement or the
-    // terminal — an EXPLICIT block, not a default.
+    // terminal — an explicit block, not a default.
     const blocked = await decide({
       path: "/gmail/v1/users/me/messages",
       method: "GET",
@@ -267,8 +261,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
     expect(blocked.action).toBe("block");
     expect(blocked.byDefault).toBeFalsy();
 
-    // The step-1 winner-binding: the same request via the same-provider
-    // SIBLING matches none of the stack and rides the project's allow default.
+    // The same request via a same-provider sibling matches none of the stack
+    // and rides the project's allow default.
     const viaSibling = await decide({
       path: "/gmail/v1/users/me/messages",
       method: "GET",
@@ -353,9 +347,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
       null,
     );
     expect(detach.changed).toBe(true);
-    // Draft clean; older published GENERATIONS retain copies by design
-    // (rollback retention — the gateway reads only max generation), so the
-    // published truth is asserted through the max-generation loader below.
+    // Older published generations keep copies by design, so the published
+    // truth is read through the max-generation loader below.
     expect(await grantRows({ status: "draft" })).toHaveLength(0);
     const published = await loaders.loadRulesForSimulation(
       { scope: "project", projectId: PROJECT },
@@ -445,9 +438,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
   });
 
   it("a carried session policy survives dialog re-saves — on EVERY allow row — and stays idempotent", async () => {
-    // The step-5 converter parks session policies on grant stacks (the dialog
-    // cannot author one). Pre-fix, a re-save silently dropped the restriction
-    // and the conditions defeated stackEquals' idempotence — both pinned here.
+    // The converter parks session policies on grant stacks; the dialog cannot
+    // author one.
     const POLICY = { repositories: ["owner/repo"] };
     await grants.setConnectionGrant(
       SCOPE,
@@ -462,8 +454,8 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
       data: { conditions: POLICY },
     });
 
-    // Re-save with a DIFFERENT shape: the recompiled stack re-carries the
-    // policy on every allow-action row instead of dropping it.
+    // Re-saving with a different shape re-carries the policy onto every
+    // allow-action row instead of dropping it.
     await grants.setConnectionGrant(
       SCOPE,
       AGENT,
@@ -483,7 +475,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
         .every((r) => r.conditions === null),
     ).toBe(true);
 
-    // An identical re-save is the idempotent no-op — the conditions compare
+    // An identical re-save is the idempotent no-op; the conditions compare
     // (SQL NULL ≡ jsonb null, key-sorted) must not defeat stackEquals.
     const again = await grants.setConnectionGrant(
       SCOPE,
@@ -497,7 +489,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
 
   it("resources tri-state: SET rides every allow row (draft + published), ABSENT preserves, NULL clears", async () => {
     const SORTED = { repositories: ["owner/a", "owner/b"] };
-    // SET — deliberately unsorted input: the server normalizes to sorted.
+    // Unsorted input: the server normalizes to sorted.
     await grants.setConnectionGrant(
       SCOPE,
       AGENT,
@@ -540,7 +532,7 @@ describe.skipIf(!PROOF_URL)("grant compiler over real PostgreSQL", () => {
     );
     expect(reordered.changed).toBe(false);
 
-    // ABSENT (a tools-only save) preserves the stored restriction.
+    // An absent selection (a tools-only save) preserves the stored restriction.
     await grants.setConnectionGrant(
       SCOPE,
       AGENT,

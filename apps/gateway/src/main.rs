@@ -43,10 +43,9 @@ mod org_routes;
 
 mod connect;
 
-// Body-condition matcher (step 9.5): the real matcher rides with the full EE
-// engine — onprem included, else a v2 `body contains` block rule would never
-// see a body there and fail OPEN. The OSS arm stays the no-op (conditions are
-// carried but never evaluated in OSS, matching its legacy behavior).
+// Body-condition matcher: the real matcher ships with the EE engine, onprem
+// included, else a `body contains` block rule there would never see a body and
+// fail open. The OSS arm is a no-op — conditions are carried, never evaluated.
 #[cfg(edition_oss)]
 mod condition_match;
 
@@ -71,10 +70,8 @@ mod secret_inject;
 mod shutdown;
 mod summary;
 
-// Cloud-only request summarizers for manual-approval cards. OSS build uses the
-// no-op `cloud_summary.rs` stub; the cloud build swaps in `ee/cloud_summary.rs`
-// (+ the `ee/cloud_summary/` submodules). Mirrors the `ee_apps` split, and
-// is the fall-through arm of `summary`'s per-provider dispatch.
+// Cloud-only request summarizers for manual-approval cards; OSS gets a no-op
+// stub. The fall-through arm of `summary`'s per-provider dispatch.
 #[cfg(not(edition_cloud))]
 mod cloud_summary;
 
@@ -93,8 +90,7 @@ mod telemetry;
 #[path = "ee/telemetry.rs"]
 mod telemetry;
 
-// Partner layer (cloud-only). OSS build uses the no-op `partner.rs` stub; the
-// cloud build swaps in `ee/partner.rs` (+ the `ee/partner/` submodules).
+// Partner layer (cloud-only); OSS gets a no-op stub.
 #[cfg(not(edition_cloud))]
 mod partner;
 
@@ -102,16 +98,14 @@ mod partner;
 #[path = "ee/partner.rs"]
 mod partner;
 
-// Granular access (EE — cloud + onprem): generic per-agent scoping for app
-// connections — token-level (e.g. GitHub repo-scoped tokens) or request-level
-// (e.g. Dropbox folder allowlist). No OSS stub: referenced only from the cloud/
-// onprem hooks + ee_apps modules, which are all cfg'd out for oss.
+// Granular access (EE): per-agent scoping for app connections, token-level
+// (e.g. GitHub repo-scoped tokens) or request-level (e.g. Dropbox folder
+// allowlist). No OSS stub — nothing in the OSS build references it.
 #[cfg(not(edition_oss))]
 #[path = "ee/granular_access.rs"]
 mod granular_access;
 
-// Budget layer (cloud-only). OSS build uses the no-op `budget.rs` stub; the
-// cloud build swaps in `ee/budget.rs` (+ the `ee/budget/` submodules).
+// Budget layer (cloud-only); OSS gets a no-op stub.
 #[cfg(not(edition_cloud))]
 mod budget;
 
@@ -119,10 +113,8 @@ mod budget;
 #[path = "ee/budget.rs"]
 mod budget;
 
-// Policy engine (step 9.5): OSS compiles the minimal project-only first-match
-// core (src/policy_engine.rs + src/policy_engine/); every EE edition — cloud AND
-// both onprems — swaps in the full engine (ee/policy_engine.rs, org scope +
-// principals + availability).
+// Policy engine: OSS compiles the minimal project-only first-match core; every
+// EE edition swaps in the full engine (org scope, principals, availability).
 #[cfg(edition_oss)]
 mod policy_engine;
 
@@ -203,11 +195,8 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // Before anything that can block: as PID 1 the kernel discards a SIGTERM
-    // whose handler is still the default, so until this runs the process
-    // cannot be stopped by anything short of SIGKILL. A signal arriving during
-    // the startup below simply sets the flag, and the accept loop exits on its
-    // first poll.
+    // Before anything that can block: as PID 1 the kernel discards SIGTERM
+    // until a handler is installed, so until this runs only SIGKILL stops us.
     shutdown::install();
 
     // Expand ~ in data dir

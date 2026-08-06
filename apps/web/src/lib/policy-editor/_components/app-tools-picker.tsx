@@ -138,10 +138,8 @@ export const AppToolsPicker = ({
 
   const noCatalog = !isPending && groups.length === 0;
 
-  // Concrete ids subsumed by a currently-selected COMPLETE umbrella — excluded
-  // from the trigger's "N more". Only a complete wildcard truly covers its
-  // tools; an incomplete-but-selected one doesn't, so its group's concrete
-  // selections still count.
+  // Ids subsumed by a selected complete umbrella, excluded from the trigger's
+  // "N more". An incomplete umbrella's concrete selections still count.
   const coveredConcreteIds = useMemo(
     () =>
       new Set(
@@ -157,17 +155,14 @@ export const AppToolsPicker = ({
     [groups, selected],
   );
 
-  // Trigger summary. A selected wildcard (1 id, many ops) can't read as "N of M
-  // tools", so name the umbrella(s) and append any extra concrete count; a
-  // pure-concrete selection keeps the "N of M" form. The "of M" total is held
-  // back until the catalog settles (staleTime: Infinity can be cold on a fresh
-  // land) so an edit never flashes "N of 0".
+  // A selected wildcard is one id covering many ops, so it can't read as "N of
+  // M"; name the umbrellas instead and append any extra concrete count. The
+  // "of M" total is held back until the catalog settles so an edit never
+  // flashes "N of 0".
   const selectedWildcardNames = groups
     .filter((g) => isWildcardOn(g))
     .map((g) => g.wildcard?.name)
     .filter((n): n is string => !!n);
-  // Selected CONCRETE tools = those in the concrete-id set (wildcard ids aren't),
-  // minus any subsumed by a selected umbrella of their own group.
   const concreteSelectedCount = value.filter(
     (v) => allToolIds.includes(v) && !coveredConcreteIds.has(v),
   ).length;
@@ -186,16 +181,13 @@ export const AppToolsPicker = ({
   })();
 
   return (
-    // `modal`: this popover opens inside the rule-form Sheet (a modal Radix
-    // dialog); without it the scrollable list can't wheel-scroll (see
-    // app-select.tsx / the modal-in-dialog scroll fix).
+    // `modal`: this popover opens inside the rule-form Sheet, and without it
+    // the scrollable list can't wheel-scroll.
     <Popover
       modal
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        // Reset the search on close so a reopen starts from the full list
-        // (matches the sibling AppSelect combobox in the same field).
         if (!next) setQ("");
       }}
     >
@@ -245,10 +237,6 @@ export const AppToolsPicker = ({
             </p>
           ) : (
             visibleGroups.map(({ group, rows }) => {
-              // The header is the umbrella only when the group OFFERS one: a
-              // complete wildcard, or an incomplete one already selected (a
-              // legacy/API value kept visible + uncheckable). Otherwise it's a
-              // plain select-all of the concrete tools.
               const umbrella = umbrellaActive(group)
                 ? group.wildcard
                 : undefined;
@@ -260,16 +248,9 @@ export const AppToolsPicker = ({
               const headerLabel = umbrella
                 ? umbrella.name
                 : (GROUP_LABELS[group.category] ?? group.category);
-              // Only a COMPLETE, selected umbrella truly covers its rows; an
-              // incomplete-but-selected one leaves them individually selectable
-              // (its tools aren't all subsumed — the reason it isn't offered
-              // fresh).
               const rowsCovered = wildOn && group.wildcardComplete === true;
-              // A legacy/API value selected an INCOMPLETE umbrella: the header
-              // is checked but the rows aren't covered (they can't be — the
-              // wildcard isn't a true superset). Without a hint this looks like
-              // a complete umbrella misbehaving, so caption the one-way "clear
-              // it to edit tools" affordance (it's never offered fresh).
+              // A checked header whose rows aren't covered looks like a broken
+              // umbrella, so the caption below explains the one-way affordance.
               const incompleteUmbrellaOn = !!umbrella && wildOn && !rowsCovered;
               return (
                 <div key={group.category} className="mb-1">
@@ -278,9 +259,8 @@ export const AppToolsPicker = ({
                       <span className="flex items-center gap-2 text-xs font-semibold">
                         {headerLabel}
                         <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium tabular-nums">
-                          {/* Fraction only while STRICTLY partial-concrete; once
-                              a complete umbrella covers the group, the bare total
-                              shows. */}
+                          {/* A fraction only while strictly partial; otherwise
+                              the bare total. */}
                           {!rowsCovered && inGroup > 0 && !allConcrete
                             ? `${inGroup}/${group.tools.length}`
                             : group.tools.length}
@@ -304,10 +284,8 @@ export const AppToolsPicker = ({
                   </div>
                   {rows.map((tool) => {
                     const rowId = `tool-${provider}-${tool.id}`;
-                    // Under a complete, selected umbrella every concrete tool is
-                    // COVERED: checked + disabled + muted, and can't be
-                    // cherry-picked out (a single rule can't exclude one — that's
-                    // a block rule).
+                    // Covered tools can't be cherry-picked out; excluding one
+                    // takes a separate block rule.
                     const covered = rowsCovered;
                     const rowChecked = covered || selected.has(tool.id);
                     return (
@@ -331,9 +309,8 @@ export const AppToolsPicker = ({
                           }}
                         />
                         <span className="min-w-0">
-                          {/* Covered rows dim the TEXT (not the whole label), so
-                              the disabled checkbox keeps its own opacity and its
-                              check-mark stays legible. */}
+                          {/* Dim the text, not the label, so the disabled
+                              checkbox keeps its check-mark legible. */}
                           <span
                             className={cn(
                               "block text-sm leading-tight",

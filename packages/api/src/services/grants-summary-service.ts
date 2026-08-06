@@ -172,8 +172,8 @@ export const listAgentsWithGrantsSummary = async (
     row.scope === "organization" ? "organization" : "project";
 
   return agents.map((agent) => {
-    // Every agent was walked above (step 7: there is no all-mode whole-pool
-    // arm left) — a missing entry can only mean an empty collection.
+    // Every agent was walked above, so a missing entry can only mean an empty
+    // collection.
     const collected = perAgent.get(agent.id);
     const entries: GrantsSummaryEntry[] = [];
     if (collected) {
@@ -206,7 +206,6 @@ export const listAgentsWithGrantsSummary = async (
     return {
       ...agent,
       grantsSummary: {
-        // Constant since step 7 — see the type's doc.
         mode: "grants" as const,
         entries,
         total: entries.length,

@@ -1,12 +1,10 @@
-//! The OSS first-match evaluator: ONE level (project), the single-level
-//! reduction of the uniform per-level law — the first matching rule decides,
-//! else the project Default Rule is the terminal (its Block gated by the
-//! `enforce_deny` carve), else allow.
+//! The OSS first-match evaluator, one level (project): the first matching rule
+//! decides, else the project Default Rule is the terminal (its Block gated by
+//! the `enforce_deny` carve), else allow.
 //!
 //! Matching routes through the gateway's own `connect::host_matches` +
-//! `policy::matches_request`, so path globs, methods, the git-receive-pack
-//! bridge, and the (no-op in OSS) condition arm are byte-identical to the
-//! legacy path.
+//! `policy::matches_request`, so path globs, methods and the git-receive-pack
+//! bridge behave identically here.
 
 use crate::policy::{matches_request, PolicyAction, PolicyRule};
 
@@ -62,9 +60,8 @@ fn target_matches(target: &Target, rule: &Rule, request: &Request, body: Option<
             body,
             &rule.conditions,
         ),
-        // A connection target matches only when it is the request's winning
-        // injected connection AND the provider/tools fan-out hits. No winner →
-        // never matches (fail-closed for allow AND block).
+        // Matches only when this is the request's winning injected connection
+        // and the provider/tools fan-out hits; no winner never matches.
         Target::Connection {
             id,
             provider,
@@ -81,8 +78,8 @@ fn target_matches(target: &Target, rule: &Rule, request: &Request, body: Option<
                     &rule.conditions,
                 )
         }
-        // A secret target gates its resolved host(s), host-only. Empty patterns
-        // (unresolved/deleted secret) never match — fail-closed.
+        // Gates its resolved host(s), host-only. Empty patterns (unresolved or
+        // deleted secret) never match.
         Target::Secret { host_patterns } => host_patterns
             .iter()
             .any(|h| crate::connect::host_matches(&request.host, h)),
@@ -90,10 +87,9 @@ fn target_matches(target: &Target, rule: &Rule, request: &Request, body: Option<
     }
 }
 
-/// A non-default rule matches only when it names at least one target AND one of
-/// them matches. Empty targets = matches NOTHING: "match everything" is the
-/// Default Rule's job, never an empty list — which also neutralizes a rule
-/// orphaned to zero targets by an FK cascade (fail-closed).
+/// A non-default rule matches only when it names at least one target and one of
+/// them matches. Empty targets match nothing — "match everything" is the Default
+/// Rule's job — which also neutralizes a rule orphaned to zero targets.
 fn rule_matches(rule: &Rule, request: &Request, body: Option<&[u8]>) -> bool {
     identity_matches(rule, request)
         && !rule.targets.is_empty()
@@ -104,9 +100,9 @@ fn rule_matches(rule: &Rule, request: &Request, body: Option<&[u8]>) -> bool {
 }
 
 /// First matching non-default rule in `(priority, id)` order. The id tie-break
-/// makes equal priorities total and deterministic, agreeing with the DB's
-/// `ORDER BY r.priority, r.id` (ids are lowercase-hex UUIDs, so Rust byte order
-/// equals the Postgres collation).
+/// makes equal priorities deterministic and agrees with the query's
+/// `ORDER BY r.priority, r.id`: ids are lowercase-hex UUIDs, so Rust byte order
+/// equals the Postgres collation.
 fn first_match<'a>(rules: &'a [Rule], request: &Request, body: Option<&[u8]>) -> Option<&'a Rule> {
     let mut ordered: Vec<&'a Rule> = rules.iter().filter(|r| !r.is_default).collect();
     ordered.sort_by(|a, b| a.priority.cmp(&b.priority).then_with(|| a.id.cmp(&b.id)));
@@ -115,12 +111,10 @@ fn first_match<'a>(rules: &'a [Rule], request: &Request, body: Option<&[u8]>) ->
         .find(|rule| rule_matches(rule, request, body))
 }
 
-/// Decide the request: the first matching rule wins (allow or block — an
-/// explicit project allow opens its own Default-Block, allowlist-style);
-/// otherwise the project Default Rule is the terminal, its Block enforced only
-/// under the `enforce_deny` carve (credentialed, non-LLM traffic); otherwise
-/// allow. This is exactly the EE evaluator's project arm with no org level
-/// contributing a verdict.
+/// Decide the request: the first matching rule wins (an explicit allow opens
+/// its own Default-Block, allowlist-style); otherwise the project Default Rule
+/// is the terminal, its Block enforced only under the `enforce_deny` carve;
+/// otherwise allow.
 pub(super) fn evaluate_outcome<'a>(
     rules: &'a [Rule],
     request: &Request,
@@ -190,10 +184,8 @@ mod tests {
         }
     }
 
-    /// The per-account law, all four directions: a `Connection` target matches
-    /// iff (the request's winning injected connection == its id) AND the
-    /// provider catalog fan-out hits. Lockstep twin of the EE corpus arms
-    /// 6b/6c/11/12 and the TS `connection target binds to the winner` block.
+    /// A `Connection` target matches iff the request's winning injected
+    /// connection is its id and the provider catalog fan-out hits.
     #[test]
     fn connection_target_binds_to_the_winning_connection() {
         let conn_block = |id: &str| {

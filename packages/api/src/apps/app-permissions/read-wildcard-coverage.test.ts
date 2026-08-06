@@ -9,20 +9,10 @@ import {
 const methodsOf = (tool: AppTool): string[] =>
   tool.methods ?? (tool.method ? [tool.method] : []);
 
-// Honesty invariant guarded by this file.
-//
-// A group's optional `wildcard` (e.g. a read group's "All read operations")
-// is offered in the policy tools picker as a single compact selection that
-// means "all of them". The client summary can't verify that — it carries no
-// host/path — so the SERVER stamps each wildcard group with `wildcardComplete`,
-// true only when the wildcard is a genuine superset of the group's tools. The
-// picker offers the umbrella only when that flag is true.
-//
-// Unlike write wildcards (a security gate — every one MUST be complete, pinned
-// by write-wildcard-coverage.test.ts), read wildcards are allowed to be
-// incomplete; some genuinely are. This test pins which, so a catalog edit that
-// silently changes a wildcard's coverage — making a "misleading all-reads"
-// offerable, or dropping a now-complete one — turns the suite red.
+// The tools picker offers a group's `wildcard` as "all of them" only when the
+// server stamps the group `wildcardComplete`. Read wildcards are allowed to be
+// incomplete and some genuinely are, so this file pins which, and a catalog edit
+// that changes a wildcard's coverage turns the suite red.
 
 // Every group across the catalog that ships a wildcard, paired with the
 // server-computed summary flag for the same group.
@@ -51,11 +41,8 @@ describe("wildcardComplete on the real catalog", () => {
   it.each(wildcardGroups)(
     "$provider · $category wildcard is a prefix glob (path ends with /*)",
     ({ wildcard }) => {
-      // `wildcardCoversGroup` strips the trailing "*" and compares the remaining
-      // literal with `startsWith`. A "/*"-terminated pattern leaves a prefix
-      // ending in "/", so a tool can only be "covered" at a segment boundary
-      // (no "/api/v2foo" ⊇ "/api/v2" false positive). Guard the invariant the
-      // coverage check relies on — matches write-wildcard-coverage.test.ts.
+      // A "/*"-terminated pattern leaves `wildcardCoversGroup` a prefix ending
+      // in "/", so a tool is only covered at a segment boundary.
       expect(wildcard.pathPattern.endsWith("/*")).toBe(true);
     },
   );
@@ -63,13 +50,9 @@ describe("wildcardComplete on the real catalog", () => {
   it.each(wildcardGroups)(
     "$provider · $category wildcard + every tool declares a method",
     ({ wildcard, tools }) => {
-      // `wildcardCoversGroup`'s method check is `tool.methods.every(m ∈
-      // wildcard.methods)`. A tool declaring NEITHER method nor methods yields
-      // an empty list, which `.every` satisfies vacuously — silently marking it
-      // "covered" regardless of the wildcard's methods (a method-less tool
-      // matches every method at the gateway, so a GET-only umbrella would NOT
-      // truly cover it). Pin that no wildcard-group tool omits its method, so
-      // the coverage flag can't be fooled into offering a misleading umbrella.
+      // A tool declaring neither method nor methods yields an empty list, which
+      // `wildcardCoversGroup`'s `.every` satisfies vacuously — marking it
+      // covered whatever the wildcard's methods are.
       expect(methodsOf(wildcard).length).toBeGreaterThan(0);
       for (const tool of tools) {
         expect(methodsOf(tool).length).toBeGreaterThan(0);
@@ -87,16 +70,12 @@ describe("wildcardComplete on the real catalog", () => {
   it.each(wildcardGroups.filter((g) => g.category === "write"))(
     "$provider · write wildcard is complete (a gate must cover every write)",
     ({ summaryComplete }) => {
-      // Mirrors the security guarantee in write-wildcard-coverage.test.ts: if a
-      // write wildcard ever became incomplete, that test fails too — this one
-      // ties the picker's offer to the same fact.
       expect(summaryComplete).toBe(true);
     },
   );
 });
 
-// Pin the specific known read-wildcard cases so the picker's behavior for them
-// can't silently flip.
+// Pin the known read-wildcard cases so the picker's behavior can't flip.
 const readComplete = (provider: string): boolean | undefined => {
   const summary = toAppPermissionDefinitionSummary(
     getAppPermissionDefinitions().find((d) => d.provider === provider)!,

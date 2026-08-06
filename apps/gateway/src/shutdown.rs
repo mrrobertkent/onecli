@@ -230,8 +230,7 @@ mod tests {
 
         let started = std::time::Instant::now();
         assert!(drain_pair(Some(pair), Duration::from_secs(5)).await);
-        // Without this the test also passes against a drain that ignores
-        // guards entirely and returns the moment it is called.
+        // Without this the test also passes against a drain that ignores guards.
         assert!(started.elapsed() >= Duration::from_millis(50));
     }
 
@@ -267,8 +266,7 @@ mod tests {
         assert_eq!(parse_shutdown_secs(None), default);
         assert_eq!(parse_shutdown_secs(Some("")), default);
         assert_eq!(parse_shutdown_secs(Some("soon")), default);
-        // Zero would leave every phase nothing to spend, which is worse than
-        // the default rather than a stricter version of it.
+        // Zero would leave every phase nothing to spend.
         assert_eq!(parse_shutdown_secs(Some("0")), default);
         assert_eq!(parse_shutdown_secs(Some(" 20 ")), Duration::from_secs(20));
     }
@@ -284,11 +282,9 @@ mod tests {
         assert!(drain <= Duration::from_secs(5));
         assert!(drain > Duration::from_secs(4));
 
-        // ...and each later phase is capped by whatever is genuinely left, so
-        // no configured value can make the phases sum past the total.
+        // ...and each later phase is capped by whatever is genuinely left.
         assert!(budget.allow(Duration::from_secs(3)) <= Duration::from_secs(3));
-        // A cap far larger than the budget is clamped to the budget, which is
-        // what stops a generous per-phase limit from outliving the whole.
+        // A cap far larger than the budget is clamped to the budget.
         assert!(budget.allow(Duration::from_secs(600)) <= Duration::from_secs(9));
     }
 

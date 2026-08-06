@@ -1,10 +1,9 @@
 import { db } from "@onecli/db";
 
 // The TS mirror of the gateway's `find_secret_hosts` (apps/gateway/src/db.rs):
-// the host patterns of the acting org+project custom secrets, so a `secret`
-// target can resolve to the host(s) it gates. ORG+PROJECT-FENCED on both arms —
-// a forged/foreign secret id or scope resolves to NOTHING (it simply isn't in
-// the fenced set), which the evaluator treats as never-matching (fail-closed).
+// the host patterns of the acting org+project secrets, so a `secret` target can
+// resolve to the host(s) it gates. Both arms are org+project fenced, so a
+// foreign secret id resolves to nothing and never matches.
 
 export interface SecretHostSet {
   byId: Map<string, string>;

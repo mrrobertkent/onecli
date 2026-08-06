@@ -813,11 +813,9 @@ impl PolicyEngine {
             })
             .ok();
 
-        // For rules with `credential_host_field` (e.g. JFrog's wildcard
-        // `*.jfrog.io`), inject ONLY when the request host equals the
-        // connection's exact stored host. This runs BEFORE token resolution,
-        // rule building, and caching, so a mismatch yields no injection and
-        // writes no cache entry — the token can never leak to another tenant.
+        // Host-gated rules inject only when the request host equals the stored
+        // host. This runs before token resolution and caching, so a mismatch
+        // writes no cache entry and the token can't leak to another tenant.
         if credential_host_mismatch(&conn.provider, creds.as_ref(), hostname) {
             debug!(
                 connection_id = %conn.id,
@@ -827,11 +825,9 @@ impl PolicyEngine {
             return Ok(AppConnectionResult::NoConnections);
         }
 
-        // A scope that reaches nothing needs no credential at all — resolving
-        // one could only produce access it may not use. Return early WITH the
-        // scope, so the request is refused for it (`hooks::refuse_empty_scope`)
-        // rather than quietly proceeding uncredentialed, which would read as
-        // unmanaged traffic and escape the deny-defaults.
+        // A scope that reaches nothing needs no credential. Return early with
+        // the scope so the request is refused for it, rather than proceeding
+        // uncredentialed and reading as unmanaged traffic.
         if crate::ee_apps::scope_reaches_nothing(conn.session_policy.as_ref()) {
             return Ok(AppConnectionResult::Rules {
                 rules: Vec::new(),
@@ -847,19 +843,12 @@ impl PolicyEngine {
             });
         }
 
-        // Defer the credential when the provider mints a RESOURCE-SCOPED one:
-        // that is a live provider call, per request, for a credential that is
-        // never persisted — so it must not happen for a request the policy is
-        // about to refuse. Selection is unaffected: everything the decision
-        // needs (which connection wins, its policy, whether it injects) is
-        // already known, and `ResolvedRules::injects` preserves `has_injections`.
-        //
-        // Only this shape defers. An ordinary expired-token refresh is
-        // persisted and would be needed by the next allowed request anyway, so
-        // deferring it would buy nothing. OSS has no scopers and never defers.
-        // The scoper is keyed by CREDENTIAL type (`github_app`), which lives in
-        // the credentials payload — not by provider name (`github-app`), which
-        // would silently match nothing and defer nothing.
+        // Defer a resource-scoped credential: it is a live, never-persisted
+        // provider mint, so it must not happen for a request about to be
+        // refused. Only this shape defers; an ordinary expired-token refresh is
+        // persisted and needed by the next allowed request anyway. The scoper is
+        // keyed by credential type (`github_app`) from the credentials payload,
+        // not provider name (`github-app`), which would match nothing.
         let cred_type = creds
             .as_ref()
             .and_then(|c| c.get("type"))
@@ -919,9 +908,8 @@ impl PolicyEngine {
         })
     }
 
-    /// Materialize a deferred connection's injection rules — the credential
-    /// mint the policy decision was allowed to precede. Called once the request
-    /// is allowed; `None` means the credential could not be resolved.
+    /// Materialize a deferred connection's injection rules, once the request is
+    /// allowed. `None` means the credential could not be resolved.
     pub(crate) async fn materialize_pending(
         &self,
         pending: &PendingInjection,
@@ -940,8 +928,8 @@ impl PolicyEngine {
     }
 
     /// Resolve the credential and build the connection's injection rules, then
-    /// cache them. The tail shared by immediate and deferred resolution, so the
-    /// two can never drift. `None` = no usable credential.
+    /// cache them. Shared by immediate and deferred resolution so the two cannot
+    /// drift. `None` = no usable credential.
     async fn build_connection_rules(
         &self,
         conn: &db::AppConnectionRow,
@@ -1032,9 +1020,8 @@ impl PolicyEngine {
 
         let rewrite_host = creds.and_then(|c| apps::rewrite_host(&conn.provider, &c, hostname));
 
-        // Cache with TTL = min(CACHE_TTL, token remaining lifetime).
-        // Skip caching if token is already expired — the stale token would cause
-        // upstream 401s, and re-resolving gives a chance to refresh.
+        // TTL = min(CACHE_TTL, remaining token lifetime). An already-expired
+        // token is not cached, so the next request can refresh it.
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock")
@@ -1132,11 +1119,8 @@ impl PolicyEngine {
         }
     }
 
-    /// Extract access token from decrypted credentials JSON, refreshing if expired.
-    /// Resolves BYOC client credentials from AppConfig if available, falls back to env vars.
-    /// On successful refresh, persists the new credentials back to the database.
-    /// Extract the access token from decrypted credentials, refreshing if expired.
-    /// Returns `(token, expires_at)` — the effective token and its expiry timestamp.
+    /// Extract the access token from decrypted credentials, refreshing if
+    /// expired and persisting the refresh. Returns `(token, expires_at)`.
     async fn resolve_access_token(
         &self,
         json: &str,
@@ -1158,15 +1142,11 @@ impl PolicyEngine {
 
         let mut effective_expires_at = creds.get("expires_at").and_then(|v| v.as_i64());
 
-        // Any non-empty session policy means scoped access is required.
-        // Provider-specific interpretation (e.g. GitHub repos) is handled by
-        // ee_apps::try_refresh_credentials, not here. Shares its definition with
-        // the deferral predicate so the two can never disagree about whether a
-        // request needs a freshly minted credential.
+        // Any non-empty session policy means scoped access is required;
+        // provider-specific interpretation happens inside the refresh.
         let needs_scoped_token = granular_scoping_requested(session_policy);
         let mut scoped_token_minted = false;
-        // Hoisted: the fail-closed check at the end of this function needs it
-        // too, and both must read the same key.
+        // The fail-closed check at the end must read the same key.
         let cred_type = creds
             .get("type")
             .and_then(|v| v.as_str())
@@ -1174,10 +1154,8 @@ impl PolicyEngine {
             .to_string();
 
         // Refresh when the stored token has expired, or whenever scoped access
-        // is required (a scoped credential is minted per request and never
-        // persisted). The scoped case must NOT depend on `expires_at` being
-        // present: a payload without it would otherwise skip the mint entirely
-        // and fall back to the broad stored token.
+        // is required. The scoped case must not depend on `expires_at` being
+        // present, or a payload without it falls back to the broad stored token.
         {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

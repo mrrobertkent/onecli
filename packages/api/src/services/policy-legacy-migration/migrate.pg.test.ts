@@ -17,9 +17,8 @@ import { proofDatabaseUrl } from "../../testing/pg-proof.js";
  *   POLICY_PROOF_DATABASE_URL="postgresql://postgres:postgres@localhost:5440/onecli" \
  *     pnpm --filter @onecli/api test -- --run src/ee/services/policy-oss-cutover.pg.test.ts
  *
- * When running BOTH pg suites in one invocation, add --no-file-parallelism:
- * they share the one proof database, and this suite's boot walk iterates
- * every org — concurrent files would interleave.
+ * Running both pg suites in one invocation needs --no-file-parallelism: they
+ * share the one proof database, and this suite's boot walk iterates every org.
  */
 
 const PROOF_URL = proofDatabaseUrl();
@@ -285,8 +284,8 @@ describe.skipIf(!PROOF_URL)(
     });
 
     const published = async (projectId: string) => {
-      // The ACTIVE generation only (max published), like the gateway's loader —
-      // a republish adds a new generation and retains the old ones.
+      // The active generation only, like the gateway's loader — a republish
+      // adds a new generation and retains the old ones.
       const max = await db.policyRuleV2.aggregate({
         where: { scope: "project", projectId, status: "published" },
         _max: { generation: true },
@@ -375,7 +374,7 @@ describe.skipIf(!PROOF_URL)(
     }, 60_000);
 
     it("a diverged project KEEPS its generation — deleting it would enforce nothing", async () => {
-      // A fresh project the full run has NOT cut (created after it ran).
+      // A fresh project the full run has not cut, created after it ran.
       await db.project.create({
         data: {
           id: ids.p3,
@@ -427,8 +426,8 @@ describe.skipIf(!PROOF_URL)(
         },
       });
       await oldRule(ids.p5, "p5 legacy rule", { action: "block" });
-      // Simulate the race: a user-authored generation lands BEFORE the migrator
-      // (an ensureDefault'd allow default with no migration marker).
+      // Simulate the race: a user-authored generation lands before the migrator
+      // — an ensureDefault'd allow default with no migration marker.
       await db.policyRuleV2.create({
         data: {
           scope: "project",

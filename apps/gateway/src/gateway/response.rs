@@ -372,10 +372,8 @@ pub(crate) fn manual_approval_denied<S>(
 /// 503 Service Unavailable — the gateway is shutting down while this request
 /// was held for manual approval.
 ///
-/// Deliberately not the 403 a denial produces: nobody decided anything here,
-/// and an agent that reads a restart as a policy denial will stop retrying
-/// something it was never refused. Retryable on purpose — the replacement
-/// instance can serve it.
+/// Not the 403 a denial produces: nothing was decided here, and the request is
+/// retryable — the replacement instance can serve it.
 pub(crate) fn gateway_restarting<S>(approval_id: &str) -> Response<ForwardBody<S>> {
     let mut resp = json_error(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -398,10 +396,8 @@ pub(crate) fn blocked_by_policy<S>(
     rule_name: &str,
     project_id: Option<&str>,
 ) -> Response<ForwardBody<S>> {
-    // The agents page: a project-scope block now comes from the agent's own
-    // grants (changeable there) or from an organization guardrail (which a
-    // project member cannot change at all) — so the link informs rather than
-    // promising an edit.
+    // The agents page: a block may come from an org guardrail a project member
+    // cannot change, so the link informs rather than promising an edit.
     let agents_url = scoped_url(dashboard_url(), "/agents", project_id);
     with_no_retry(json_error(
         StatusCode::FORBIDDEN,
@@ -448,9 +444,8 @@ pub(crate) fn blocked_by_default_policy<S>(
 }
 
 /// 403 Forbidden — the request targets an app that is not available to this
-/// project (the org's app-availability allowlist, step 7). Availability is an
-/// org-level, admin-managed posture, so — unlike the project-scoped policy
-/// blocks — there is no per-project dashboard deep link here.
+/// project. Availability is org-level and admin-managed, so there is no
+/// per-project dashboard link here.
 pub(crate) fn app_unavailable<S>(
     provider: &str,
     method: &str,
@@ -514,9 +509,8 @@ mod tests {
     type TestBody =
         ForwardBody<futures_util::stream::Empty<Result<hyper::body::Frame<Bytes>, reqwest::Error>>>;
 
-    // A blank value must read as "unconfigured", not as a configured empty
-    // string — otherwise every dashboard link becomes "/connections" with no
-    // host, and the startup warning that would have flagged it stays quiet.
+    // A blank value must read as "unconfigured": otherwise every dashboard link
+    // loses its host and the startup warning stays quiet.
     #[test]
     fn normalize_app_url_treats_blank_as_unset() {
         assert_eq!(normalize_app_url(None), None);
@@ -539,14 +533,9 @@ mod tests {
         );
     }
 
-    // `main` branches on this to decide whether to warn. Asserting the two agree
-    // is what keeps the warning honest: if `dashboard_url` ever resolved the
-    // fallback while this reported "configured", the operator would be told
-    // nothing while every link pointed at localhost.
-    //
-    // Env-free: `dashboard_url` caches in a `OnceLock`, so whichever value this
-    // process resolved first is the one under test either way — and mutating
-    // APP_URL here would race the rest of the suite.
+    // `main` branches on this to decide whether to warn; the two must agree or
+    // the operator is told nothing while every link points at localhost.
+    // Env-free on purpose: mutating APP_URL here would race the rest of the suite.
     #[test]
     fn app_url_is_configured_agrees_with_the_url_actually_in_use() {
         assert_eq!(
@@ -587,7 +576,6 @@ mod tests {
             app_not_connected(StatusCode::FORBIDDEN, "github", "GitHub", None, None);
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 
-        // Extract body bytes from Either::Left(Full<Bytes>)
         use http_body_util::BodyExt;
         let body = match resp.into_body() {
             Either::Left(full) => {
@@ -739,10 +727,8 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("does not have access"));
-        // Since attach-model step 6 the project policy console does not exist,
-        // so the remediation link must reach a surface that can actually grant
-        // the credential: the app's connections page, whose account cards carry
-        // the "Agent access" dialog. A link ending in "/policy" would 404.
+        // The remediation link must reach a surface that can grant the
+        // credential: the app's connections page. A "/policy" link would 404.
         let manage_url = json["manage_url"].as_str().unwrap();
         assert!(manage_url.ends_with("/connections/apps/resend"));
         assert!(!manage_url.contains("/policy"));

@@ -99,12 +99,11 @@ describe("directory-identity matching (step 6)", () => {
   });
 });
 
-// ── Orphan-to-any fail-closed: empty targets match nothing (Layer 1) ─────────
-// Mirror of the Rust `empty_target_non_default_rule_matches_nothing` test. A
-// non-default rule with ZERO targets must match NOTHING (fail-closed) — never
-// "any". A rule left target-less (its sole connection/secret target deleted → FK
-// cascade) goes inert instead of matching every request. Empty IDENTITIES ("any
-// agent") stay unchanged, so this isolates the TARGET axis.
+// ── Empty targets match nothing ──────────────────────────────────────────────
+// Mirror of the Rust `empty_target_non_default_rule_matches_nothing`. A rule
+// left target-less (its sole target deleted by FK cascade) goes inert instead
+// of matching every request. Empty identities still mean "any agent", so this
+// isolates the target axis.
 describe("empty targets match nothing (Layer 1 fail-closed)", () => {
   const rule = (
     targets: NewTarget[],
@@ -157,14 +156,10 @@ describe("empty targets match nothing (Layer 1 fail-closed)", () => {
   });
 });
 
-// ── Secret targets permit their host (step 8) ────────────────────────────────
-// Mirror of the Rust `secret_target_permits_its_host`. A `secret` target gates its
-// resolved host — permit on allow, block on block, like an `app` target — and
-// still injects at connect. The engine sees already-resolved host patterns (the
-// gateway resolves secret_id / secret_scope → hosts at connect). Verifies: the
-// specific + "all of the project's custom secrets" permit, the CHANGE-2 hard floor
-// (a project secret can't self-authorize past the org deny-default), strictest-wins
-// (an org block beats it), and fail-closed on an unresolved secret.
+// ── Secret targets permit their host ─────────────────────────────────────────
+// Mirror of the Rust `secret_target_permits_its_host`. A `secret` target gates
+// its resolved host, permitting on allow and blocking on block like an `app`
+// target. The engine sees host patterns already resolved by the gateway.
 describe("secret targets permit their host (step 8)", () => {
   const rule = (
     scope: "organization" | "project",
@@ -260,13 +255,12 @@ describe("secret targets permit their host (step 8)", () => {
   });
 });
 
-// ── Whole-app targets permit their provider's hosts (step-8 symmetry closed) ──
+// ── Whole-app targets permit their provider's hosts ──────────────────────────
 // Mirror of the Rust `app_scope_and_connection_targets_permit_their_provider_hosts`.
-// An `app` target with NO tools (the dialog's "All connections at a level" — and
-// the bare provider-only API shape) matches HOST-ONLY against every catalog tool
-// host of the provider — any path/method, unconditionally — exactly like a
-// `secret` target. `connectionScope` is injection-only (never affects matching).
-// An unrewritten `connection` target stays inert (unresolved — fail-closed).
+// An `app` target with no tools matches host-only against every catalog tool
+// host of the provider — any path/method, unconditionally — like a `secret`
+// target. `connectionScope` is injection-only and never affects matching; an
+// unrewritten `connection` target stays inert.
 describe("whole-app targets permit their provider's hosts", () => {
   const rule = (
     scope: "organization" | "project",
@@ -410,9 +404,8 @@ describe("whole-app targets permit their provider's hosts", () => {
   });
 
   it("a mixed shape (tools + connectionScope) keeps tool matching — scope never widens it", () => {
-    // API-authorable: tools named AND a connectionScope. Matching is the exact
-    // tool fan-out (the whole-app branch applies only to EMPTY tools); the
-    // scope stays injection-only.
+    // The whole-app branch applies only to empty tools, so matching stays the
+    // tool fan-out and the scope stays injection-only.
     const target: NewTarget = {
       kind: "app",
       provider: "github",
@@ -440,8 +433,8 @@ describe("whole-app targets permit their provider's hosts", () => {
   });
 
   it("modifiers compose with whole-app targets (approval / rate ride the match)", () => {
-    // Structurally orthogonal (toDecision never reads targets) — pinned so a
-    // future target-aware modifier can't regress silently.
+    // `toDecision` never reads targets; pinned so a future target-aware
+    // modifier can't regress this silently.
     const approval = {
       ...rule("project", "allow", false, [wholeApp("gmail")]),
       requireApproval: true,
@@ -458,8 +451,8 @@ describe("whole-app targets permit their provider's hosts", () => {
   });
 
   it("whole-app matching ignores rule conditions (the secret mirror)", () => {
-    // A body-contains condition that does NOT hold must not stop a whole-app
-    // match — conditions gate only network/tools targets, live and here.
+    // Conditions gate only network/tools targets, so a body-contains condition
+    // that does not hold must not stop a whole-app match.
     const rules = [
       allowDefault("organization"),
       {
@@ -476,8 +469,6 @@ describe("whole-app targets permit their provider's hosts", () => {
   });
 });
 
-// Appended to the uniform-law coverage after review: the mutation-proven gap
-// (both levels matching + a project default Block) and the org-side-empty cell.
 describe("uniform per-level default law — review-added cells", () => {
   const rule = (
     scope: "organization" | "project",

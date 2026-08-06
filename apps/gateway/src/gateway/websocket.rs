@@ -1,9 +1,8 @@
 //! WebSocket proxy: detect upgrade requests, inject credentials into the
 //! handshake, connect to the upstream server, and pipe frames bidirectionally.
 //!
-//! This module runs alongside [`super::forward`] inside the MITM HTTP/1.1
-//! service. When a WebSocket upgrade is detected, the request is routed here
-//! instead of the normal reqwest-based forwarding path.
+//! Runs alongside [`super::forward`] inside the MITM HTTP/1.1 service, taking
+//! upgrade requests instead of the reqwest forwarding path.
 
 use std::time::Duration;
 
@@ -84,15 +83,12 @@ fn is_websocket_forwarded_header(name: &HeaderName) -> bool {
     !NON_WS_HOP_BY_HOP.contains(&s)
 }
 
-// 8/7: this leg needs the same request context `forward_request` does, plus the
-// upstream connector resolved at CONNECT. `expect` rather than `allow` so the
-// attribute is removed by CI the day a refactor drops the count back under.
+// `expect` rather than `allow`, so CI flags the attribute once the count drops.
 #[expect(clippy::too_many_arguments)]
 pub(super) async fn handle_websocket(
     mut req: Request<Incoming>,
     host: &str,
-    // The original, pre-rewrite host the policy rules match against (the effective
-    // `host` may be app-rewritten) — mirrors `forward_request`'s `policy_host`.
+    // The pre-rewrite host the policy rules match against (`host` may be rewritten).
     policy_host: &str,
     rules: &ResolvedRules,
     cache: &dyn CacheStore,

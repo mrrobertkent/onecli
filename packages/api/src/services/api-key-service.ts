@@ -40,17 +40,12 @@ export const regenerateApiKey = async (
 };
 
 /**
- * Return the user's API key for `scope`, creating one if none exists yet.
- * Idempotent — a single call both reads and (lazily) provisions a key for any
- * user authorized for the scope.
+ * Return the user's API key for `scope`, lazily creating one if none exists.
+ * Idempotent. Keys are personal — they carry the user's identity for audit
+ * attribution — so this never surfaces another user's.
  *
- * The dashboard read paths use it so an admin/owner viewing a project they did
- * not create still gets *their own* key instead of an empty "no key yet" state —
- * keys are personal (they carry the user's identity for audit/attribution), so
- * we never surface another user's.
- *
- * `created` is `true` only when a key was actually minted, letting callers audit
- * the first provision without logging on every read.
+ * `created` is `true` only when a key was actually minted, so callers can audit
+ * the first provision without logging every read.
  */
 export const ensureApiKey = async (
   userId: string,
@@ -84,9 +79,8 @@ export const isValidOrgApiKey = (value: string): boolean =>
   ORG_API_KEY_REGEX.test(value);
 
 /**
- * An operator-supplied bootstrap org API key, if configured — from
- * `ONECLI_ORG_API_KEY`, or the file at `ONECLI_ORG_API_KEY_FILE` (the Docker/K8s
- * secrets `_FILE` convention). Env wins over the file; returns `undefined` when
+ * An operator-supplied bootstrap org API key, from `ONECLI_ORG_API_KEY` or the
+ * file at `ONECLI_ORG_API_KEY_FILE`. Env wins over the file; `undefined` when
  * neither is set.
  */
 export const resolveConfiguredOrgApiKey = (): string | undefined => {
@@ -111,18 +105,13 @@ export const resolveConfiguredOrgApiKey = (): string | undefined => {
 
 /**
  * Ensure the shared organization has its single bootstrap org-scoped API key,
- * creating it once (idempotent). Lets an operator obtain an org key on onprem —
- * including the connect-only slim edition, which has no settings UI.
+ * creating it once. Idempotent: an existing org-scoped key is returned
+ * unchanged, never rotated.
  *
- * - If the org already has an org-scoped key, return it unchanged (never rotate).
- * - Else use the operator-supplied key (`ONECLI_ORG_API_KEY` / `_FILE`) when set
- *   — validated against {@link ORG_API_KEY_REGEX}, throwing on a malformed value
- *   (fail loud; we never silently substitute a generated key for the one the
- *   operator expects) — otherwise generate one.
- * - A generated value is logged once so it can be retrieved; a supplied value is
- *   never logged.
- *
- * The key is attributed to `userId` (the first user to create the shared org).
+ * An operator-supplied key (`ONECLI_ORG_API_KEY` / `_FILE`) is used when set and
+ * throws if malformed, rather than silently substituting a generated one.
+ * A generated value is logged once so it can be retrieved; a supplied value is
+ * never logged. The key is attributed to `userId`.
  */
 export const ensureBootstrapOrgApiKey = async ({
   organizationId,
