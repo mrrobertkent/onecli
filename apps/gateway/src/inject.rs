@@ -1433,7 +1433,7 @@ mod tests {
         let count = apply_injections(&mut headers, &mut path, &rules);
         assert_eq!(count, 1);
         assert_eq!(path, format!("/bot{token}/sendMessage"));
-        // The `:` is a valid path char and must NOT be percent-encoded.
+        // The `:` is a valid path char and must not be percent-encoded.
         assert!(path.contains(':'));
     }
 
@@ -1588,9 +1588,8 @@ mod tests {
         assert_eq!(path, "/bot123:ABC/sendMessage?chat_id=5");
     }
 
-    /// Security: a `$1` inside the secret must be inserted literally, never
-    /// reinterpreted as a capture reference (the secret is spliced in AFTER
-    /// `$N` expansion).
+    /// A `$1` inside the secret must stay literal, never reinterpreted as a
+    /// capture reference.
     #[test]
     fn inject_replace_path_regex_dollar_in_secret_is_literal() {
         let mut headers = hyper::HeaderMap::new();
@@ -1606,9 +1605,8 @@ mod tests {
         assert_eq!(path, "/botab$1cd");
     }
 
-    /// Security: a `{value}` that lands inside a captured group must stay literal —
-    /// the secret is placed only where the operator wrote `{value}` in the
-    /// replacement, never in agent-controlled captured content.
+    /// A `{value}` inside a captured group must stay literal: the secret lands
+    /// only where the operator wrote `{value}` in the replacement.
     #[test]
     fn inject_replace_path_regex_value_in_capture_is_literal() {
         let mut headers = hyper::HeaderMap::new();
@@ -1628,8 +1626,8 @@ mod tests {
         assert_eq!(path, "/botSECRET/{value}");
     }
 
-    /// Defense-in-depth: a replacement that would strip the leading `/` (fusing
-    /// the path with the host) is skipped rather than emitted.
+    /// A replacement that would strip the leading `/` (fusing the path with the
+    /// host) is skipped rather than emitted.
     #[test]
     fn inject_replace_path_regex_slashless_result_skipped() {
         let mut headers = hyper::HeaderMap::new();

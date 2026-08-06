@@ -1,9 +1,8 @@
 //! Secret-to-injection mapping and OpenAI OAuth token refresh.
 //!
-//! Converts decrypted secret values into injection instructions based on the
-//! secret type (anthropic, openai, generic). OpenAI supports both API keys
-//! (plain string) and OAuth credentials (JSON with tokens). Also handles
-//! OpenAI OAuth token refresh and credential persistence.
+//! Converts decrypted secret values into injection instructions by secret type
+//! (anthropic, openai, generic); openai accepts both a plain API key and OAuth
+//! credentials as JSON.
 
 use tracing::{debug, warn};
 
@@ -159,16 +158,11 @@ pub(crate) fn build_injections(
     }
 }
 
-/// The host-match patterns a secret of `secret_type` injects its credential on,
-/// given its stored `host_pattern`. Single source of truth shared by the
-/// connect-time injection filter (`connect::resolve_secret_injections`) AND policy
-/// enforcement (`db::find_secret_hosts` → v2 `Target::Secret`), so injection
-/// coverage == enforcement coverage BY CONSTRUCTION — the secret analog of the
-/// provider-registry host fix. Every secret covers its own stored `host_pattern`;
-/// only `openai` adds the extra hosts one OpenAI credential is valid across
-/// (`api.openai.com`, ChatGPT, and their subdomains) regardless of which host it
-/// was stored under. Returned as `host_matches` patterns, so `*.openai.com` covers
-/// every `.openai.com` subdomain.
+/// The host patterns a secret of `secret_type` injects its credential on, given
+/// its stored `host_pattern`. Shared by connect-time injection and policy
+/// enforcement so the two cover the same hosts. Only `openai` expands beyond its
+/// stored host: one OpenAI credential is valid across `api.openai.com`, ChatGPT
+/// and their subdomains.
 #[must_use]
 pub(crate) fn secret_host_patterns(secret_type: &str, host_pattern: &str) -> Vec<String> {
     let mut patterns = vec![host_pattern.to_string()];
@@ -238,22 +232,14 @@ pub(crate) async fn refresh_openai_oauth_if_expired(
 
 const OPENAI_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 
-/// Public OAuth client id of the Codex CLI — the app that issued the vaulted
-/// ChatGPT session we are refreshing.
-///
-/// `auth.openai.com` rejects a `refresh_token` grant that omits it with
-/// 400 `Missing 'client_id'`, so without this the refresh can never succeed and
-/// the session hard-expires with the access token (~10 days).
-///
-/// A constant rather than configuration: it identifies OpenAI's own first-party
-/// CLI, is hardcoded in the open-source Codex client, and the vaulted
-/// `auth.json` has no `client_id` field to read it from. That is unlike the
-/// OAuth providers in `apps.rs`, which take a `client_id_env` because an
-/// operator supplies their own app there.
+/// Public OAuth client id of the Codex CLI, the app that issued the vaulted
+/// ChatGPT session. `auth.openai.com` rejects a `refresh_token` grant that omits
+/// it with 400 `Missing 'client_id'`. A constant rather than configuration: the
+/// vaulted `auth.json` has no `client_id` field to read it from.
 const OPENAI_CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
-/// Form body for the refresh_token grant. Split out from the request so the
-/// field set can be asserted — sending it needs the network.
+/// Form body for the refresh_token grant. Split out so the field set can be
+/// asserted without the network.
 fn refresh_token_form(refresh_token: &str) -> [(&'static str, &str); 3] {
     [
         ("client_id", OPENAI_CODEX_CLIENT_ID),
@@ -307,10 +293,8 @@ mod tests {
 
     // ── openai oauth refresh ───────────────────────────────────────────
 
-    // The regression guard for a refresh that never once succeeded: without
-    // `client_id`, auth.openai.com answers 400 "Missing 'client_id'", the
-    // gateway falls through to the expired token, and every chatgpt.com request
-    // 401s until the user re-authenticates by hand.
+    // Without `client_id`, auth.openai.com answers 400 "Missing 'client_id'" and
+    // every chatgpt.com request 401s on the expired token.
     #[test]
     fn refresh_token_form_sends_client_id_and_the_grant() {
         let form = refresh_token_form("rt-abc123");
@@ -325,9 +309,8 @@ mod tests {
         );
     }
 
-    // Pinned as a literal: a typo here is not a compile error and not a test
-    // failure elsewhere — it surfaces as `invalid_client` from OpenAI, inside a
-    // warning, roughly ten days after anyone touched this.
+    // Pinned as a literal: a typo is not a compile error, it surfaces only as
+    // `invalid_client` from OpenAI at runtime.
     #[test]
     fn client_id_is_the_codex_cli_app() {
         assert_eq!(OPENAI_CODEX_CLIENT_ID, "app_EMoamEEZ73f0CkXaXp7hrann");

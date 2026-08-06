@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The policy rule-load services' contracts: every read is org/project-FENCED
-// at the query level (cross-org isolation), the rule load mirrors the GATEWAY's
-// load (enabled-only, defaults included, equipment dropped, max published
-// generation), and the row→rule mapper decodes all three identity kinds +
-// resolves secret hosts AND connection providers fail-closed. The db is mocked
-// at the boundary; wheres are recorded and asserted — the SQL behavior itself
-// is review-verified against real PG.
+// The policy rule-load services' contracts: every read is org/project-fenced at
+// the query level, the rule load mirrors the gateway's (enabled-only, defaults
+// included, equipment dropped, max published generation), and the row→rule
+// mapper decodes all three identity kinds and resolves secret hosts and
+// connection providers fail-closed. The db is mocked at the boundary and the
+// recorded `where`s are asserted.
 
 const state = vi.hoisted(() => ({
   calls: [] as { model: string; op: string; args: unknown }[],
@@ -83,7 +82,7 @@ describe("resolvePrincipalSet (find_principal_set mirror)", () => {
       id: { in: ["g1"] },
       organizationId: "org-1",
     });
-    // Only ACTIVE members of THIS org survive (u2 was filtered out).
+    // Only active members of this org survive (u2 was filtered out).
     expect(whereOf("organizationMember")).toEqual({
       userId: { in: ["u1", "u2"] },
       organizationId: "org-1",
@@ -102,8 +101,8 @@ describe("resolvePrincipalSet (find_principal_set mirror)", () => {
 
     const set = await resolvePrincipalSet("p1", "org-1");
 
-    // The user→groups expansion carries the org fence (a user can belong to
-    // OTHER orgs' groups).
+    // The user→groups expansion carries the org fence — a user can belong to
+    // other orgs' groups.
     const expansion = state.calls.filter((c) => c.model === "groupMember");
     expect(
       (expansion.at(-1)?.args as { where: Record<string, unknown> }).where,
@@ -142,8 +141,8 @@ describe("loadConnectionProviders (find_connection_providers mirror)", () => {
 
     const map = await loadConnectionProviders("org-1", "p1");
 
-    // The fence IS the query — identical shape to the secret-hosts fence, so a
-    // rule naming another org's connection id resolves to nothing (fail-closed).
+    // The fence is the query: a rule naming another org's connection id
+    // resolves to nothing.
     expect(whereOf("appConnection")).toEqual({
       OR: [
         { projectId: "p1" },
@@ -170,7 +169,7 @@ describe("loadRulesForSimulation (gateway-load mirror)", () => {
       enabled: true,
       source: { not: "equipment" },
     });
-    // No isDefault filter — the Default Rules must load.
+    // No isDefault filter, so the Default Rules load.
     expect("isDefault" in where).toBe(false);
   });
 
@@ -198,11 +197,8 @@ describe("loadRulesForSimulation (gateway-load mirror)", () => {
     ).toEqual([]);
   });
 
-  // The TS engine's `NewRule` carries no id, so its evaluator can't re-sort by
-  // id — the equal-priority tie-break lives ENTIRELY in this loader's orderBy
-  // (a stable priority-only sort downstream preserves it). Pin it so a regression
-  // can't silently desync the reflections from the gateway, which
-  // enforces `ORDER BY r.priority, r.id`.
+  // `NewRule` carries no id, so the evaluator can't re-sort by it: the
+  // equal-priority tie-break lives entirely in this loader's orderBy.
   it("orders by (priority, id) — the gateway-consistent tie-break", async () => {
     await loadRulesForSimulation(
       { scope: "project", projectId: "p1" },
@@ -342,9 +338,8 @@ describe("toSimRule (decode_row mirror, full fidelity)", () => {
   });
 
   it("resolves a connection target keeping its id (per-connection decisions)", () => {
-    // Mirror of the gateway's assemble.rs connection arm: the fenced map
-    // resolves the provider and the id is KEPT — the target binds to the
-    // connection that wins injection (no tools → the whole app, host-only).
+    // The id is kept, so the target binds to the connection that wins
+    // injection (no tools = the whole app, host-only).
     const { rule } = toSimRule(
       simRow({
         targets: [targetRow({ kind: "connection", appConnectionId: "c1" })],
@@ -358,9 +353,8 @@ describe("toSimRule (decode_row mirror, full fidelity)", () => {
   });
 
   it("carries a tool-narrowed connection target's tools onto the resolved shape", () => {
-    // The "Specific connection(s)" tools-picker shape: the resolved connection
-    // target keeps its tools (→ the tool fan-out, not the whole app) AND its
-    // id — the gateway's assemble.rs connection arm mirror.
+    // A tools-narrowed target keeps both its tools (the tool fan-out, not the
+    // whole app) and its id.
     const { rule } = toSimRule(
       simRow({
         targets: [

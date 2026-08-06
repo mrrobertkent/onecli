@@ -24,35 +24,21 @@ export interface AppToolsPickerProps {
   id?: string;
 }
 
-// The house group labels (mirrors app-permission-group.tsx) — the catalog
-// category ("read"/"write") reads as the panel's "Read-only"/"Write / delete".
+// Mirrors app-permission-group.tsx.
 const GROUP_LABELS: Record<string, string> = {
   read: "Read-only",
   write: "Write / delete",
 };
 
 /**
- * "Narrow by tools" for the rule dialog's App target: a grouped, searchable
- * checkbox multi-select over the provider's catalog tools. Empty selection = the
- * whole app (today's behavior). Selecting tools narrows the rule to exactly
- * those endpoints (the engine's app-target tool fan-out). Used in BOTH target
- * modes — "All connections" (an `app` target) and specific connection(s) (each
- * a `connection` target); both carry the tool set and decode to the same
- * tool-narrowed app match.
+ * Grouped, searchable multi-select over a provider's catalog tools for the rule
+ * dialog's App target. Empty selection = the whole app.
  *
- * When a catalog group defines a COMPLETE WILDCARD — a server-verified true
- * superset of the group's tools (`wildcardComplete`), e.g. Gmail's "All read
- * operations" = `read_all`, a single `/gmail/v1/*` GET rule that covers every
- * Gmail read incl. future ones — the group header IS that umbrella: checking it
- * stores the one wildcard id and the concrete rows show as covered; unchecking
- * it lets you author a subset. A group with no wildcard — or one whose wildcard
- * is INCOMPLETE (e.g. Jira/Confluence read, whose search escapes the umbrella by
- * method or path) — keeps a plain "select all concrete tools" header, so the
- * picker never offers a misleading "all X". The wildcard id is a real catalog
- * tool the engine resolves, so the stored set is always enforce-resolvable.
- *
- * The catalog is the CLIENT-SAFE summary (`/v1/apps/permission-definitions`,
- * id/name/description only — endpoint mappings never reach the bundle).
+ * A group whose wildcard is a verified superset of its tools (`wildcardComplete`)
+ * renders its header as that umbrella: checking it stores the single wildcard id
+ * and the concrete rows show as covered. A group with no wildcard, or an
+ * incomplete one, keeps a plain select-all header so the picker never offers a
+ * misleading "all X".
  */
 export const AppToolsPicker = ({
   provider,
@@ -74,9 +60,8 @@ export const AppToolsPicker = ({
     () => groups.flatMap((g) => g.tools.map((t) => t.id)),
     [groups],
   );
-  // Every selectable id in catalog order (wildcard first per group, mirroring
-  // `allGroupTools`) — the ordering the stored array is normalized to, so a
-  // selected WILDCARD id is never dropped when rebuilding the set.
+  // Every selectable id in catalog order, wildcard first per group. The stored
+  // array is normalized to this, so rebuilding the set never drops a wildcard.
   const orderedAllIds = useMemo(
     () =>
       groups.flatMap((g) => [

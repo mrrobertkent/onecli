@@ -405,8 +405,8 @@ impl PolicyEngine {
                 continue;
             };
 
-            // OAuth token refresh applies only to inline OpenAI secrets; a
-            // 1Password-sourced value is always a raw API key (api-key metadata).
+            // OAuth refresh applies only to inline OpenAI secrets; a
+            // 1Password-sourced value is always a raw API key.
             let is_openai_oauth = secret.value_source != "onepassword"
                 && secret.type_ == "openai"
                 && secret
@@ -448,9 +448,8 @@ impl PolicyEngine {
             });
         }
 
-        // Cloud-only: resolve spend budgets for the effective partner credential
-        // among the host-filtered secrets. The budget module owns which partner
-        // secret is effective (by scope, not shadowed). No-op in OSS.
+        // Cloud-only: spend budgets for the effective partner credential among
+        // the host-filtered secrets. No-op in OSS.
         let budget_bindings =
             crate::budget::resolve_bindings(&self.pool, &agent.organization_id, &matching).await;
 
@@ -458,9 +457,8 @@ impl PolicyEngine {
     }
 
     /// Produce a secret's plaintext value from its source — the encrypted column
-    /// (inline) or a live 1Password reference. Returns `None` (after logging) when
-    /// the value can't be produced, so the caller skips the secret exactly as it
-    /// always has on a decrypt failure.
+    /// or a live 1Password reference. `None` (logged) when it can't be produced,
+    /// so the caller skips the secret.
     async fn resolve_secret_value(
         &self,
         secret: &db::SecretRow,
@@ -514,12 +512,11 @@ impl PolicyEngine {
         }
     }
 
-    /// Fetch app connections matching providers for this host (deferred resolution).
+    /// Fetch app connections whose provider matches this host.
     ///
-    /// Returns the raw `AppConnectionRow` values filtered to providers that match
-    /// the hostname. Decryption and injection rule building are deferred to
-    /// per-request time via [`resolve_app_injection_for_request`] so that
-    /// multi-connection disambiguation can happen with the `x-onecli-connection-id` header.
+    /// Decryption and rule building are deferred to
+    /// [`resolve_app_injection_for_request`] so multi-connection disambiguation
+    /// can use the `x-onecli-connection-id` header.
     async fn resolve_app_connections(
         &self,
         agent: &db::AgentRow,
@@ -535,13 +532,9 @@ impl PolicyEngine {
 
         let connections = match connection_pool(selection) {
             InjectionPool::RuleSelected => {
-                // Rule-driven: the agent's allow rules name SPECIFIC connections
-                // (`kind=connection`) and/or ALL connections of a provider at a
-                // level (`kind=app` + `connection_scope`). Fetch the
-                // ORG/PROJECT-fenced pool and keep the connections a rule
-                // selects: a named id, or a (provider, scope) match. Attach the
-                // scope each one may reach below. Org-fence on the FETCH → a
-                // foreign id/scope can't pull a foreign connection.
+                // Keep the connections a rule selects: a named id, or a
+                // (provider, scope) match. The org fence is on the fetch, so a
+                // foreign id or scope can't pull a foreign connection.
                 let (org_result, project_result) = tokio::join!(
                     db::find_app_connections_by_org(&self.pool, &agent.organization_id),
                     db::find_app_connections_by_project(&self.pool, &agent.project_id),
@@ -558,11 +551,8 @@ impl PolicyEngine {
                 stamp_resource_scopes(&mut merged, selection);
                 merged
             }
-            // An agent with no rule-driven selection reaches no app connections
-            // → none injected. As with secrets, WHICH connections an agent gets
-            // comes solely from its v2 allow rules — there is no
-            // `agent_app_connections` fallback since step 10, and no all-mode
-            // fallback since step 7.
+            // No selection: no app connections are injected, and there is no
+            // fallback that would widen this.
             InjectionPool::Empty => Vec::new(),
         };
 
@@ -575,10 +565,8 @@ impl PolicyEngine {
         Ok(matching)
     }
 
-    /// Resolve app connection injection rules for a single request.
-    /// Called per-request with the cached `app_connections` (already filtered to
-    /// providers matching the hostname at cache time by `resolve_app_connections`).
-    // request_path added for cross-provider disambiguation on shared hosts
+    /// Resolve app connection injection rules for a single request, from the
+    /// cached `app_connections` already filtered to this hostname's providers.
     #[expect(clippy::too_many_arguments)]
     pub(crate) async fn resolve_app_injection_for_request(
         &self,
@@ -594,7 +582,6 @@ impl PolicyEngine {
             return Ok(AppConnectionResult::NoConnections);
         }
 
-        // If a specific connection ID is requested, use that one
         if let Some(conn_id) = connection_id {
             let Some(conn) = app_connections.iter().find(|c| c.id == conn_id) else {
                 // Connection was removed or access revoked — return the valid options
@@ -610,20 +597,15 @@ impl PolicyEngine {
                 .await;
         }
 
-        // On path-scoped shared hosts (e.g. www.googleapis.com, where Gmail,
-        // Calendar and Drive coexist by path), narrow to the connections whose
-        // provider serves THIS request path before the ambiguity check — so two
-        // same-provider connections (e.g. two Gmail accounts) don't make
-        // Calendar/Drive requests, which are unambiguous by path, falsely
-        // ambiguous. Dedicated hosts and no-path cases fall through unchanged.
+        // On path-scoped shared hosts (e.g. www.googleapis.com), narrow by path
+        // before the ambiguity check, so two same-provider connections don't
+        // make another provider's requests falsely ambiguous.
         let candidates = narrow_connections_by_path(app_connections, hostname, request_path);
         let app_connections: &[db::AppConnectionRow] = &candidates;
 
-        // Single connection — use it directly. Its rules always merge (they
-        // self-select by path at apply time), but the winner metadata is
-        // dropped when the provider does not serve this request's path — a
-        // lone Calendar connection on a `/youtube/` request must not donate
-        // its granular policy, finalizer, or host rewrite.
+        // Single connection: its rules always merge (they self-select by path at
+        // apply time), but the winner metadata is dropped when the provider does
+        // not serve this request's path.
         if app_connections.len() == 1 {
             let conn = &app_connections[0];
             let mut result = self
@@ -652,8 +634,7 @@ impl PolicyEngine {
             return Ok(result);
         }
 
-        // Multiple connections — check for ambiguity per provider
-        // Group by provider; if each provider has exactly 1 connection, no ambiguity
+        // Multiple connections — ambiguous only where a provider has several.
         let mut by_provider: std::collections::HashMap<&str, Vec<&db::AppConnectionRow>> =
             std::collections::HashMap::new();
         for conn in app_connections {
@@ -664,7 +645,7 @@ impl PolicyEngine {
         }
 
         if by_provider.values().all(|conns| conns.len() == 1) {
-            // Check for cross-provider path overlap before resolving
+            // Cross-provider path overlap, checked before resolving.
             if let Some(path) = request_path {
                 let matching_providers: Vec<&str> = by_provider
                     .keys()

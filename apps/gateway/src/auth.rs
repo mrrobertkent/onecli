@@ -316,10 +316,8 @@ mod tests {
         );
     }
 
-    /// Regression test for the loopback auth bypass (local gateway API did
-    /// not enforce ONECLI_API_KEY when bound to TCP loopback): a bare
-    /// request with no `Authorization` header must be rejected in `local`
-    /// mode instead of silently authenticating as local-admin.
+    /// A request with no `Authorization` header must be rejected in `local`
+    /// mode, not silently authenticated as local-admin.
     #[tokio::test]
     async fn validate_request_local_mode_rejects_bare_request() {
         std::env::set_var("AUTH_MODE", "local");

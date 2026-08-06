@@ -403,11 +403,9 @@ async fn resolve_rules(
         }
     }
 
-    // Build the intercept token only for providers that have intercept rules.
-    // Scan the APP rules only: the intercept exists to answer token-refresh
-    // POSTs for app connections (vertex-ai on oauth2.googleapis.com), so a
-    // Bearer-shaped secret or vault credential on the same host must not
-    // donate the token.
+    // App rules only: the intercept answers token-refresh POSTs for app
+    // connections, so a Bearer-shaped secret or vault credential on the same
+    // host must not donate the token.
     let intercept_token = if crate::apps::host_has_intercept_rules(hostname) {
         app_rules
             .iter()
@@ -442,9 +440,8 @@ async fn resolve_rules(
 
     let mut injection_rules = crate::inject::merge_injection_rules(app_rules, secret_rules);
 
-    // Vault fallback — only when neither secrets nor apps yielded any rules. A
-    // connection awaiting its credential counts as "apps yielded rules": it
-    // will inject once allowed, and adopting a vault credential alongside it
+    // Vault fallback only when neither secrets nor apps yielded rules. A pending
+    // injection counts as yielded: adopting a vault credential alongside it
     // would apply two credentials to the same host.
     if injection_rules.is_empty() && pending_injections.is_empty() && !vault_rules.is_empty() {
         injection_rules = vault_rules.to_vec();
@@ -541,8 +538,7 @@ mod tests {
         store.set(&key, &resp, 60).await;
     }
 
-    /// Seed the app-injection cache for a fixture connection (no
-    /// session_policy → no cache-key suffix), labeled "Conn".
+    /// Seed the app-injection cache for a fixture connection, labeled "Conn".
     async fn seed_app_injection(
         store: &Arc<dyn CacheStore>,
         conn_id: &str,
@@ -593,7 +589,7 @@ mod tests {
         )
         .await;
 
-        // A calendar request gets the OAuth Bearer (the #428 fix)…
+        // A calendar request gets the OAuth Bearer…
         let res = resolve_rules(
             &ctx(),
             HOST,
@@ -668,7 +664,7 @@ mod tests {
         let (auth, _) = applied_auth("/gmail/v1/users/me", &rules.injection_rules);
         assert_eq!(auth.as_deref(), Some("ApiKey gmail-secret"));
 
-        // With a secret that does NOT serve the path, ambiguity still escalates.
+        // With a secret that does not serve the path, ambiguity still escalates.
         seed_connect(
             &store,
             HOST,
@@ -811,7 +807,7 @@ mod tests {
     #[tokio::test]
     async fn secret_only_resolution_keeps_rule_order() {
         // No app connections: resolution must not reorder the secrets — the
-        // last-listed catch-all keeps winning overlaps exactly as before.
+        // last-listed catch-all keeps winning overlaps.
         let engine = PolicyEngine::test_stub();
         let store = crate::cache::create_store().await.unwrap();
         seed_connect(

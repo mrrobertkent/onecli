@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { groupsToGrantInput } from "./convert";
 
-// The one path the pg proofs CANNOT reach by design: a `mixed` verdict is
-// impossible once network/behavioral rules are excluded from the fold (every
-// remaining rule shape treats a tool's variants uniformly), so hitting one
-// means an unmodeled rule shape. It must abort the project loudly — folding a
-// guess would bake a wrong verdict into a grant stack.
+// A `mixed` verdict is unreachable once network/behavioral rules are excluded
+// from the fold, so hitting one means an unmodeled rule shape and must abort
+// rather than bake a guess into a grant stack. The pg proofs cannot reach this.
 
 const group = (tools: { toolId: string; verdict: string }[]) => [{ tools }];
 

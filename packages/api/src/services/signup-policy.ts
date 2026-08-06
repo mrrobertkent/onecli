@@ -49,10 +49,8 @@ export const getSignupMode = async (): Promise<SignupMode> => {
 /**
  * Whether a self-provisioning attempt of this kind is permitted right now.
  *
- * `sso` is permitted under both `sso-only` and `open`; `password` only under
- * `open`. Note this answers "may this identity be PROVISIONED", not "may it
- * sign in" — an existing user signing in is not a sign-up and never reaches
- * this gate.
+ * Answers "may this identity be provisioned", not "may it sign in" — an
+ * existing user signing in never reaches this gate.
  */
 export const isSignupAllowed = async (kind: SignupKind): Promise<boolean> => {
   const mode = await getSignupMode();
@@ -61,10 +59,7 @@ export const isSignupAllowed = async (kind: SignupKind): Promise<boolean> => {
   return false;
 };
 
-/**
- * Set the mode. Returns the previous value so the caller can audit both sides:
- * this setting's audit entry is uninterpretable without the old value.
- */
+/** Set the mode, returning the previous value so the caller can audit both sides. */
 export const setSignupMode = async (
   mode: SignupMode,
   updatedByUserId: string,

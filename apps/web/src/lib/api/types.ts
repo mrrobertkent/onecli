@@ -321,29 +321,23 @@ export interface ProjectionCondition {
 }
 
 // ── Editable policy rules (policy_rules_v2) ──────────────────────────────────
-// The editor's data (GET /rules → PolicyRuleDto): rows carry an `id` (for
-// PATCH/DELETE), `enabled`, and are single-scope. Targets can be
-// app/connection/secret/network — the dialog authors all four (an app target
-// with no tools is the "All connections" whole-app shape; specific connections
-// become `connection` targets).
+// GET /rules → PolicyRuleDto. Rows carry an `id` for PATCH/DELETE and are
+// single-scope.
 export type PolicyRuleTarget =
   | {
       kind: "app";
       provider: string;
-      // Named tools → the exact tool fan-out; EMPTY → the whole app (its
-      // catalog hosts — permit on allow / block on block).
+      // Named tools → the exact tool fan-out; empty → the whole app.
       tools: string[];
-      // "All connections at a level" injection scope; null = no injection.
-      // Injection-only — never affects matching.
+      // Injection-only, never affects matching; null = no injection.
       connectionScope: "organization" | "project" | null;
     }
-  // Injects the connection and matches its provider's app — narrowed to `tools`
-  // when set, else the whole app (empty = today's whole-app behavior).
+  // Injects the connection and matches its provider's app, narrowed to `tools`
+  // when set.
   | { kind: "connection"; connectionId: string; tools: string[] }
   | {
       kind: "secret";
-      // Step 8: a specific `secretId`, OR a `secretScope` ("all secrets at a
-      // level") — exactly one is set.
+      // Exactly one of these is set.
       secretId: string | null;
       secretScope: "organization" | "project" | null;
     }
@@ -359,11 +353,10 @@ export type PolicyRuleSource =
   | "app_permission"
   | "blocklist"
   | "default"
-  // Injection-only rules materialized from the equipment model (step 8); the
-  // editor hides them (managed via the agent access UI).
+  // Injection-only rules materialized from the equipment model; the editor
+  // hides them, since they are managed via the agent access UI.
   | "equipment"
-  // Attach-model grant stacks (step 2): compiled by the grants API; rendered
-  // as labeled, revocable derived rows until the project rules table retires.
+  // Compiled by the grants API; rendered as labeled, revocable derived rows.
   | "grant";
 
 export interface PolicyRuleV2 {
@@ -404,12 +397,12 @@ export interface LastPublish {
   appliedBy: { name: string | null; email: string } | null;
 }
 
-// ── Attach-model grants (plans/project-attach-model.md, step 2) ─────────────
+// ── Attach-model grants ──────────────────────────────────────────────────────
 // Hand-mirrored from packages/api/src/services/grants-service.ts and
 // grants-summary-service.ts.
 
-/** A grant's session policy ("Resources"): which repositories/folders the
- * connection's injected credential may reach. One strict axis per provider. */
+/** A grant's session policy: which repositories/folders the connection's
+ * injected credential may reach. One axis per provider. */
 export type GrantResources = { repositories: string[] } | { folders: string[] };
 
 export interface AgentGrantConnection {
@@ -433,7 +426,7 @@ export interface AgentGrantSecret {
 
 export interface AgentGrants {
   agentId: string;
-  /** "all" = the agent still injects the whole fenced pool (pre-flip). */
+  /** "all" = the agent injects the whole fenced pool. */
   mode: "all" | "grants";
   connections: AgentGrantConnection[];
   secrets: AgentGrantSecret[];
@@ -449,8 +442,8 @@ export interface ConnectionGrants {
   }[];
 }
 
-/** `resources` is tri-state: ABSENT = preserve what the stack carries, NULL =
- * clear, OBJECT = set (server-validated per provider + edition). */
+/** `resources` is tri-state: absent = preserve what the stack carries, null =
+ * clear, object = set. */
 export type ConnectionGrantInput =
   | { access: "full"; resources?: GrantResources | null }
   | {

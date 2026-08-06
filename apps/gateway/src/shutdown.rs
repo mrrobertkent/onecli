@@ -1,10 +1,8 @@
 //! Graceful shutdown: the signal, and the drain it starts.
 //!
-//! The gateway is PID 1 in its container, and Linux discards a signal whose
-//! disposition is still the default for PID 1 — so without the handler
-//! installed here, SIGTERM does nothing at all and every deploy ends in a
-//! SIGKILL after the orchestrator's stop timeout. Installing it is what makes
-//! shutdown possible; the rest of this module is what makes it graceful.
+//! The gateway is PID 1 in its container, where a signal left at its default
+//! disposition is discarded — without the handler installed here, SIGTERM does
+//! nothing and every deploy ends in a SIGKILL.
 //!
 //! Three pieces:
 //!
@@ -13,9 +11,6 @@
 //! - a **guard**, held by each task the drain must wait for;
 //! - a **deadline**, because some of what this proxy carries is an indefinite
 //!   byte pipe that can never "finish" on its own.
-//!
-//! Nothing here costs anything per request: a connection subscribes once when
-//! it is accepted, and the guard is one atomic upgrade at the same moment.
 
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -23,22 +18,17 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tracing::{info, warn};
 
-/// Default seconds for the WHOLE shutdown: draining, the final telemetry
+/// Default seconds for the whole shutdown: draining, the final telemetry
 /// flush, and closing the pool.
 ///
-/// Sized against the tightest real budget — the all-in-one container gets
-/// Docker's default 10s between SIGTERM and SIGKILL — with a second of
-/// headroom, so even a fully-burned shutdown still gets to log that it
-/// finished. ECS allows 30s.
+/// One second inside Docker's default 10s between SIGTERM and SIGKILL, which
+/// is the tightest deadline the gateway runs under.
 const DEFAULT_SHUTDOWN_SECS: u64 = 9;
 
 const SHUTDOWN_SECS_ENV: &str = "GATEWAY_SHUTDOWN_TIMEOUT_SECS";
 
-/// Seconds held back from the drain for the steps that follow it.
-///
-/// The flush is the step that actually persists data, so it must never be the
-/// one that runs out of budget: whatever the total is, these seconds are
-/// reserved before the drain is allowed to spend any of it.
+/// Seconds held back from the drain for the steps that follow it, so the
+/// telemetry flush that persists data can never be the one left with nothing.
 const POST_DRAIN_RESERVE_SECS: u64 = 4;
 
 static SIGNAL: OnceLock<watch::Sender<bool>> = OnceLock::new();
@@ -46,14 +36,12 @@ static SIGNAL: OnceLock<watch::Sender<bool>> = OnceLock::new();
 /// Weak handle used to mint guards.
 ///
 /// Weak on purpose: the strong sender lives in `DRAIN` so the drain can drop
-/// it, and a `OnceLock` can never give its contents back. Upgrading keeps
-/// working while the drain is in progress, which closes the window where a
-/// CONNECT completes just as its accept task's guard falls away.
+/// it. Upgrading keeps working while the drain is in progress, so a connection
+/// completing right then can still take a guard.
 static GUARDS: OnceLock<mpsc::WeakSender<()>> = OnceLock::new();
 
 /// The strong sender plus its receiver, owned here so [`drain_connections`]
-/// can take and drop the sender — the only way `recv()` ever reports that the
-/// last guard is gone.
+/// can take and drop the sender.
 static DRAIN: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>> = Mutex::new(None);
 
 fn signal_tx() -> &'static watch::Sender<bool> {
@@ -62,11 +50,9 @@ fn signal_tx() -> &'static watch::Sender<bool> {
 
 /// Install the signal handlers. Call once, early in `main`.
 ///
-/// A second signal exits immediately: an operator who sends SIGTERM twice is
-/// asking for the process to be gone now, not for a tidier drain.
+/// A second signal exits immediately.
 pub(crate) fn install() {
-    // Capacity is irrelevant — guards never send, they only exist to be
-    // dropped. The receiver reports `None` once every clone is gone.
+    // Capacity is irrelevant — guards never send, they only exist to be dropped.
     let (tx, rx) = mpsc::channel::<()>(1);
     let _ = GUARDS.set(tx.downgrade());
     *DRAIN.lock().expect("shutdown drain state") = Some((tx, rx));
@@ -77,10 +63,8 @@ pub(crate) fn install() {
     tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
 
-        // Registered once and reused for both waits. Re-registering between
-        // them would drop a signal delivered in the gap: a listener created
-        // after a broadcast never sees it, so the operator's second Ctrl-C
-        // would be swallowed exactly when they are trying to force an exit.
+        // Registered once and reused for both waits: re-registering between
+        // them would swallow a second signal delivered in the gap.
         let Ok(mut term) =
             signal(SignalKind::terminate()).map_err(|e| warn!(error = %e, "cannot handle SIGTERM"))
         else {
@@ -118,10 +102,8 @@ pub(crate) fn subscribe() -> Signal {
 impl Signal {
     /// Resolve once shutdown has been requested — immediately if it already has.
     ///
-    /// `wait_for`, not `changed()`: `subscribe()` marks the current value as
-    /// seen, so a receiver created after the signal fired would wait forever on
-    /// `changed()`. That is the difference between draining a connection opened
-    /// during shutdown and hanging on it.
+    /// `wait_for`, not `changed()`: a receiver created after the signal fired
+    /// would wait forever on `changed()`.
     pub(crate) async fn wait(&mut self) {
         // Err is unreachable: the sender is a `'static` that is never dropped.
         let _ = self.0.wait_for(|&down| down).await;
@@ -136,7 +118,7 @@ pub(crate) struct TaskGuard {
 /// Mint a guard for a task the drain must wait for.
 ///
 /// `None` once the drain has finished — a task starting that late is not worth
-/// waiting for, since the process is already on its way out.
+/// waiting for.
 pub(crate) fn task_guard() -> Option<TaskGuard> {
     GUARDS.get()?.upgrade().map(|tx| TaskGuard { _tx: tx })
 }

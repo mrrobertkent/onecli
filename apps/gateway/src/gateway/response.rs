@@ -20,18 +20,14 @@ pub(super) fn proxy_auth_required() -> Response<axum::body::Body> {
 /// Response body type used by [`super::forward::forward_request`].
 pub(crate) type ForwardBody<S> = Either<Full<Bytes>, S>;
 
-/// Where dashboard links point when `APP_URL` says nothing. Right for a
-/// loopback install, wrong for anyone reaching OneCLI on another address —
-/// which is why `main` warns at startup rather than letting it pass silently.
+/// Where dashboard links point when `APP_URL` says nothing — right only for a
+/// loopback install, which is why `main` warns at startup.
 pub(crate) const DASHBOARD_URL_FALLBACK: &str = "http://localhost:10254";
 
 /// The configured public URL, or `None` when there isn't one.
 ///
-/// Present-but-blank counts as absent: an `APP_URL=` line, or a compose
-/// passthrough that resolved to nothing, must not read as configuration. Mirrors
-/// `configuredAppUrl()` on the Node side so both halves agree on what "set"
-/// means. Split out from [`dashboard_url`] so it is testable — that one caches
-/// in a `OnceLock` and cannot be re-evaluated under a different environment.
+/// Present-but-blank counts as absent: an empty `APP_URL` must not read as
+/// configuration. Split out from [`dashboard_url`] so it stays testable.
 fn normalize_app_url(raw: Option<&str>) -> Option<String> {
     let trimmed = raw?.trim().trim_end_matches('/');
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -40,9 +36,8 @@ fn normalize_app_url(raw: Option<&str>) -> Option<String> {
 /// Whether the dashboard links are built from a configured `APP_URL` or from
 /// the fallback. Drives the startup warning in `main`.
 ///
-/// Deliberately derived from [`dashboard_url`] rather than re-reading the
-/// environment: the warning then describes the value actually in use, and cannot
-/// drift from it if the env changes after the cache is populated.
+/// Derived from [`dashboard_url`] rather than the environment so it cannot
+/// drift from the value actually in use.
 pub(crate) fn app_url_is_configured() -> bool {
     dashboard_url() != DASHBOARD_URL_FALLBACK
 }

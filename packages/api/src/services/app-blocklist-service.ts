@@ -245,8 +245,8 @@ export const toggleBlocklistRule = async (
   ruleId: string,
   enabled: boolean,
 ): Promise<void> => {
-  // Writes stay in the caller's OWN scope: a project can't toggle an org-level
-  // block (the panel renders those locked), and `requireDraftRule` 404s it.
+  // Writes stay in the caller's own scope: a project can't toggle an org-level
+  // block, and `requireDraftRule` 404s it.
   const base = ownScope(scope);
   const rule = await requireDraftRule(base, ruleId);
   await db.$transaction(async (tx) => {

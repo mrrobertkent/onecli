@@ -3,31 +3,21 @@ import type { ApiEnv } from "../types";
 import { ServiceError } from "../services/errors";
 
 /**
- * 410 Gone for the old-model endpoints step 10 removed.
+ * 410 Gone for the removed old-model endpoints. `/v1` is a versioned public
+ * surface with clients in the wild, so each removed path says what happened and
+ * where the capability went instead of answering a generic 404.
  *
- * `/v1` is a versioned public surface with clients in the wild — `onecli rules`
- * in the CLI, the SDK, anything scripted against it — so these paths cannot just
- * stop existing and answer the router's generic "Unrecognized request URL". Each
- * one says what happened and where the capability went, which is what the
- * release before this one did for the same paths (it answered 410 once v2
- * editing went live).
+ * Temporary: these go once no supported client still calls them, on a different
+ * clock from `policy-legacy-migration/`.
  *
- * TEMPORARY, but on a different clock from the tables: these go when no
- * supported client still calls them (~one major version), NOT with
- * `policy-legacy-migration/`.
- *
- * Mounted AFTER the live routers in `app.ts`, so a surviving route on a shared
- * base path (`/agents`, `/connections`) always wins — Hono takes the first
- * match, and these only ever catch what no longer exists.
+ * Mounted after the live routers in `app.ts`, so a surviving route on a shared
+ * base path (`/agents`, `/connections`) always wins.
  */
 
 /**
- * Where each scope's capability actually lives — and they now differ.
- *
- * Attach-model step 6 retired project-scope `/v1/policy/*` as well, so the old
- * single "Use /v1/policy" suffix would have pointed a project-scoped client at
- * another 410. Project callers are sent to the grants surface (the only project
- * writer); org callers keep the full rule set at `/v1/org/policy`.
+ * Where each scope's capability lives — and the two scopes differ. Project
+ * callers go to the grants surface, the only project-scope writer; org callers
+ * keep the full rule set at `/v1/org/policy`.
  */
 const PROJECT_REPLACEMENT =
   "Project access is granted per agent: PUT " +
@@ -115,9 +105,9 @@ export const removedAgentEquipmentRoutes = () => {
         "allow rule naming the agent and targeting the connection.",
     ),
   );
-  // Step 5 of the attach model: `secret_mode` is no longer writable — every
-  // agent is selective and receives exactly what its grants attach. The CLI's
-  // `onecli agents set-secret-mode` lands here until it is repointed.
+  // `secret_mode` is no longer writable — every agent is selective and receives
+  // exactly what its grants attach. The CLI's `onecli agents set-secret-mode`
+  // lands here until it is repointed.
   app.all("/:agentId/secret-mode", () =>
     gone(
       "PATCH /v1/agents/:agentId/secret-mode was removed: agents are always " +

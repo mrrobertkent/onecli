@@ -26,17 +26,15 @@ export const AUDIT_SERVICES = {
   AGENT: "agent",
   SECRET: "secret",
   // Unified policy engine (policy_rules_v2): the priority-ordered rule model.
-  // (The legacy `rule` service retired with the old model at step 10; historical
-  // audit rows carrying it still render — the log table maps the raw string.)
+  // Historical rows still carry the retired `rule` service; the log table maps
+  // the raw string.
   POLICY: "policy",
-  // The attach-model grants surface (plans/project-attach-model.md, step 2):
-  // agent⇄credential grants compiled into source:"grant" policy rules.
+  // Agent⇄credential grants, compiled into source:"grant" policy rules.
   GRANT: "grant",
   API_KEY: "api-key",
   APP_CONNECTION: "app-connection",
   APP_CONFIG: "app-config",
-  // EE-only (policy-engine step 7): the org app-availability allowlist
-  // (toggle + per-principal grants).
+  // EE-only: the org app-availability allowlist (toggle + per-principal grants).
   APP_AVAILABILITY: "app-availability",
   PROJECT: "project",
   ORGANIZATION: "organization",
@@ -75,9 +73,8 @@ export const AUDIT_SOURCE = {
   // EE-only (identity): state created by an SSO login itself (JIT joins,
   // connection activation) rather than by an interactive admin action.
   SSO_JIT: "sso-jit",
-  // EE-only (identity): a group→role mapping re-applied at SSO login (step 15) —
-  // distinct from SSO_JIT (a first-time join) since it re-resolves an existing
-  // member's role.
+  // EE-only (identity): a group→role mapping re-applied at SSO login — distinct
+  // from SSO_JIT, which is a first-time join.
   SSO_LOGIN: "sso-login",
   // EE-only (directory): writes pushed by the customer's IdP through the
   // SCIM endpoint (attributed to the org owner — SCIM has no acting user).
@@ -166,13 +163,10 @@ export const withAudit = async <T>(
 };
 
 /**
- * Record a single audit event directly (status defaults to SUCCESS).
- *
- * Use when the audited state change is conditional or has already happened, so
- * the `withAudit` HOF — which always logs and flushes the gateway cache around a
- * wrapped call — doesn't fit. Example: auditing an API key only when it was
- * actually minted during a read (`ensureApiKey`). Like `logAuditEvent`, it never
- * throws — a failed audit write must not break the parent operation.
+ * Record a single audit event directly (status defaults to SUCCESS), for when
+ * the state change is conditional or has already happened and `withAudit`
+ * doesn't fit. Never throws — a failed audit write must not break the parent
+ * operation.
  */
 export const recordAuditEvent = async (params: AuditParams): Promise<void> => {
   await logAuditEvent({

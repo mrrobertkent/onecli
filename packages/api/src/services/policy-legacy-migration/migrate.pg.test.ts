@@ -3,11 +3,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { proofDatabaseUrl } from "../../testing/pg-proof.js";
 
 /**
- * The legacy → v2 conversion on REAL PostgreSQL — the committed end-to-end
- * proof of the boot pass: translate → one atomic published generation per
- * project → verify, plus idempotency, the divergence posture (the generation is
- * KEPT — deleting it would enforce nothing, see migrate.ts), preempt detection,
- * and cross-project isolation.
+ * The legacy → v2 conversion against real PostgreSQL, end to end: translate,
+ * one atomic published generation per project, verify — plus idempotency, the
+ * divergence posture, preempt detection, and cross-project isolation.
  *
  * Env-gated: skipped unless POLICY_PROOF_DATABASE_URL points at a migrated
  * PostgreSQL 16, e.g.
@@ -310,12 +308,9 @@ describe.skipIf(!PROOF_URL)(
       await cutover.runLegacyPolicyMigration();
 
       const p1 = await published(ids.p1);
-      // 8 policy rows collapse to 7 policy rules (agent allow, any block, rate,
-      // approval, disabled custom, conditioned, and the TWO gmail tool rows
-      // GROUPED into one — step 9.9) + 1 blocklist + 3 equipment (project secret
-      // + ORG-scoped secret + connection — the org-scoped one is the shape the
-      // legacy join injected scope-blind) + default. Malformed rate and the
-      // disabled blocklist are dropped.
+      // 8 policy rows collapse to 7 rules (the two gmail tool rows group into
+      // one), plus 1 blocklist, 3 equipment, and the default. Malformed rate
+      // and the disabled blocklist are dropped.
       expect(p1).toHaveLength(12);
       expect(p1.every((r) => r.generation === 1)).toBe(true); // the initial cut
 
@@ -338,10 +333,10 @@ describe.skipIf(!PROOF_URL)(
       ]);
 
       // Equipment: the selective agent's secret + connection, sessionPolicy
-      // DROPPED; the all-mode agent derives nothing.
+      // dropped; the all-mode agent derives nothing.
       const equipment = p1.filter((r) => r.source === "equipment");
       expect(equipment).toHaveLength(3);
-      // The ORG-scoped assignment survived the cutover (no silent drop).
+      // The org-scoped assignment survived the cutover.
       expect(
         equipment.some((r) =>
           r.targets.some((t) => t.secretId === ids.secretOrg),

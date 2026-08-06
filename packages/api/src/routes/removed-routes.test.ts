@@ -2,17 +2,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Hono } from "hono";
 import type { ApiEnv } from "../types";
 
-// The paths step 10 removed must answer 410 Gone with a pointer, not the
-// router's generic 404 — `/v1` is a versioned public surface and `onecli rules`
-// is in the wild. Two properties, and the second is the one that can silently
-// break: these shims mount on base paths that STILL HAVE live routes
-// (`/agents`, `/connections`), so a too-greedy pattern would turn a working
-// endpoint into a 410. Every removed path below is paired with a live sibling.
+// Removed paths must answer 410 Gone with a pointer, not the router's generic
+// 404. The second property is the one that can silently break: these shims
+// mount on base paths that still have live routes (`/agents`, `/connections`),
+// so a too-greedy pattern would turn a working endpoint into a 410 — every
+// removed path below is paired with a live sibling.
 //
-// Authenticated with an org key + X-Project-Id (the onprem-slim shape, so no
-// role resolver is needed), because the live routers' auth middleware runs
-// before a shim on the same base path — an anonymous caller gets 401, which is
-// correct but would not exercise the shims.
+// Authenticated with an org key + X-Project-Id because the live routers' auth
+// middleware runs before a shim on the same base path, so an anonymous caller
+// would get a 401 without ever reaching them.
 
 const ORG = "org-1";
 const PROJECT = "proj-1";
@@ -93,14 +91,14 @@ describe("removed old-model endpoints answer 410, not 404", () => {
     ["PUT", "/v1/agents/agent-1/secrets"],
     ["GET", "/v1/agents/agent-1/connections"],
     ["PUT", "/v1/agents/agent-1/connections"],
-    // Attach-model step 5: the mode switch is gone — agents are always
-    // selective. The CLI's `onecli agents set-secret-mode` lands here.
+    // The mode switch is gone — agents are always selective. The CLI's
+    // `onecli agents set-secret-mode` lands here.
     ["PATCH", "/v1/agents/agent-1/secret-mode"],
     ["GET", "/v1/connections/conn-1/agents"],
     ["PUT", "/v1/connections/conn-1/agents"],
-    // Attach-model step 6: project-scope policy CRUD retired. Enumerated, not
-    // wildcarded — the reflection on the same base path must stay live (see
-    // the "is not 410" table below).
+    // Project-scope policy CRUD is retired. Enumerated, not wildcarded — the
+    // reflection on the same base path must stay live (see the "is not 410"
+    // table below).
     ["GET", "/v1/policy/rules"],
     ["POST", "/v1/policy/rules"],
     ["PUT", "/v1/policy/rules/order"],
@@ -115,9 +113,9 @@ describe("removed old-model endpoints answer 410, not 404", () => {
   });
 
   it("every 410 body names the replacement, so a client can act on it", async () => {
-    // Project-scope shims point at the GRANTS surface. Pointing them at
-    // /v1/policy (as they did before step 6) would send a project client to
-    // another 410 — that path is retired at project scope now.
+    // Project-scope shims point at the grants surface: pointing them at
+    // /v1/policy would send a project client to another 410, since that path is
+    // retired at project scope too.
     for (const path of [
       "/v1/rules",
       "/v1/agents/agent-1/secrets",
@@ -140,12 +138,9 @@ describe("removed old-model endpoints answer 410, not 404", () => {
 });
 
 describe("the shims stay scoped to the paths they replace", () => {
-  // Hono ranks a specific route above a wildcard regardless of mount order, so
-  // a live sibling can't be shadowed however greedy a shim gets — asserting
-  // that would pass unconditionally and prove nothing. What a `/*` shim WOULD
-  // break is everything else under the same base: an unknown path stops being
-  // a 404 and starts claiming it used to exist and was removed. That is the
-  // assertion with teeth, and it fails if any shim is widened to a catch-all.
+  // A live sibling can never be shadowed, so asserting that would prove
+  // nothing. What a `/*` shim would break is every other path under the same
+  // base: an unknown one stops being a 404 and starts claiming it was removed.
   it.each([
     ["/v1/agents/no-such-endpoint"],
     ["/v1/agents/agent-1/no-such-endpoint"],
@@ -160,8 +155,8 @@ describe("the shims stay scoped to the paths they replace", () => {
     ["/v1/agents", "the agents list"],
     ["/v1/agents/agent-1/effective-credentials", "the credential reflection"],
     ["/v1/connections", "the connections list"],
-    // The reflection shares the /v1/policy base with the step-6 shim; if that
-    // shim ever grows a wildcard this is the assertion that catches it.
+    // The reflection shares the /v1/policy base with the shim; if that shim
+    // ever grows a wildcard, this is the assertion that catches it.
     [
       "/v1/policy/effective-app-permissions?provider=github",
       "the app-permissions reflection",

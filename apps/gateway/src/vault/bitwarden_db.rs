@@ -1,7 +1,7 @@
 //! DB-backed `IdentityProvider` and `ConnectionStore` for the Bitwarden vault provider.
 //!
-//! Instead of files, identity keypair and connection/transport state are stored in
-//! the `VaultConnection.connectionData` JSON column (scoped to `provider = "bitwarden"`).
+//! Identity keypair and connection/transport state live in the
+//! `VaultConnection.connectionData` JSON column, scoped to `provider = "bitwarden"`.
 
 use std::sync::Arc;
 
@@ -72,9 +72,8 @@ impl IdentityProvider for BitwardenIdentityProvider {
 
 /// DB-backed connection store, scoped to a single `project_id` with `provider = "bitwarden"`.
 ///
-/// Connections are cached in memory. Writes go through to the DB directly via async calls.
-/// Sensitive fields (`key_data`, `transport_state`) are encrypted with AES-256-GCM before
-/// being written to the `connection_data` JSON column.
+/// Cached in memory and written through to the DB. `key_data` and
+/// `transport_state` are encrypted before reaching the `connection_data` column.
 pub(crate) struct BitwardenConnectionStore {
     pool: PgPool,
     project_id: String,
@@ -206,7 +205,6 @@ pub(super) async fn encrypt_connection_data(
 
 /// Decrypt a `connection_data` JSON value from the DB.
 /// Supports both encrypted (`{"encrypted": "..."}`) and legacy plaintext formats.
-/// Legacy rows are transparently upgraded to encrypted on next write-through.
 pub(super) async fn decrypt_connection_data(
     crypto: &CryptoService,
     value: &serde_json::Value,

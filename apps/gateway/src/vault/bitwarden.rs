@@ -119,11 +119,10 @@ struct BitwardenUserSession {
     /// Cached connectionData from DB — avoids redundant reads during lazy restore.
     connection_data: Option<BitwardenConnectionData>,
     credential_cache: DashMap<String, CachedCredential>,
-    /// Last time this session was used (for eviction). Uses std::sync::Mutex since
-    /// the update is instant (no .await while holding it).
+    /// Last time this session was used (for eviction).
     last_used: std::sync::Mutex<Instant>,
-    /// Last error from the notification listener, lazy restore, or credential request.
-    /// Cleared on successful connect. Shared with the notification listener via Arc.
+    /// Last error from the notification listener, lazy restore, or credential
+    /// request. Cleared on successful connect.
     last_error: Arc<std::sync::Mutex<Option<String>>>,
     /// Skip credential requests until this time (after a failure).
     /// Prevents repeated 15s timeouts when the vault is down.
@@ -160,8 +159,6 @@ impl BitwardenVaultProvider {
     }
 
     /// Background task that evicts idle sessions every `EVICTION_INTERVAL`.
-    /// For each idle session: acquires the client Mutex (ensuring no in-flight request),
-    /// closes the RemoteClient, then removes from the DashMap.
     fn spawn_eviction_task(sessions: Arc<DashMap<String, Arc<BitwardenUserSession>>>) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(EVICTION_INTERVAL);
@@ -184,7 +181,7 @@ impl BitwardenVaultProvider {
                 for project_id in to_evict {
                     // Remove from map first — new requests will re-create from DB
                     if let Some((_, session)) = sessions.remove(&project_id) {
-                        // Acquire lock to ensure no in-flight credential request, then drop the handle
+                        // Lock so no credential request is in flight
                         let mut guard = session.client.lock().await;
                         guard.take(); // dropping the handle disconnects
                         session.credential_cache.clear();
@@ -197,13 +194,12 @@ impl BitwardenVaultProvider {
     }
 
     /// Load an existing session from memory or DB. Returns `None` if the project
-    /// has never paired (no VaultConnection row). Does NOT generate a new identity.
+    /// has never paired; never generates a new identity.
     async fn load_session(&self, project_id: &str) -> Result<Option<Arc<BitwardenUserSession>>> {
         if let Some(session) = self.sessions.get(project_id) {
             return Ok(Some(Arc::clone(session.value())));
         }
 
-        // Load from DB — if no row, project has never paired
         let row = match db::find_vault_connection(&self.pool, project_id, "bitwarden").await? {
             Some(r) => r,
             None => return Ok(None),
@@ -260,9 +256,8 @@ impl BitwardenVaultProvider {
         session
     }
 
-    /// Create a connected `RemoteClient` for a project session.
-    /// Always passes the identity's key_data to the connection store so write-throughs
-    /// never null it out — even for fresh pairings where connection_data is None.
+    /// Create a connected `RemoteClient` for a project session. Passes the
+    /// identity's key_data so write-throughs never null it out.
     async fn create_and_connect_client(
         &self,
         project_id: &str,
@@ -321,7 +316,6 @@ impl BitwardenVaultProvider {
                             fingerprint = %hex::encode(fingerprint.0),
                             "bitwarden: connected"
                         );
-                        // Clear error on successful connect
                         if let Ok(mut err) = last_error.lock() {
                             *err = None;
                         }
@@ -394,9 +388,8 @@ impl VaultProvider for BitwardenVaultProvider {
             None => self.create_pairing_session(project_id),
         };
 
-        // Create the DB row BEFORE pairing so that ConnectionStore::save()'s
-        // write-through has a row to update. key_data + fingerprint go in now;
-        // transport_state will be added by save() during pair_with_psk.
+        // The row must exist before pairing so the connection store's
+        // write-through has something to update with transport_state.
         let initial_cd = BitwardenConnectionData {
             fingerprint: Some(fingerprint_hex.to_string()),
             key_data: Some(session.identity.to_cose()),
@@ -443,7 +436,6 @@ impl VaultProvider for BitwardenVaultProvider {
         project_id: &str,
         hostname: &str,
     ) -> Option<VaultCredential> {
-        // Load existing session — returns None if project never paired
         let session = match self.load_session(project_id).await {
             Ok(Some(s)) => s,
             _ => return None,
@@ -454,7 +446,6 @@ impl VaultProvider for BitwardenVaultProvider {
             *last_used = Instant::now();
         }
 
-        // Skip if in error cooldown — avoids repeated 15s timeouts when vault is down
         if let Ok(guard) = session.error_until.lock() {
             if guard.is_some_and(|until| Instant::now() < until) {
                 return None;

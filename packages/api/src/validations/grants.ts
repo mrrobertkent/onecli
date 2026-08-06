@@ -1,17 +1,13 @@
 import { z } from "zod";
 import { sessionPolicySchema } from "./policy";
 
-// ── Attach-model grants request shapes (plans/project-attach-model.md §4.3) ──
-// A connection grant is either the uncustomized whole-app attach or an explicit
-// per-tool tri-state (allow / ask; the rest compiles to blocked). Structural
-// laws live here for clean 422s; catalog membership and the plan gate are the
-// service's job.
+// ── Grants request shapes ───────────────────────────────────────────────────
+// A connection grant is either the whole-app attach or an explicit per-tool
+// tri-state (allow / ask; the rest compiles to blocked). Only structural laws
+// live here; catalog membership and the plan gate are the service's job.
 //
-// `resources` is the grant's session policy (the "Resources" restriction —
-// repositories/folders the injected credential may reach), tri-state:
-// ABSENT = preserve whatever the stack already carries (legacy clients and
-// tools-only dialog saves stay untouched), NULL = clear, OBJECT = set (the
-// service validates it through the edition's policy validator).
+// `resources` is the grant's session policy, tri-state: absent preserves what
+// the stack already carries, null clears it, an object sets it.
 
 export const connectionGrantSchema = z
   .discriminatedUnion("access", [
@@ -28,7 +24,7 @@ export const connectionGrantSchema = z
   ])
   .refine(
     (v) => v.access === "full" || v.allow.length + v.ask.length > 0,
-    // The attached ⇔ allow∪ask ≠ ∅ invariant: an all-blocked grant is a detach.
+    // An all-blocked grant is a detach, not a grant.
     {
       message:
         "Custom access needs at least one allowed or approval tool — detach instead.",

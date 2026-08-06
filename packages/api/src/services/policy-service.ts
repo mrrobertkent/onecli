@@ -333,14 +333,12 @@ const asReferenceError = (err: unknown): never => {
   throw err;
 };
 
-// Validate a rule's identities before write: (1) the LEVEL restriction — a
-// PROJECT rule targets a specific agent or "any"; an ORG rule targets a user /
-// user-group or "any"; and (2) OWNERSHIP — every referenced
-// principal must belong to the acting org (agents to the acting project). The
-// ownership check is a security invariant that closes the IDOR gap
-// `asReferenceError` alone leaves open (it only proves existence, in any org).
-// Reads the shared schema only (no `ee/` dependency), so it runs in every
-// edition. "any" (empty identities) always passes.
+// Validate a rule's identities before write: level (a project rule targets a
+// specific agent or "any"; an org rule targets a user / user-group or "any")
+// and ownership (every referenced principal belongs to the acting org, agents
+// to the acting project). `asReferenceError` only proves existence, in any org,
+// so the ownership half is what closes the IDOR gap. Empty identities ("any")
+// always pass.
 export const assertIdentitiesValid = async (
   base: PolicyScopeBase,
   identities: PolicyIdentityInput[],
@@ -354,9 +352,8 @@ export const assertIdentitiesValid = async (
   const userIds = idsOf("user");
   const groupIds = idsOf("group");
 
-  // Level restriction. The OSS edition phrases it as the capability lock it
-  // is there (directory identities are a OneCLI Cloud capability); the EE
-  // editions keep the scope-shaped message byte-identical.
+  // Level restriction. OSS phrases it as the capability lock it is there; EE
+  // keeps the scope-shaped wording.
   if (base.scope === "project" && (userIds.length || groupIds.length)) {
     throw new ServiceError(
       "UNPROCESSABLE",
@@ -414,9 +411,8 @@ export const assertIdentitiesValid = async (
     ),
     verify(userIds, () =>
       db.organizationMember.count({
-        // Suspended members are non-members for every authz check (and the
-        // gateway excludes them from the principal set), so a rule can't target
-        // one — matches the connect-time active-member filter.
+        // Suspended members are non-members for every other authz check, so a
+        // rule can't target one either.
         where: {
           userId: { in: userIds },
           organizationId,
@@ -430,22 +426,16 @@ export const assertIdentitiesValid = async (
   ]);
 };
 
-// Validate a rule's connection/secret TARGET references before write: every
-// referenced connection / secret must belong to the acting org — a PROJECT rule
-// may name its own project's resources or org-level ones (mirrors the equipment
-// reference check in `agent-service`); an ORG rule may name org-level resources
-// only. This is the same OWNERSHIP invariant `assertIdentitiesValid` enforces for
-// identities, and it closes the IDOR gap `asReferenceError` leaves open (it only
-// proves existence, in ANY org). `app`/`network` targets carry no owned id, so
-// they're skipped; "no connection/secret targets" always passes. Reads the shared
-// schema only (no `ee/` dependency), so it runs in every edition.
+// Validate a rule's connection/secret target references before write — the same
+// ownership invariant `assertIdentitiesValid` enforces for identities. `app` and
+// `network` targets carry no owned id and are skipped.
 export const assertTargetsValid = async (
   base: PolicyScopeBase,
   targets: PolicyTargetInput[],
 ): Promise<void> => {
-  // A secret target names EITHER a specific `secretId` OR a `secretScope` — the
-  // XOR the kind_shape CHECK enforces. Validate here so a malformed target is a
-  // clean 422, not a DB constraint 500 (mirrors the `app` shape).
+  // A secret target names either a `secretId` or a `secretScope` (the XOR the
+  // kind_shape CHECK enforces); checking here makes a malformed target a 422
+  // rather than a constraint 500.
   if (
     targets.some(
       (t) =>
@@ -458,10 +448,9 @@ export const assertTargetsValid = async (
     );
   }
 
-  // Level restriction for an "all resources at a level" target (step 8): a
-  // PROJECT rule can only scope to its OWN project — it can't reach org-level
-  // connections/secrets. An ORG rule may scope to `organization` OR `project`
-  // (the level-spanning guardrail that lets each agent use its own resources).
+  // Level restriction for an "all resources at a level" target: a project rule
+  // can only scope to its own project, while an org rule may scope to either
+  // level so each agent can still use its own resources.
   if (
     base.scope === "project" &&
     targets.some(
@@ -492,9 +481,7 @@ export const assertTargetsValid = async (
   ];
   if (connectionIds.length === 0 && secretIds.length === 0) return;
 
-  // Resolve the acting org (a project rule's resources are additionally scoped to
-  // its own project; an org rule's to org-level resources) — same as the identity
-  // ownership check.
+  // Resolve the acting org — same as the identity ownership check.
   const organizationId =
     base.scope === "organization"
       ? base.organizationId
@@ -512,11 +499,9 @@ export const assertTargetsValid = async (
   }
   const projectId = base.scope === "project" ? base.projectId : null;
 
-  // The resources this rule may reference: a PROJECT rule may name ONLY its own
-  // project's resources — org-level connections/secrets are governed at the org
-  // level (an org rule grants them; a project rule can't reach up to reference
-  // one). An ORG rule names org-level resources. Fences on the acting org either
-  // way — a foreign id is simply absent from the count.
+  // A project rule may name only its own project's resources; org-level ones are
+  // governed by org rules. Either way a foreign id is simply absent from the
+  // count.
   const ownerScope = projectId
     ? { projectId }
     : { organizationId, scope: "organization" as const };
@@ -547,17 +532,12 @@ export const assertTargetsValid = async (
 
 /**
  * Validate a rule's granular session policy (object `conditions` — repos/folders
- * scoping a connection's injected credential). Enforces the two invariants the
- * dialog encodes — it applies only to an ALLOW (a Block injects nothing) and only
- * with a connection target — then runs the wired policy validator per
- * connection target. EE deep-checks the shape against the provider (repos
- * exist on the installation, absolute Dropbox paths) and gates the team+
- * entitlement; OSS wires a validator that REJECTS session policies outright
- * (granular scoping is a OneCLI Cloud capability — step 9.5). A no-op for
- * behavioral / absent conditions. Same org fence as `assertTargetsValid`.
+ * scoping a connection's injected credential): it applies only to an allow with
+ * a connection target, then the wired policy validator runs per connection
+ * target. A no-op for behavioral or absent conditions.
  *
- * Callers pass the MERGED (post-update) action/targets/conditions, so no PATCH
- * ordering can pair an object policy with a connection while skipping these gates.
+ * Callers pass the merged (post-update) action/targets/conditions, so no PATCH
+ * ordering can pair an object policy with a connection while skipping the gates.
  */
 export const assertSessionPolicyValid = async (
   base: PolicyScopeBase,
@@ -567,9 +547,7 @@ export const assertSessionPolicyValid = async (
 ): Promise<void> => {
   if (!isSessionPolicy(conditions)) return;
   if (action !== "allow") {
-    // A session policy scopes an INJECTED credential; a Block injects nothing, so
-    // the scope would be silently inert. Reject it (mirrors `modifiersRequireAllow`
-    // and the dialog, which offers Resources only on an Allow).
+    // A block injects nothing, so the scope would be silently inert.
     throw new ServiceError(
       "UNPROCESSABLE",
       "resource scoping (repositories/folders) applies only to Allow rules",

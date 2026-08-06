@@ -4,25 +4,19 @@ import type { OrgRole, RoleResolver } from "../providers/types";
 import { activeMembershipWhere } from "./organization-service";
 
 /**
- * Role resolution, split in two: a login-time WRITER that reads the IdP claim
- * once and persists the result, and a flat per-request READER that only ever
- * looks at what was persisted.
- *
- * The session model forces the split. A claim carried in a session is captured
- * at sign-in and never refreshed, so it can be stale without bound, and
- * authorization must never read it. Hence `RoleResolver` is deliberately not
- * group-aware.
+ * Role resolution, split in two: a login-time writer that reads the IdP claim
+ * once and persists the result, and a per-request reader that only ever looks
+ * at what was persisted. A claim carried in a session is captured at sign-in
+ * and never refreshed, so authorization must not read it — which is why
+ * `RoleResolver` is not group-aware.
  */
 
 // ── The reader ───────────────────────────────────────────────────────────
 
 /**
  * The OSS `RoleResolver`: one indexed read of the persisted membership role.
- *
- * Suspended members resolve to `null` (no role), not to their stale role —
- * `canAccessProjectAsUser` treats a null role as denied, and a ProjectAccess
- * binding never rescues them because the binding check lives inside the
- * active-member gate.
+ * Suspended members resolve to `null` rather than their stale role, which
+ * callers treat as denied.
  */
 export const ossRoleResolver: RoleResolver = {
   async getUserRole(userId, organizationId): Promise<OrgRole | null> {
@@ -43,12 +37,8 @@ const isOrgRole = (value: string): value is OrgRole =>
 // ── The writer ───────────────────────────────────────────────────────────
 
 /**
- * Read a claim by path, not by name.
- *
- * Authentik and Okta put groups at a flat `groups`; Keycloak puts roles at
- * `realm_access.roles`. A configuration storing a claim NAME cannot express the
- * second, so this walks a dotted path. Better Auth's `mapping.extraFields` is
- * flat-key only and is not used for role resolution.
+ * Read a claim by dotted path rather than by name: Authentik and Okta put
+ * groups at a flat `groups`, but Keycloak puts roles at `realm_access.roles`.
  */
 export const readClaimPath = (
   claims: Record<string, unknown>,
@@ -67,15 +57,11 @@ export const readClaimPath = (
 
 /**
  * Resolve the IdP's group names to a role via the persisted group→role
- * mappings, highest `priority` wins.
+ * mappings; highest `priority` wins.
  *
- * Returns `null` when nothing matches. That is not the same as "member": an
- * identity mapping to nothing is not admitted at all, so the caller must treat
- * null as a denial rather than substituting a default.
- *
- * Mapped roles are `admin | member` only — never `owner`. Owner is the
- * bootstrap admin's, and letting an IdP group confer it would mean anyone who
- * can edit a group in the directory can take the instance.
+ * Returns `null` when nothing matches — a denial, not a default of "member".
+ * Mapped roles are `admin | member` only: letting an IdP group confer `owner`
+ * would hand the instance to anyone who can edit a group in the directory.
  */
 export const resolveRoleFromGroups = async (
   organizationId: string,
@@ -108,9 +94,8 @@ export const resolveRoleFromGroups = async (
  * Persist a resolved role onto an existing membership, reinstating it if the
  * directory had previously stopped mapping the user.
  *
- * Never promotes to or demotes FROM `owner`: the bootstrap admin's authority
- * does not answer to the directory, so an owner whose groups change in the IdP
- * keeps the instance reachable.
+ * Never promotes to or demotes from `owner`, so an owner whose groups change
+ * in the IdP keeps the instance reachable.
  */
 export const writeResolvedRole = async (
   organizationId: string,
@@ -135,15 +120,10 @@ export const writeResolvedRole = async (
 };
 
 /**
- * Suspend a membership the directory no longer maps to any role.
- *
- * Suspended rather than deleted: `activeMembershipWhere` already treats a
- * suspended member as a non-member everywhere authorization is decided, and the
- * row is what lets the grant be reinstated and audited rather than silently
- * reappearing.
- *
- * An `owner` is never suspended — the directory does not get to lock the
- * instance's operator out of it.
+ * Suspend a membership the directory no longer maps to any role. Suspended
+ * rather than deleted so the grant can be reinstated and audited; authorization
+ * already treats a suspended member as a non-member. An `owner` is never
+ * suspended.
  */
 export const revokeResolvedRole = async (
   organizationId: string,

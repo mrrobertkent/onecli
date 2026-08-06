@@ -219,9 +219,8 @@ describe("assertSessionPolicyValid", () => {
   });
 
   it("validates fenced to the PROJECT scope; dedups ids; a foreign id is dropped (cross-org)", async () => {
-    // Two distinct ids requested, only ONE in-scope row returned by the fence →
-    // exactly one validate() call. A foreign id resolves to nothing and is never
-    // validated — the query-level cross-org fence.
+    // Two ids requested, one in-scope row returned by the fence → one
+    // validate() call; the foreign id resolves to nothing.
     state.connections = [{ provider: "github", metadata: { repos: ["a/b"] } }];
     await assertSessionPolicyValid(
       { scope: "project", projectId: "p1" },
@@ -271,11 +270,9 @@ describe("assertSessionPolicyValid", () => {
 });
 
 describe("the default-rule posture (both scopes allow)", () => {
-  // The attach-model law (plans/project-attach-model.md, step-3 decision): a
-  // scope with no persisted Default Rule reads back ALLOW — org included. This
-  // pins the co-change beside the new-org seeder flip: ensureDefault and the
-  // virtual default derive from the same `defaultAction`, so an org whose
-  // birth seed failed can never lazily resurrect a Block nobody chose.
+  // A scope with no persisted Default Rule reads back allow at both levels.
+  // `ensureDefault` and the virtual default share one `defaultAction`, so an
+  // org whose birth seed failed can never resurrect a block nobody chose.
   it("virtual org default is allow", async () => {
     const dto = await getPolicyDefault({ organizationId: "org-1" });
     expect(dto.isDefault).toBe(true);

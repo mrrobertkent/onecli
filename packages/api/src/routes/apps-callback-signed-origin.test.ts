@@ -18,16 +18,15 @@ vi.hoisted(() => {
 
 vi.mock("@onecli/db", () => ({ Prisma: {}, db: {} }));
 
-// One OAuth provider, no fragmentCallback — enough to walk the callback down to
-// the state check without touching the database.
+// Two providers: a plain OAuth one, enough to walk the callback down to the
+// state check without touching the database, and a fragment-callback one whose
+// token comes back in the URL fragment, so the first hit carries no token
+// param and gets the fragment-bridge page instead of a redirect.
 vi.mock("../apps/registry", () => ({
   getApp: (id: string) =>
     id === "signedapp"
       ? { id, name: id, available: true, connectionMethod: { type: "oauth" } }
-      : // A fragment-callback provider (Trello-shaped): the token comes back in
-        // the URL fragment, so the first hit has no token query param and the
-        // handler answers with the fragment-bridge page instead of redirecting.
-        id === "fragmentapp"
+      : id === "fragmentapp"
         ? {
             id,
             name: id,
@@ -48,8 +47,8 @@ const SIGNED_ORIGIN = "https://signed.example.com";
 const FORGED_HOST = "forged.example.com";
 
 // No projectId, so the handler stops at "Missing project in state" — the first
-// redirect *after* the origin is re-resolved from the verified state, which is
-// exactly the branch under test. Keeps the test off the database entirely.
+// redirect after the origin is resolved from the verified state, and it keeps
+// the test off the database entirely.
 const stateWithout = (extra: Record<string, unknown> = {}) =>
   signOAuthState({ provider: "signedapp", nonce: generateNonce(), ...extra });
 
@@ -77,8 +76,6 @@ describe("oauth callback origin comes from the signed state", () => {
       },
     );
 
-  // The security property. Without the change the forged header wins, because
-  // the destination is re-derived from the request that carries it.
   it("ignores a forged X-Forwarded-Host when the state carries an origin", async () => {
     delete process.env.APP_URL;
 
@@ -94,8 +91,8 @@ describe("oauth callback origin comes from the signed state", () => {
     expect(res.headers.get("location")).not.toContain(FORGED_HOST);
   });
 
-  // Guards PR #713 from the other side: a signed origin must not become a way to
-  // override the one setting that makes split API/dashboard host deploys work.
+  // A signed origin must not become a way to override the setting that makes
+  // split API/dashboard host deploys work.
   it("still lets a configured APP_URL win over the signed origin", async () => {
     process.env.APP_URL = "https://configured.example.com";
 
@@ -107,7 +104,6 @@ describe("oauth callback origin comes from the signed state", () => {
     );
   });
 
-  // A state minted before this field existed is still in flight during a deploy.
   it("falls back to the request origin when the state has no origin", async () => {
     delete process.env.APP_URL;
 
@@ -122,8 +118,6 @@ describe("oauth callback origin comes from the signed state", () => {
     );
   });
 
-  // Defence in depth: we signed it, so this should never happen — but if it
-  // does, drop it rather than emit a redirect that goes nowhere.
   it("ignores a signed origin that is not a usable origin", async () => {
     delete process.env.APP_URL;
 
@@ -138,10 +132,9 @@ describe("oauth callback origin comes from the signed state", () => {
     );
   });
 
-  // The fragment-bridge page embeds this origin inside a <script> block
-  // (JSON.stringify does not neutralize "</script>"), so it is the worst place
-  // to trust a header. The state reaches it via the `oauth_state` cookie that
-  // /authorize set on this exact path, which is why it can be trusted at all.
+  // The fragment-bridge page embeds this origin inside a <script> block, so it
+  // is the worst place to trust a header. The state reaches it via the
+  // `oauth_state` cookie /authorize set on this path.
   it("uses the signed origin on the fragment-bridge page, taking the state from the cookie", async () => {
     delete process.env.APP_URL;
 
@@ -166,8 +159,6 @@ describe("oauth callback origin comes from the signed state", () => {
     expect(html).not.toContain(FORGED_HOST);
   });
 
-  // A state for a different provider is about to be rejected as invalid, so it
-  // must not get to pick the destination on the way out.
   it("ignores an origin signed for a different provider", async () => {
     delete process.env.APP_URL;
 
@@ -189,8 +180,6 @@ describe("oauth callback origin comes from the signed state", () => {
     expect(res.headers.get("location")).not.toContain(SIGNED_ORIGIN);
   });
 
-  // The paths above the state check have nothing verified to read yet, so they
-  // must keep using the request-derived origin.
   it("uses the request origin for errors raised before the state is checked", async () => {
     delete process.env.APP_URL;
 

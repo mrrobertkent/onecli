@@ -890,9 +890,8 @@ async fn handle_connect(
 
 /// Handle a plain HTTP proxy request (absolute URI like `GET http(s)://host/path`).
 ///
-/// Unlike CONNECT, there is no tunnel upgrade — the gateway reads the request
-/// directly, applies credential injection, and forwards upstream over the
-/// original scheme (reqwest handles TLS transparently for `https://`).
+/// No tunnel upgrade — the gateway reads the request directly, applies
+/// credential injection, and forwards upstream over the original scheme.
 async fn handle_http_proxy(
     req: Request<Incoming>,
     peer_addr: SocketAddr,
@@ -930,18 +929,15 @@ async fn handle_http_proxy(
         connect::ConnectResponse::default()
     };
 
-    // Per-request app connection disambiguation — app rules MERGE with the
-    // secret rules (see inject::merge_injection_rules; #428). When the secret
-    // rules already serve this request's path, app-side escalations are
-    // best-effort no-ops rather than failures of a request the secret alone
-    // satisfies.
+    // Per-request app connection disambiguation — app rules merge with the
+    // secret rules. When the secret rules already serve this request's path,
+    // app-side escalations are best-effort no-ops rather than failures.
     let mut resolved_finalizer: Option<crate::apps::RequestFinalizer> = None;
     let mut resolved_body_transform: Option<crate::apps::BodyTransform> = None;
     // Granular-access policy of the connection that wins injection (if any).
     let mut resolved_session_policy: Option<serde_json::Value> = None;
-    // Id of the connection that wins injection — same attribution law as
-    // `resolved_session_policy`; unlike `connection_label` below, it MUST be
-    // threaded (policy decisions bind to it).
+    // Id of the connection that wins injection — must be threaded through,
+    // because policy decisions bind to it.
     let mut resolved_connection_id: Option<String> = None;
     // Connections whose credential is minted only after the request is allowed.
     let mut pending_injections: Vec<crate::connect::PendingInjection> = Vec::new();
@@ -1012,9 +1008,8 @@ async fn handle_http_proxy(
         resolved.injection_rules = inject::merge_injection_rules(app_rules, secret_rules);
     }
 
-    // Vault fallback — skipped when a connection is awaiting its credential:
-    // it will inject once allowed, and a vault credential adopted here would
-    // land on the same host alongside it.
+    // Vault fallback — skipped when a connection is awaiting its credential,
+    // which would otherwise land on the same host alongside it.
     if resolved.injection_rules.is_empty() && pending_injections.is_empty() {
         if let Some(ref aid) = resolved.project_id {
             if let Some(cred) = state.vault_service.request_credential(aid, &hostname).await {
@@ -1097,7 +1092,6 @@ async fn handle_http_proxy(
 
     connect::inject_connections_header(&mut resp, &resolved.app_connections);
 
-    // Convert the response body type to match the axum::body::Body return type
     Ok(resp.map(axum::body::Body::new))
 }
 
@@ -1109,7 +1103,6 @@ async fn handle_http_proxy(
 pub(crate) fn format_unix_ts(secs: u64) -> String {
     use std::time::{Duration, UNIX_EPOCH};
     let dt = UNIX_EPOCH + Duration::from_secs(secs);
-    // time crate is already a dependency (for certificate validity)
     let odt = time::OffsetDateTime::from(dt);
     odt.format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
@@ -1128,8 +1121,7 @@ mod tests {
     use std::net::TcpListener;
 
     /// `ClientConfig::builder()` panics when no process-default provider is
-    /// installed, and both `ring` and `aws_lc_rs` are compiled in, so rustls
-    /// cannot pick one on its own. `main` installs it at startup; tests must.
+    /// installed. `main` installs one at startup; tests must too.
     fn ensure_crypto_provider() {
         static INIT_CRYPTO: std::sync::Once = std::sync::Once::new();
         INIT_CRYPTO.call_once(|| {
@@ -1137,12 +1129,9 @@ mod tests {
         });
     }
 
-    /// Named for what it actually checks. An earlier version looped over both
-    /// modes asserting only this, which a `build_ws_tls_config` that ignored
-    /// its argument would have passed — the claim in the name has to be one
-    /// the assertions can fail on. Which config a host *gets* is a behavioral
-    /// claim, pinned end to end by the gateway-e2e suite against a self-signed
-    /// upstream; rustls exposes no way to read a config's verifier back out.
+    /// Only ALPN is asserted here: which config a host *gets* is pinned end to
+    /// end by the gateway-e2e suite, since rustls exposes no way to read a
+    /// config's verifier back out.
     #[test]
     fn ws_tls_config_sets_http11_alpn() {
         ensure_crypto_provider();
@@ -1153,8 +1142,8 @@ mod tests {
         assert_eq!(config.alpn_protocols, vec![b"http/1.1".to_vec()]);
     }
 
-    /// The dangerous branch takes a different builder chain, so it can fail to
-    /// construct on its own — and it is the branch that almost never runs.
+    /// The dangerous branch has its own builder chain and almost never runs, so
+    /// it can fail to construct on its own.
     #[test]
     fn ws_tls_config_builds_the_no_verify_branch() {
         ensure_crypto_provider();
@@ -1163,9 +1152,8 @@ mod tests {
         assert_eq!(config.alpn_protocols, vec![b"http/1.1".to_vec()]);
     }
 
-    /// The scheme list is what the ClientHello advertises. An empty one makes
-    /// the server abort before it ever sends a certificate, so "skip
-    /// verification" would surface as an unexplained handshake failure.
+    /// An empty scheme list makes the server abort before it sends a
+    /// certificate, so "skip verification" surfaces as a handshake failure.
     #[test]
     fn accept_any_server_cert_advertises_signature_schemes() {
         use rustls::client::danger::ServerCertVerifier;
@@ -1184,9 +1172,8 @@ mod tests {
         );
     }
 
-    /// Verify that the production HTTP client does not follow redirects.
-    /// A proxy must forward 3xx responses to the client so the client's HTTP
-    /// library can see the full redirect chain (intermediate headers, etc.).
+    /// A proxy must forward 3xx responses so the client's HTTP library sees the
+    /// full redirect chain, intermediate headers included.
     #[tokio::test]
     async fn http_client_does_not_follow_redirects() {
         // Arrange: spin up a tiny server that always returns 302.
@@ -1245,9 +1232,8 @@ mod tests {
 
     #[test]
     fn strip_port_handles_ipv6_no_brackets() {
-        // IPv6 with port typically uses brackets, but strip_port just splits on ':'
-        // For bracket-wrapped IPv6 like [::1]:443, it returns "[" — this is acceptable
-        // since hyper always sends host:port format for CONNECT
+        // Bracket-wrapped IPv6 like [::1]:443 returns "[" — acceptable, since
+        // hyper always sends host:port format for CONNECT
         assert_eq!(strip_port("[::1]:443"), "[");
     }
 

@@ -6,22 +6,18 @@ export interface ResolvedAppCredentials {
   values: Record<string, string>;
   source: "app_config" | "env";
   /**
-   * Id of the AppConfig row that served these credentials (the project row or,
-   * via the org seam, the org row). Absent for the env tier. Mint sites persist
-   * it on the connection so refresh and config-removal know the provenance.
+   * Id of the AppConfig row that served these credentials; absent for the env
+   * tier. Mint sites persist it on the connection so refresh and config-removal
+   * know the provenance.
    */
   appConfigId?: string;
 }
 
 /**
- * Generic credential resolution for any configurable app.
- * Uses the app's `configurable.fields` to determine which keys are needed,
- * then resolves them from AppConfig (user-provided) → the organization's
- * AppConfig (EE editions with the `orgAppConfig` seam registered; skipped in
- * OSS) → env vars (platform defaults) → null.
- *
- * Works for all method types: OAuth (clientId/clientSecret), GitHub App (appId/appSlug/privateKey),
- * and any future configurable provider.
+ * Credential resolution for any configurable app. The app's
+ * `configurable.fields` name the required keys, resolved from the project's
+ * AppConfig → the org's AppConfig (when the `orgAppConfig` seam is registered)
+ * → env defaults → null.
  */
 export const resolveAppCredentials = async (
   projectId: string,

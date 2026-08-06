@@ -4,16 +4,11 @@ import { configuredAppUrl } from "./app-origin";
 /**
  * Absolute URL to a dashboard page.
  *
- * `fallbackOrigin` is used only when no `APP_URL` was explicitly configured —
- * pass the caller's request origin (`getRequestOrigin(...)`) when there is a
- * request in scope, so self-hosted deployments stop handing out
- * `http://localhost:10254` links they can't reach.
- *
- * Omit it when the link must reach the dashboard even though this process may
- * be answering on a different origin — a deployment that serves the API and the
- * dashboard on separate hosts configures `APP_URL`, so it wins and the link
- * stays on the dashboard. Third-party redirect URLs (payment checkout/return)
- * are that case.
+ * `fallbackOrigin` is used only when no `APP_URL` was configured. Pass the
+ * caller's request origin when there is a request in scope, so self-hosted
+ * deployments stop handing out unreachable localhost links; omit it when the
+ * link must reach the dashboard even though this process may be answering on a
+ * different origin (third-party redirect URLs, for instance).
  */
 export const dashboardUrl = (
   path: string,
