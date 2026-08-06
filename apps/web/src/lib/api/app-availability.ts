@@ -1,12 +1,11 @@
 import { apiGet } from "./client";
 
-// App availability (policy-engine step 7): the project-scoped derive-read
-// backing the connect-picker filter. The org config surface is EE
-// (`@/ee/app-availability/api`), matching its EE-registered endpoints.
+// The project-scoped read backing the connect-picker filter. The org config
+// surface is EE (`@/ee/app-availability/api`).
 
 /**
- * The apps available to the current project. `restricted:false` (OSS, or an
- * "open" org) means unfiltered — every app available.
+ * The apps available to the current project. `restricted:false` means
+ * unfiltered.
  */
 export interface AvailableApps {
   restricted: boolean;

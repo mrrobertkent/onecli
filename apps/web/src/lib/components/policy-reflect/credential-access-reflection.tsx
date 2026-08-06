@@ -28,10 +28,9 @@ import type {
 import { useEffectiveCredentials } from "@/lib/api/policy-visibility";
 import type { CredentialAccessReflectionProps } from "@/lib/components/policy-reflect";
 
-// The "Credential access" dialog (step 9.7b), framed around EFFECTIVE
-// access (the user decision — lead with what the agent can DO under the rules,
-// not the raw injection view). Each credential the agent can inject is tagged
-// Usable / Limited / Blocked.
+// The "Credential access" dialog, framed around what the agent can do under
+// the rules rather than the raw injection view. Each credential the agent can
+// inject is tagged Usable / Limited / Blocked.
 
 const STATUS_META = {
   usable: {
@@ -60,8 +59,8 @@ const STATUS_META = {
   { label: string; className: string; icon?: typeof CircleCheck }
 >;
 
-/** Non-interactive status pill (a span, not a disabled control) with a text
- * label — the effective-access headline for a credential row. */
+/** Non-interactive status pill: a span, not a disabled control, so it keeps a
+ * text label in the a11y tree. */
 const StatusPill = ({ status }: { status: CredentialAccessStatus }) => {
   const meta = STATUS_META[status];
   const Icon = "icon" in meta ? meta.icon : undefined;
@@ -85,7 +84,7 @@ const provenanceLabel = (provenance: CredentialProvenance[]): string[] =>
     return `Rule: ${p.rule.name}`;
   });
 
-/** Provider id → display name (the house `getApp().name ?? id` idiom). */
+/** Provider id → display name. */
 const providerName = (provider: string): string =>
   getApp(provider)?.name ?? provider;
 

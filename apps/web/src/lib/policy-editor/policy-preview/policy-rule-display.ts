@@ -6,16 +6,13 @@ import type {
   ProjectionIdentity,
 } from "@/lib/api";
 
-// Pure render helpers shared by the read-only preview row/dialog AND the
-// editable policy console. The new model's action is allow|block with
-// rate-limit / approval as modifiers; the primary verdict maps to the house
-// vocabulary (allow→emerald ShieldCheck, block→destructive ShieldBan — matching
-// custom-endpoint-form.tsx).
+// Pure render helpers shared by the read-only preview and the editable policy
+// console. A rule's action is allow|block, with rate-limit and approval as
+// modifiers.
 
 /**
- * The minimal rule shape these helpers/cells read — satisfied by the editor's
- * `PolicyRuleV2` (draft rows) so the console table + drawer share one
- * presentational vocabulary without casts.
+ * The minimal rule shape these helpers read, satisfied by `PolicyRuleV2` so the
+ * console table and drawer share one vocabulary without casts.
  */
 export interface PolicyRuleView {
   name: string;
@@ -43,12 +40,10 @@ export interface ActionMeta {
   className: string;
 }
 
-/** The primary verdict (allow/block); modifiers render as separate chips.
+/** The primary verdict; modifiers render as separate chips.
  *
- * An `equipment` rule is INJECTION-ONLY — the gateway's `assemble_v2` drops it
- * before any decision is made, so it never permits anything. Rendering the
- * shared green "Allow" would claim access this rule does not grant, so it gets
- * its own honest verdict. */
+ * An `equipment` rule is injection-only and never permits anything, so it gets
+ * its own verdict rather than the shared green "Allow". */
 export const actionMeta = (
   rule: Pick<PolicyRuleView, "action"> & { source?: PolicyRuleSource },
 ): ActionMeta =>
@@ -94,9 +89,8 @@ export const targetText = (target: PolicyRuleTarget): string => {
       return `${method}${target.hostPattern}${target.pathPattern ?? ""}`;
     }
     case "app": {
-      // An "all connections at a level" app target vs the app-permission tool
-      // grant. NO tools = the whole app (its traffic + injection), never
-      // "0 tools" (which would read as matching nothing).
+      // No tools = the whole app, never "0 tools", which would read as
+      // matching nothing.
       const n = target.tools.length;
       if (target.connectionScope) {
         const level =
@@ -109,14 +103,14 @@ export const targetText = (target: PolicyRuleTarget): string => {
       return `${target.provider} · ${n} tool${n === 1 ? "" : "s"}`;
     }
     case "connection": {
-      // A specific connection injects itself and matches its provider's app —
-      // narrowed to `tools` when set, else the whole app.
+      // A specific connection injects itself and matches its provider's app,
+      // narrowed to `tools` when set.
       const n = target.tools.length;
       if (n === 0) return "Connection";
       return `Connection · ${n} tool${n === 1 ? "" : "s"}`;
     }
     case "secret":
-      // Step 8: "all secrets at a level" vs a specific secret.
+      // "All secrets at a level" vs a specific secret.
       if (target.secretScope) {
         const level = target.secretScope === "organization" ? "org" : "project";
         return `All secrets (${level})`;

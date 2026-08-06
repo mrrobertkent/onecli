@@ -33,10 +33,8 @@ export const removeRule = (id: string, scope: PageScope = "project") =>
   apiDelete(policyPath(scope, `/rules/${id}`));
 
 /**
- * Atomically re-prioritize the draft. `orderedIds` is the FULL ordered id list
- * — every non-default draft rule exactly once (customs, derived, and hidden
- * equipment rows; see `buildReorderIds`). 409s when the set is stale. Returns
- * the fresh draft list.
+ * Atomically re-prioritize the draft. `orderedIds` must carry every non-default
+ * draft rule exactly once — see `buildReorderIds`. 409s when the set is stale.
  */
 export const reorderRules = (
   orderedIds: string[],

@@ -50,8 +50,7 @@ import {
 } from "@/hooks/use-connections";
 import type { PageScope } from "@/lib/api";
 import { extractLabel } from "@onecli/api/services/connection-service";
-// The read-only agent-access reflection, which reads the v2 policy engine.
-// Shared since step 10 — every edition renders it.
+// The read-only agent-access reflection, rendered by every edition.
 import { ConnectionAgentsReflection } from "@/lib/components/policy-reflect";
 
 interface ConnectionAccountCardProps {

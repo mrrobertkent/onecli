@@ -5,12 +5,10 @@ import { appAvailability } from "@/lib/api";
 import type { PageScope } from "@/lib/api";
 import { queryKeys } from "@/lib/api/keys";
 
-// The apps available to the current project (policy-engine step 7), backing the
-// connect-picker filter. Only PROJECT pages are governed — availability is a
-// per-project provisioning gate, so the org (global) connect surface is never
-// filtered. The response's `restricted` flag is the real gate: an "open" org
-// (the default everywhere, and always in OSS) returns `restricted:false`, so the
-// picker stays unfiltered and the feature is inert until an org opts in.
+// Backs the connect-picker filter. Availability is a per-project provisioning
+// gate, so the org connect surface is never filtered. The response's
+// `restricted` flag is the real gate: an open org returns false and the picker
+// stays unfiltered.
 export const useAvailableApps = (scope: PageScope) =>
   useQuery({
     queryKey: queryKeys.appAvailability.available(),

@@ -60,8 +60,7 @@ describe("buildCliInstallCommand", () => {
 describe("CODING_TOOLS", () => {
   it("mirrors the CLI's supportedAgents table — nothing made up", () => {
     // cmd/onecli/run.go supportedAgents: the tools with dedicated `onecli run`
-    // integration. github-copilot is deliberately absent (legacy-only at the
-    // endpoint).
+    // integration. github-copilot is absent by design.
     expect(CODING_TOOLS.map((t) => t.id)).toEqual([
       "claude-code",
       "cursor",

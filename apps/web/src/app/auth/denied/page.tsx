@@ -2,14 +2,11 @@ import Image from "next/image";
 import { ShieldX } from "lucide-react";
 
 /**
- * Terminal page for a session that authenticated but was NOT authorised
- *.
+ * Terminal page for a session that authenticated but was not authorised.
  *
- * The loop this exists to prevent: `/v1/auth/session` returns 401, the
- * dashboard signs the user out and sends them to the login page, they are still
- * signed in at the IdP so the next click silently re-authenticates, and they
- * land on 401 again — forever, with no explanation. This page is a dead end on
- * purpose: no automatic redirect, and no sign-in button.
+ * A dead end on purpose — no automatic redirect, no sign-in button. Otherwise
+ * the 401 sends the user to login, the IdP silently re-authenticates them, and
+ * they land back on 401 with no explanation.
  */
 
 const DENIALS: Record<string, { title: string; description: string }> = {
@@ -42,7 +39,7 @@ export default async function AuthDeniedPage({
   searchParams: Promise<{ code?: string }>;
 }) {
   const { code } = await searchParams;
-  // Unknown codes fall back rather than redirecting — a redirect from here is
+  // Unknown codes fall back rather than redirecting; a redirect from here is
   // the loop this page exists to break.
   const denial = (code && DENIALS[code]) || FALLBACK;
 

@@ -249,9 +249,8 @@ export const AppsTab = ({
       return bConnected - aConnected;
     });
 
-    // Availability (policy-engine step 7): when the org restricts availability,
-    // hide the apps this project may not connect. `restricted:false` (an "open"
-    // org, or OSS) leaves the picker unfiltered — no behavior change.
+    // When the org restricts availability, hide the apps this project may not
+    // connect. `restricted:false` leaves the picker unfiltered.
     if (availableApps?.restricted) {
       const allowed = new Set(availableApps.providers);
       apps = apps.filter((app) => allowed.has(app.id));

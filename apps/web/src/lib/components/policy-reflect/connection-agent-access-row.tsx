@@ -23,16 +23,13 @@ import {
 } from "@/hooks/use-grants";
 import { agentPath } from "@/lib/navigation";
 
-// One agent row of the connection "Agent access" dialog — the step-4 editable
-// version, mirroring the agent page's row-state machine: project-granted
-// (detachable), org-granted (locked on), unattached (attachable).
+// One agent row of the connection "Agent access" dialog, mirroring the agent
+// page's row states: project-granted (detachable), org-granted (locked on),
+// unattached (attachable).
 //
-// The row carries AT MOST ONE status element, and only when it says something
-// the switch cannot. The switch already means attached/not attached, so a
-// "Can use" pill beside an on switch (or "No access" beside an off one) is the
-// same fact twice — and four such elements is what pushed this row out of the
-// dialog. What survives is the genuinely additional: a block, a narrowed tool
-// count, an approval gate, or a catalog-less app.
+// The row carries at most one status element, and only when it says something
+// the switch cannot: a block, a narrowed tool count, an approval gate, or a
+// catalog-less app.
 
 const ACCESS_META = {
   usable: {
@@ -83,11 +80,9 @@ const AccessPill = ({ access }: { access: AgentAccessStatus }) => {
 };
 
 /**
- * The secondary line under the agent name — only for provenance the switch
- * cannot express. An ordinary project grant says nothing: since the attach
- * model every attached agent has a compiled rule literally named
- * "Grant: <agent> · <account>", so naming it here was both pure noise and a
- * leak of an internal identifier into the product.
+ * The secondary line under the agent name, for provenance the switch cannot
+ * express. An ordinary project grant says nothing: its compiled rule name is an
+ * internal identifier, so naming it here would be noise and a leak.
  */
 const attachDetail = (orgGranted: boolean): string | null =>
   orgGranted ? "Via organization" : null;
@@ -109,8 +104,7 @@ export const ConnectionAgentAccessRow = ({
   const detach = useDetachConnectionForAgent();
   const busy = attach.isPending || detach.isPending;
 
-  // Injected by an ORG rule (not a project grant): locked on — not detachable
-  // at project level.
+  // Injected by an org rule, so locked on and not detachable at project level.
   const orgGranted =
     !projectGranted &&
     agent.credential.status === "viaRule" &&
@@ -118,9 +112,8 @@ export const ConnectionAgentAccessRow = ({
 
   const detail = attachDetail(orgGranted);
 
-  // The ONE status element, first match wins. Order is the information
-  // hierarchy: a block outranks a count, a count outranks an approval note,
-  // and an ordinary working attachment says nothing at all (the switch does).
+  // The one status element, first match wins. A block outranks a count, a
+  // count outranks an approval note, and a working attachment says nothing.
   const decisions = agent.credential.status !== "none" ? agent.decisions : null;
   const narrowed =
     decisions !== null && decisions.allowedTools < decisions.totalTools;

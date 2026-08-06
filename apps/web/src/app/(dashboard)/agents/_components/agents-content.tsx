@@ -27,9 +27,8 @@ export const AgentsContent = ({
   const { data: summaries = [] } = useGrantsSummary();
   const [createOpen, setCreateOpen] = useState(false);
 
-  // `?manage=<id-prefix>` (attach-model step 3): the deep link lands on the
-  // agent detail page — the attach surfaces live there now. Prefix matching
-  // preserved from the old dialog-opening behavior; one-shot per mount.
+  // `?manage=<id-prefix>` lands on the agent detail page, where the attach
+  // surfaces live. Matched by prefix; consumed once per mount.
   const redirected = useRef(false);
   useEffect(() => {
     if (redirected.current || !manageAgentId || agents.length === 0) return;

@@ -6,10 +6,9 @@ import type {
   ConnectionGrants,
 } from "./types";
 
-// The attach-model grants API (project scope only — org policy stays rules).
-// Mutations publish atomically server-side; the audited routes also flush the
-// gateway cache, so callers never do either. Signatures are context-safe (no
-// positional param a queryFn context object could fill).
+// The grants API, project scope only. Mutations publish atomically and flush
+// the gateway cache server-side, so callers do neither. Signatures are
+// context-safe: no positional param a queryFn context object could fill.
 
 export const forAgent = (agentId: string) =>
   apiGet<AgentGrants>(`/v1/agents/${agentId}/grants`);

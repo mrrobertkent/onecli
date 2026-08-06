@@ -34,10 +34,9 @@ import { DefaultRuleRow } from "./default-rule-row";
 import { EditableRuleRow } from "./editable-rule-row";
 
 /** Derived sources with no editor of their own that still take effect, so the
- * console must at least be able to disable or delete them: `equipment` injects
- * a credential, and a legacy `app_permission` row still decides. `blocklist` is
- * excluded — the app page's blocklist panel owns those rows. Kept in step with
- * `USER_CHANGEABLE` in lib/policy-diff.ts, or a revoke stages but can't Apply. */
+ * console must be able to disable or delete them. `blocklist` is excluded: the
+ * app page's panel owns those rows. Keep in sync with `USER_CHANGEABLE` in
+ * lib/policy-diff.ts, or a revoke stages but can't Apply. */
 const REVOCABLE_SOURCES = new Set(["equipment", "app_permission", "grant"]);
 
 const HEAD =
@@ -80,15 +79,11 @@ export interface PolicyRulesTableProps {
 }
 
 /**
- * One policy layer as a section: a titled band, its own column header, the rule
- * rows, and the terminal Default Rule as the last row. The editor stacks these
- * inside a single bordered card (org guardrails, then project rules) so the two
- * layers read as one top-to-bottom evaluation rather than two islands.
+ * One policy layer as a section: a titled band, its column header, the rule
+ * rows, and the terminal Default Rule last.
  *
- * Custom rows drag to reorder (grip = the handle; keyboard: focus it, Space to
- * lift, arrows to move, Space to drop). System-derived rows and the Default row
- * are fixed landmarks — a drop is relative to the other CUSTOM rules only, and
- * the system rows keep their positions.
+ * Custom rows drag to reorder. System-derived rows and the Default row are
+ * fixed landmarks, so a drop is relative to the other custom rules only.
  */
 export const PolicyRulesTable = ({
   title,
@@ -125,8 +120,8 @@ export const PolicyRulesTable = ({
     [rules],
   );
 
-  // Screen-reader narration by rule NAME and list position — the dnd-kit
-  // defaults would read the raw row ids.
+  // Narrate by rule name and list position; the dnd-kit defaults would read
+  // the raw row ids.
   const announcements = useMemo<Announcements>(() => {
     const nameOf = (id: UniqueIdentifier) =>
       rules.find((r) => r.id === id)?.name ?? "the rule";
@@ -151,15 +146,15 @@ export const PolicyRulesTable = ({
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
-      // A drag that STARTED unlocked can end after the lock flipped (e.g. the
-      // filter was typed mid-keyboard-drag) — drop it rather than commit an
-      // order derived from a list that no longer matches the draft.
+      // A drag that started unlocked can end after the lock flipped, e.g. the
+      // filter was typed mid-keyboard-drag. Drop it rather than commit an order
+      // derived from a list that no longer matches the draft.
       if (!onReorder || reorderLocked || !over || active.id === over.id) return;
       const from = rules.findIndex((r) => r.id === active.id);
       const to = rules.findIndex((r) => r.id === over.id);
       if (from < 0 || to < 0) return;
       // Move within the visible list, then keep only the customs' relative
-      // order — system rows re-slot server-side, never by a drag.
+      // order; system rows re-slot server-side, never by a drag.
       const moved = arrayMove(rules, from, to);
       onReorder(moved.filter((r) => r.source === "custom").map((r) => r.id));
     },

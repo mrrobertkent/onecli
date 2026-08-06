@@ -2,9 +2,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name?: string;
-  // Active project id, returned by /v1/auth/session. Used by client-side
-  // redirects to land on /p/[projectId]/... rather than the unscoped legacy
-  // /overview URL.
+  // Active project id, returned by /v1/auth/session. Client-side redirects use
+  // it to land on /p/[projectId]/... rather than the unscoped /overview URL.
   projectId?: string;
   // Whether the auth provider proved ownership of `email` (e.g. a verified
   // email claim). Optional — adapters that don't know leave it unset.
@@ -12,9 +11,8 @@ export interface AuthUser {
   // Federated IdP name for this session (e.g. "Google"); null/unset for
   // native sign-ins.
   federatedProvider?: string | null;
-  // ALL federated IdP names on this session's identity, in token order —
-  // multi-linked profiles carry every provider here while federatedProvider
-  // only sees the first. Empty/unset for native sign-ins.
+  // Every federated IdP name on this session's identity, in token order;
+  // `federatedProvider` only carries the first. Empty for native sign-ins.
   identityProviders?: string[];
 }
 
@@ -26,8 +24,8 @@ export interface AuthContextValue {
   user: AuthUser | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
-  // NextAuth id + label of the active login provider (e.g. "google"/"Google" or
-  // "oidc"/"Okta"); empty in local mode. Drives the login button.
+  // Id + label of the active login provider (e.g. "oidc"/"Okta"); empty in
+  // local mode. Drives the login button.
   authProviderId: string;
   authProviderName: string;
   // Optional branding for the login button (generic OIDC only; Google keeps its

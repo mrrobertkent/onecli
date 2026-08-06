@@ -1,7 +1,5 @@
-// Policy reflections over the v2 engine: the connection Agent-access dialog
-// (editable since attach-model step 4) and the read-only agent Credential
-// access view. SHARED — every edition (OSS included) renders the real
-// reflections; there is no edition swap here.
+// The editable connection Agent-access dialog and the read-only agent
+// Credential access view. Every edition renders these; there is no swap.
 
 export { ConnectionAgentsReflection } from "./connection-agents-reflection";
 export { CredentialAccessReflection } from "./credential-access-reflection";

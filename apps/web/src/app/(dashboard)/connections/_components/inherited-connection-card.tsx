@@ -4,8 +4,7 @@ import { useState } from "react";
 import { ChevronRight, Users } from "lucide-react";
 import { Card } from "@onecli/ui/components/card";
 import type { PageScope } from "@/lib/api";
-// The read-only agent-access reflection, which reads the v2 policy engine.
-// Shared since step 10 — every edition renders it.
+// The read-only agent-access reflection, rendered by every edition.
 import { ConnectionAgentsReflection } from "@/lib/components/policy-reflect";
 
 interface InheritedConnectionCardProps {

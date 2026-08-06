@@ -6,10 +6,8 @@ import { grants } from "@/lib/api";
 import type { ConnectionGrantInput } from "@/lib/api";
 import { queryKeys } from "@/lib/api/keys";
 
-// Grants mutations are headless on the gateway cache: every grants route wraps
-// withAudit, which flushes the gateway server-side — no client-side flush
-// needed. They are also headless on publish: the server publishes atomically
-// inside the mutation, so there is no afterPolicyWrite chaining here.
+// Grants routes flush the gateway cache and publish atomically server-side, so
+// there is no client-side flush or afterPolicyWrite chaining here.
 
 export const useAgentGrants = (agentId: string, enabled = true) =>
   useQuery({
@@ -25,8 +23,8 @@ export const useConnectionGrants = (connectionId: string, enabled = true) =>
     enabled: enabled && connectionId.length > 0,
   });
 
-/** The agents-list chips feed — keyed under the agents namespace so agent CRUD
- * invalidation reaches it (the policy-visibility spread trick). */
+/** The agents-list chips feed, keyed under the agents namespace so agent CRUD
+ * invalidation reaches it. */
 export const useGrantsSummary = () =>
   useQuery({
     queryKey: [...queryKeys.agents.all(), "grants-summary"],
@@ -37,10 +35,8 @@ const useInvalidateGrants = () => {
   const qc = useQueryClient();
   return () => {
     void qc.invalidateQueries({ queryKey: queryKeys.grants.all() });
-    // A grant IS a policy write (source-tagged rules + an atomic publish), and
-    // the reflections/summary key under these shared namespaces — the same
-    // reasoning as use-policy's useInvalidatePolicy: a stale effective verdict
-    // reads as a security answer.
+    // A grant is a policy write, and the reflections key under these shared
+    // namespaces. A stale effective verdict reads as a security answer.
     void qc.invalidateQueries({ queryKey: queryKeys.policy.all() });
     void qc.invalidateQueries({ queryKey: queryKeys.agents.all() });
     void qc.invalidateQueries({ queryKey: queryKeys.connections.all() });
@@ -115,7 +111,7 @@ export const useDetachSecret = () => {
   });
 };
 
-/** The connection-dialog twins (step 4's surface). */
+/** The connection-dialog twins. */
 export const useSetConnectionGrantForAgent = () => {
   const invalidate = useInvalidateGrants();
   return useMutation({

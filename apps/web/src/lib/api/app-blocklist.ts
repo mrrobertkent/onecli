@@ -7,9 +7,8 @@ export interface BlocklistHostState {
   hostId: string;
   ruleId: string | null;
   enabled: boolean;
-  /** Always false since step 10 — arbitrary hosts are blocked with a policy
-   * rule, so every entry here is one the app itself declares. Kept so existing
-   * clients keep parsing. */
+  /** Always false: arbitrary hosts are blocked with a policy rule, so every
+   * entry here is one the app itself declares. Kept for client compatibility. */
   custom: boolean;
   name: string;
   hostPattern: string;

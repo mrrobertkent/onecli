@@ -18,16 +18,12 @@ import { withProjectPrefix } from "@/lib/navigation";
 import type { ConnectionAgentsReflectionProps } from "@/lib/components/policy-reflect";
 import { ConnectionAgentAccessRow } from "./connection-agent-access-row";
 
-// The connection "agent access" dialog — EDITABLE since step 4 of the attach
-// model: each agent row carries the attach toggle + a Manage deep-link into
-// the agent page's permissions sheet, while the effective framing stays
-// (lead with what the agent can DO; credential detail is secondary). Writes
-// go through the step-2 grants API's connection orientation.
+// The connection "agent access" dialog. Each agent row carries the attach
+// toggle plus a Manage deep-link into the agent page's permissions sheet;
+// writes go through the grants API's connection orientation.
 //
-// Two ways in, same rows: from an account card, to audit or change an
-// established connection; and straight off a successful connect
-// (`justConnected`), where it IS the setup step that used to be crammed into
-// the 520px OAuth popup.
+// Reached from an account card, or straight off a successful connect
+// (`justConnected`), where it serves as the setup step.
 
 export const ConnectionAgentsReflection = ({
   connectionId,
@@ -41,8 +37,8 @@ export const ConnectionAgentsReflection = ({
   const effectiveQuery = useConnectionEffectiveAgents(connectionId, open);
   const grantsQuery = useConnectionGrants(connectionId, open);
 
-  // Toggles must never render over unknown grant state — both the effective
-  // view AND the grants view have to resolve first (the project-access rule).
+  // Toggles must never render over unknown grant state, so both the effective
+  // view and the grants view have to resolve first.
   const isPending = effectiveQuery.isPending || grantsQuery.isPending;
   const isError = effectiveQuery.isError || grantsQuery.isError;
   const result = effectiveQuery.data;

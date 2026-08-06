@@ -1,8 +1,7 @@
 "use client";
-// Editable policy engine (policy_rules_v2). Headless on the gateway cache: every
-// mutation route is wrapped in withAudit, which flushes the gateway server-side —
-// no client-side flush needed. Staged model: create/update/delete edit the DRAFT;
-// `usePublishPolicy` snapshots the draft into the active published generation.
+// Editable policy engine. Mutation routes flush the gateway cache server-side,
+// so callers don't. Writes edit the draft; `usePublishPolicy` snapshots it into
+// the active published generation.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { policy, type PageScope, type PolicyRuleV2 } from "@/lib/api";
@@ -11,9 +10,8 @@ import type {
   UpdatePolicyRuleInput,
 } from "@/lib/api/policy";
 import { queryKeys } from "@/lib/api/keys";
-// Edition seam: OSS publishes immediately after every write (chained inside
-// the mutation, so pending covers write + publish); EE aliases this to a no-op
-// — its publish is the explicit staged Apply Changes flow.
+// Edition seam: OSS publishes immediately after every write; EE aliases this
+// to a no-op and publishes via its staged Apply Changes flow.
 import { afterPolicyWrite } from "@/lib/policy-editor/publish-mode";
 
 /** The editable draft rules (excludes the terminal Default Rule). */
@@ -23,8 +21,8 @@ export const usePolicyRules = (scope: PageScope = "project") =>
     queryFn: () => policy.listRules(scope, "draft"),
   });
 
-/** The active published rules — compared against the draft to detect unpublished
- * changes (the "you have changes to publish" indicator). */
+/** The active published rules, compared against the draft to detect
+ * unpublished changes. */
 export const usePublishedPolicyRules = (scope: PageScope = "project") =>
   useQuery({
     queryKey: [...queryKeys.policy.rules(scope), "published"],
@@ -37,8 +35,8 @@ export const usePolicyDefault = (scope: PageScope = "project") =>
     queryFn: () => policy.getDefault(scope, "draft"),
   });
 
-/** The published Default Rule — compared against the draft default to fold the
- * terminal rule into the "unpublished changes" indicator. */
+/** The published Default Rule, compared against the draft default to fold the
+ * terminal rule into the unpublished-changes indicator. */
 export const usePublishedPolicyDefault = (scope: PageScope = "project") =>
   useQuery({
     queryKey: [...queryKeys.policy.default(scope), "published"],
@@ -56,11 +54,10 @@ const useInvalidatePolicy = () => {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: queryKeys.policy.all() });
-    // The reflections READ these rules but are keyed by the resource they
-    // describe, so a policy write has to reach them too — otherwise the
-    // credential-access and agent-access dialogs keep serving pre-write verdicts
-    // for the query's stale window. They are the only surface showing effective
-    // access now, so a stale verdict there reads as a security answer.
+    // The reflections read these rules but are keyed by the resource they
+    // describe, so a policy write has to reach them too. They are the only
+    // surface showing effective access, and a stale verdict there reads as a
+    // security answer.
     qc.invalidateQueries({ queryKey: queryKeys.agents.all() });
     qc.invalidateQueries({ queryKey: queryKeys.connections.all() });
   };
@@ -106,10 +103,9 @@ export const useDeletePolicyRule = (scope: PageScope = "project") => {
 };
 
 /**
- * Reorder the draft (drag-and-drop / Move up-down). Optimistic: the dropped
- * order lands in the cache immediately (no flash-back while the PUT is in
- * flight), rolls back on error, and settles on the server's list. Takes the
- * FULL ordered id list — build it with `buildReorderIds`.
+ * Reorder the draft. Optimistic: the dropped order lands in the cache
+ * immediately, rolls back on error, and settles on the server's list. Takes the
+ * full ordered id list — build it with `buildReorderIds`.
  */
 export const useReorderPolicyRules = (scope: PageScope = "project") => {
   const qc = useQueryClient();
@@ -133,8 +129,8 @@ export const useReorderPolicyRules = (scope: PageScope = "project") => {
           const rule = byId.get(id);
           return rule ? [{ ...rule, priority: i + 1 }] : [];
         });
-        // A partial mapping means the cache and the drag diverged — leave the
-        // cache alone and let the server's 409/response settle it.
+        // A partial mapping means the cache and the drag diverged; let the
+        // server's 409 settle it.
         return next.length === old.length ? next : old;
       });
       return { previous };
@@ -143,7 +139,7 @@ export const useReorderPolicyRules = (scope: PageScope = "project") => {
       if (ctx?.previous) qc.setQueryData(rulesKey, ctx.previous);
       toast.error(err.message);
     },
-    // The route returns the fresh draft list — install it as truth right away.
+    // The route returns the fresh draft list; install it as truth right away.
     onSuccess: (rules) => qc.setQueryData(rulesKey, rules),
     onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.policy.all() }),
   });

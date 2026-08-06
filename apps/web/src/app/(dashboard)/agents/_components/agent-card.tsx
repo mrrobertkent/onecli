@@ -10,8 +10,7 @@ import { Button } from "@onecli/ui/components/button";
 import { agentLastSeen } from "@onecli/api/lib/agent-activity";
 import type { AgentGrantsSummary } from "@/lib/api";
 import { agentPath } from "@/lib/navigation";
-// The read-only credential-access reflection, which reads the v2 policy
-// engine. Shared since step 10 — every edition renders it.
+// The read-only credential-access reflection, rendered by every edition.
 import { CredentialAccessReflection } from "@/lib/components/policy-reflect";
 import { AgentActionsMenu } from "./agent-actions-menu";
 import { CredentialAvatars } from "./credential-avatars";

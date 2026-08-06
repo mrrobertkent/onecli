@@ -29,13 +29,9 @@ const ensureLocalUser = async () => {
 
   const existing = await findUserDefaultProject(user.id);
   if (!existing) {
-    // Mirror the /v1/auth/session gate: single shared org joins the one shared
-    // org, while per-user tenancy bootstraps its own.
-    //
-    // The LOCAL-auth identity is the sole operator of a single-user instance,
-    // so `owner` is correct here — and this is the only place outside the
-    // bootstrap path that may ask for it. Replaced by a real Better Auth
-    // account once the bootstrap admin lands.
+    // Mirrors the /v1/auth/session gate. The local-auth identity is the sole
+    // operator of a single-user instance, so `owner` is correct; this is the
+    // only place outside the bootstrap path that may ask for it.
     if (CAPS.tenancy === "single-org-shared") {
       await joinSharedOrganization(user.id, LOCAL_USER.email, "owner");
     } else {
@@ -55,9 +51,9 @@ export const getServerSessionImpl = async (): Promise<AuthUser | null> => {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.email) return null;
 
-  // `session.user.id` IS `users.id`, and the create hook keeps
-  // `externalAuthId` equal to it, so the `SessionUser.id` returned here still
-  // resolves through the session middleware's `externalAuthId` lookup.
+  // `session.user.id` is `users.id`, and the create hook keeps
+  // `externalAuthId` equal to it, so this still resolves through the session
+  // middleware's `externalAuthId` lookup.
   return {
     id: session.user.id,
     email: session.user.email,

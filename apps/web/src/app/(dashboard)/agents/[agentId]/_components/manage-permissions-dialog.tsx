@@ -24,31 +24,27 @@ import {
   type EffectiveToolResult,
 } from "@/lib/api/policy-visibility";
 import { usePlanGate } from "@/lib/plan-gate";
-// Edition seam: EE aliases to the real granular resource editor, OSS keeps the
-// locked hint. Alias key on purpose — a relative import would bypass turbopack
-// resolveAlias in EE builds.
+// Edition seam — imported by alias key on purpose; a relative import would
+// bypass turbopack resolveAlias in EE builds.
 import { ResourceScopeFields } from "@/lib/policy-editor/resource-scope";
 import { PermissionGroup } from "./permission-group";
 import type { ToolChoice } from "./tri-state-control";
 
 interface ManagePermissionsDialogProps {
   agentId: string;
-  /** The dialog is open while a connection is set (the delete-rule-dialog
-   * derived-open pattern). */
+  /** The dialog is open while a connection is set. */
   connection: Connection | null;
   /** The project grant, when one exists — seeds the tri-state. */
   grant: AgentGrantConnection | undefined;
   /** Org-granted rows: visible but not editable at project level. */
   readOnly: boolean;
-  /** Why it is read-only, so the description says something true: the
-   * organization GRANTED this connection, or it BLOCKS it outright. */
+  /** Why it is read-only: the org granted this connection, or blocks it. */
   readOnlyReason?: "org-granted" | "org-blocked";
   onClose: () => void;
 }
 
-/** Narrow the picker's generic policy object to the wire union. The provider
- * dialogs only ever emit one well-formed axis; anything else collapses to null
- * (unrestricted) rather than sending junk to the server. */
+/** Narrow the picker's generic policy object to the wire union. Anything
+ * malformed collapses to null rather than sending junk to the server. */
 const toGrantResources = (
   policy: Record<string, unknown> | null,
 ): GrantResources | null => {
@@ -70,9 +66,9 @@ const toGrantResources = (
   return null;
 };
 
-/** Derive the dialog's tri-state from the stored grant: full access (or no
- * grant yet — Manage-before-attach) = everything allowed; a custom grant
- * = its allow/ask sets, the rest Never. */
+/** Derive the dialog's tri-state from the stored grant. Full access, or no
+ * grant yet, means everything allowed; a custom grant means its allow/ask
+ * sets, the rest Never. */
 const deriveChoices = (
   toolIds: string[],
   grant: AgentGrantConnection | undefined,
@@ -124,10 +120,9 @@ export const ManagePermissionsDialog = ({
   const [initialResources, setInitialResources] =
     useState<GrantResources | null>(null);
   useEffect(() => {
-    // Resources ride the same retarget seeding as the tri-state — so a
-    // catalog-less provider (toolIds empty) never seeds or shows them either.
-    // Fine for github-app/dropbox (both cataloged); a future granular provider
-    // without a tool catalog would need this revisited.
+    // Resources ride the same retarget seeding as the tri-state, so a
+    // catalog-less provider never seeds or shows them. A future granular
+    // provider without a tool catalog would need this revisited.
     if (connection === null || toolIds.length === 0) return;
     const derived = deriveChoices(toolIds, grant);
     setChoices(derived);
@@ -135,8 +130,8 @@ export const ManagePermissionsDialog = ({
     const seededResources = grant?.resources ?? null;
     setResources(seededResources);
     setInitialResources(seededResources);
-    // Re-derive only when the dialog re-targets — a background grants refetch
-    // must not clobber in-progress edits.
+    // Re-derive only when the dialog re-targets, so a background grants
+    // refetch can't clobber in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connection?.id, toolIds.length]);
 
@@ -166,7 +161,7 @@ export const ManagePermissionsDialog = ({
     setChoices((prev) => {
       const next = { ...prev };
       for (const id of ids) {
-        // The ceiling pins what it pins — a group action skips locked rows.
+        // A group action skips rows the ceiling has pinned.
         if (ceilings[id] === "block") continue;
         if (ceilings[id] === "approval" && choice === "allow") continue;
         next[id] = choice;
@@ -175,13 +170,11 @@ export const ManagePermissionsDialog = ({
     });
   };
 
-  // The attached ⇔ allow∪ask ≠ ∅ invariant, mirrored client-side: an
-  // all-Never state is a detach, not a save (the server 422s it too).
+  // An all-Never state is a detach, not a save; the server 422s it too.
   const allNever =
     toolIds.length > 0 && toolIds.every((id) => choices[id] === "never");
   const unchanged = toolIds.every((id) => choices[id] === initial[id]);
-  // Key-stable compare is enough: both sides come from the same source (the
-  // stored grant, or the picker's committed draft).
+  // Key-stable compare is enough: both sides come from the same source.
   const resourcesUnchanged =
     JSON.stringify(resources) === JSON.stringify(initialResources);
   const wasFull = grant === undefined || grant.access === "full";
@@ -191,8 +184,8 @@ export const ManagePermissionsDialog = ({
     if (connection === null) return;
     const allow = toolIds.filter((id) => choices[id] === "allow");
     const ask = toolIds.filter((id) => choices[id] === "ask");
-    // Keeping every tool allowed keeps (or creates) the uncustomized
-    // whole-app grant — future catalog tools stay auto-allowed.
+    // Keeping every tool allowed keeps the uncustomized whole-app grant, so
+    // future catalog tools stay auto-allowed.
     const base =
       allAllow && wasFull
         ? { access: "full" as const }
@@ -201,10 +194,8 @@ export const ManagePermissionsDialog = ({
       {
         agentId,
         connectionId: connection.id,
-        // `resources` rides ONLY when actually edited: an omitted field is the
-        // server's PRESERVE arm — tools-only saves never hit the resources
-        // validator (a free-plan agent with a carried restriction must still
-        // be able to edit tools), and unchanged saves stay idempotent.
+        // Sent only when edited: an omitted field is the server's preserve
+        // arm, so tools-only saves never hit the resources validator.
         input: resourcesUnchanged ? base : { ...base, resources },
       },
       { onSuccess: () => onClose() },
@@ -235,8 +226,8 @@ export const ManagePermissionsDialog = ({
 
         <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-6 py-5">
           {!definitionsPending && definition === undefined ? (
-            // A deep link can name a catalog-less connection (rows hide
-            // Manage for those) — say so instead of spinning forever.
+            // A deep link can name a catalog-less connection, so say so
+            // instead of spinning forever.
             <p className="text-muted-foreground py-8 text-center text-sm">
               This app has no per-tool permission catalog — access is
               all-or-nothing via the attach toggle.

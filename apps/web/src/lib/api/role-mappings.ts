@@ -6,7 +6,7 @@ import type {
   RoleMappingImpact,
 } from "./types";
 
-// Group→role mappings (step 15) — organization-scoped. Highest priority first.
+// Group→role mappings, organization-scoped. Highest priority first.
 const base = "/v1/org/role-mappings";
 
 export const list = () => apiGet<RoleMappingRow[]>(base);
