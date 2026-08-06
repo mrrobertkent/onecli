@@ -1,40 +1,41 @@
-import { db } from "@onecli/db";
-import { ensureSharedOrgBootstrap } from "@onecli/api/services/organization-service";
-import { LOCAL_AUTH_ID, LOCAL_USER } from "./local-user";
+import { findOrCreateSharedOrg } from "@onecli/api/services/organization-service";
+import { seedBootstrapAdminFromEnv } from "@/lib/auth/bootstrap-admin";
 
 /**
- * Eager onprem boot init (ORG-LEVEL only): ensure the bootstrap admin user, the
- * single shared organization, and the operator org API key exist — so the
- * instance is provisionable via the org key immediately after `docker run`,
- * before anyone opens the web.
+ * Eager boot init: the shared organization, and the bootstrap administrator if
+ * one is configured in the environment.
  *
- * Runs for any onprem auth mode. Under local auth the bootstrap user IS the login
- * identity (`admin@localhost`); under OAuth it's just the operator key's owner,
- * and real users join the shared org on their first OAuth login.
+ * The operator org API key is NOT minted here. It is minted with the
+ * administrator, because `ApiKey.user` is `ON DELETE RESTRICT` — whoever owns
+ * it can never be deleted, so it must belong to a real, loginable account
+ * rather than to a synthetic row conjured to hold it. With no environment seed
+ * there is nobody to own it yet, and it appears when the first admin is
+ * claimed.
  *
- * Projects + agents are deliberately NOT seeded here; they're created on demand
- * (first web login, or `POST /v1/projects` with the org key). Idempotent — safe
- * to run on every boot. Mirrors the org-level slice of the first-login flow
- * (`ensureLocalUser` + `joinSharedOrganization`).
+ * Idempotent, and safe on every boot: a configured seed is applied only while
+ * the instance has no administrator.
  */
 export const ensureOnpremInstance = async (): Promise<void> => {
-  const user = await db.user.upsert({
-    where: { externalAuthId: LOCAL_AUTH_ID },
-    create: {
-      externalAuthId: LOCAL_AUTH_ID,
-      email: LOCAL_USER.email,
-      name: LOCAL_USER.name,
-    },
-    update: {},
-    select: { id: true, email: true },
-  });
-
-  // Owner + bootstrap org API key. This is the ONLY path that should mint an
-  // owner of the shared organization.
-  const org = await ensureSharedOrgBootstrap(user.id, user.email);
+  const org = await findOrCreateSharedOrg();
 
   // Operators need the org id for org-scoped API calls (e.g. the authorize
-  // `?org=` override) — surface it once per boot, next to the org API key
-  // logs from the seed above.
+  // `?org=` override) — surface it once per boot.
   console.info(`[onecli] Shared organization id: ${org.id}`);
+
+  const admin = await seedBootstrapAdminFromEnv();
+  if (admin) {
+    console.info(
+      `[onecli] Seeded bootstrap administrator: ${admin.email}` +
+        (admin.mustChangePassword
+          ? " (must change password at first login)"
+          : ""),
+    );
+    return;
+  }
+
+  console.info(
+    "[onecli] No administrator yet. Claim one at /setup within 15 minutes of " +
+      "this start, or set BOOTSTRAP_ADMIN_EMAIL with " +
+      "BOOTSTRAP_ADMIN_PASSWORD_HASH and restart.",
+  );
 };

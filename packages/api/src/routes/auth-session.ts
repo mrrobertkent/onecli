@@ -134,7 +134,12 @@ export const authSessionRoutes = () => {
           lastLoginAt: new Date(),
           ...extra,
         },
-        select: { id: true, email: true, name: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          mustChangePassword: true,
+        },
       });
 
       // Edition membership (e.g. SSO JIT join) runs before the default
@@ -207,6 +212,9 @@ export const authSessionRoutes = () => {
           id: dbUser.id,
           email: dbUser.email,
           name: dbUser.name,
+          // A credential the user did not choose has to be rotated before
+          // anything else is reachable; the client redirects on this.
+          mustChangePassword: dbUser.mustChangePassword,
           projectId,
           organizationId: defaultProject.organizationId,
         });
@@ -218,6 +226,7 @@ export const authSessionRoutes = () => {
         id: dbUser.id,
         email: dbUser.email,
         name: dbUser.name,
+        mustChangePassword: dbUser.mustChangePassword,
         ...responseExtra,
       });
     } catch (err) {

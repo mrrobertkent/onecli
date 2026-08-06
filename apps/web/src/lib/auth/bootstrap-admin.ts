@@ -1,0 +1,261 @@
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { db } from "@onecli/db";
+import { findOrCreateSharedOrg } from "@onecli/api/services/organization-service";
+import { ensureBootstrapOrgApiKey } from "@onecli/api/services/api-key-service";
+import { hashPassword } from "@/lib/auth/password-hash";
+
+/**
+ * The first administrator of an instance.
+ *
+ * Two ways in, and only ever one winner:
+ *
+ *  - seeded from environment configuration at boot, or
+ *  - claimed by whoever reaches the setup page first, within a window that
+ *    opens at each process start.
+ *
+ * Both go through `establishBootstrapAdmin`, so the transaction and the race
+ * gate are shared rather than reimplemented per entry point.
+ */
+
+/**
+ * How long the claim stays open after a start, and where it is measured from.
+ *
+ * Timed from process start rather than a persisted timestamp, so restarting is
+ * the operator's way back if they miss it — the alternative locks out anyone
+ * who did not set the environment seed. The cost is that each restart reopens
+ * the window; it is bounded, and it only exists at all while the instance has
+ * no administrator.
+ */
+const CLAIM_WINDOW_MS = 15 * 60 * 1000;
+const STARTED_AT = Date.now();
+
+const INSTANCE_ID = "instance";
+
+/** Read a setting from `NAME`, else from the file at `NAME_FILE`. */
+const fromEnvOrFile = (name: string): string | undefined => {
+  const direct = process.env[name]?.trim();
+  if (direct) return direct;
+
+  const file = process.env[`${name}_FILE`]?.trim();
+  if (!file) return undefined;
+
+  try {
+    const contents = readFileSync(file, "utf8").trim();
+    return contents || undefined;
+  } catch (err) {
+    throw new Error(
+      `${name}_FILE could not be read (${file}): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+};
+
+export interface BootstrapAdminSeed {
+  email: string;
+  password?: string;
+  passwordHash?: string;
+  name?: string;
+}
+
+/**
+ * The environment-configured admin, or null when none is configured.
+ *
+ * A pre-hashed credential is preferred and takes precedence: a plaintext
+ * password is visible in container configuration, `docker inspect`, and the
+ * process environment, which is why supplying one forces a rotation at first
+ * login.
+ */
+export const readBootstrapAdminSeed = (): BootstrapAdminSeed | null => {
+  const email = fromEnvOrFile("BOOTSTRAP_ADMIN_EMAIL");
+  if (!email) return null;
+
+  const passwordHash = fromEnvOrFile("BOOTSTRAP_ADMIN_PASSWORD_HASH");
+  const password = fromEnvOrFile("BOOTSTRAP_ADMIN_PASSWORD");
+
+  if (!passwordHash && !password) {
+    throw new Error(
+      "BOOTSTRAP_ADMIN_EMAIL is set without a credential — also set " +
+        "BOOTSTRAP_ADMIN_PASSWORD_HASH (preferred) or BOOTSTRAP_ADMIN_PASSWORD.",
+    );
+  }
+
+  return {
+    email,
+    passwordHash,
+    password,
+    name: fromEnvOrFile("BOOTSTRAP_ADMIN_NAME"),
+  };
+};
+
+export type ClaimWindow =
+  | { claimable: true; expiresAt: Date }
+  | { claimable: false; reason: "already-claimed" | "window-expired" };
+
+/** Ensure the singleton settings row exists, tolerating a concurrent create. */
+const ensureInstanceRow = async (): Promise<void> => {
+  try {
+    await db.instanceSetting.upsert({
+      where: { id: INSTANCE_ID },
+      create: { id: INSTANCE_ID },
+      update: {},
+    });
+  } catch {
+    // Lost the create race; the row someone else wrote is equally good.
+  }
+};
+
+/** Whether the first-admin claim is open right now, and until when. */
+export const claimWindow = async (): Promise<ClaimWindow> => {
+  const row = await db.instanceSetting.findUnique({
+    where: { id: INSTANCE_ID },
+    select: { bootstrapAdminUserId: true },
+  });
+
+  if (row?.bootstrapAdminUserId) {
+    return { claimable: false, reason: "already-claimed" };
+  }
+
+  const expiresAt = new Date(STARTED_AT + CLAIM_WINDOW_MS);
+  if (Date.now() >= expiresAt.getTime()) {
+    return { claimable: false, reason: "window-expired" };
+  }
+
+  return { claimable: true, expiresAt };
+};
+
+/** Raised when another claim won; the caller's own transaction has rolled back. */
+export class BootstrapAdminAlreadyExistsError extends Error {
+  constructor() {
+    super("This instance already has an administrator.");
+    this.name = "BootstrapAdminAlreadyExistsError";
+  }
+}
+
+export interface EstablishedAdmin {
+  userId: string;
+  email: string;
+  organizationId: string;
+  mustChangePassword: boolean;
+}
+
+/**
+ * Create the bootstrap administrator, or fail because one already exists.
+ *
+ * The user, its credential, its `owner` membership and the claim itself are one
+ * transaction. The claim is a conditional update of a single settings row, so
+ * concurrent callers serialise on it: the loser's `WHERE ... IS NULL` no longer
+ * matches, it raises, and its whole transaction unwinds. That is what makes two
+ * admins impossible without also making zero admins possible — a half-created
+ * user cannot survive a lost race.
+ */
+export const establishBootstrapAdmin = async ({
+  email,
+  password,
+  passwordHash,
+  name,
+}: BootstrapAdminSeed): Promise<EstablishedAdmin> => {
+  if (!password && !passwordHash) {
+    throw new Error("A bootstrap admin needs a password or a password hash.");
+  }
+
+  await ensureInstanceRow();
+  const org = await findOrCreateSharedOrg();
+
+  const normalisedEmail = email.trim().toLowerCase();
+  // A hash supplied by the operator is used as-is; a plaintext password is
+  // hashed here with the same KDF the login path verifies against.
+  const storedHash = passwordHash ?? (await hashPassword(password as string));
+  // Only a credential we were handed in plaintext is treated as compromised.
+  const mustChangePassword = !passwordHash;
+  const userId = randomUUID();
+
+  const admin = await db.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        id: userId,
+        email: normalisedEmail,
+        name: name ?? "Administrator",
+        // Better Auth is the identity system, so its own id is the value.
+        externalAuthId: userId,
+        // The operator configured this address out of band; there is no
+        // mailbox round-trip to perform and nothing to prove.
+        emailVerified: true,
+        mustChangePassword,
+      },
+      select: { id: true, email: true },
+    });
+
+    await tx.authAccount.create({
+      data: {
+        userId: user.id,
+        // Better Auth's shape for an email+password identity.
+        providerId: "credential",
+        accountId: user.id,
+        password: storedHash,
+      },
+    });
+
+    await tx.organizationMember.create({
+      data: {
+        organizationId: org.id,
+        userId: user.id,
+        userEmail: user.email,
+        role: "owner",
+      },
+    });
+
+    const claimed = await tx.instanceSetting.updateMany({
+      where: { id: INSTANCE_ID, bootstrapAdminUserId: null },
+      data: { bootstrapAdminUserId: user.id },
+    });
+    if (claimed.count === 0) throw new BootstrapAdminAlreadyExistsError();
+
+    return user;
+  });
+
+  // Outside the transaction: idempotent, and its failure should not undo an
+  // administrator who now exists. Owned by the real admin, which is the whole
+  // reason it is not minted before one exists.
+  await ensureBootstrapOrgApiKey({
+    organizationId: org.id,
+    userId: admin.id,
+    userEmail: admin.email,
+  });
+
+  return {
+    userId: admin.id,
+    email: admin.email,
+    organizationId: org.id,
+    mustChangePassword,
+  };
+};
+
+/**
+ * Apply the environment-configured admin, if one is configured and the instance
+ * has none. Returns null when there is nothing to do.
+ *
+ * Safe to call on every boot: an instance that already has an administrator
+ * takes the `already-claimed` path, so a seed left in the environment is never
+ * re-applied and never resets a rotated password.
+ */
+export const seedBootstrapAdminFromEnv =
+  async (): Promise<EstablishedAdmin | null> => {
+    const seed = readBootstrapAdminSeed();
+    if (!seed) return null;
+
+    await ensureInstanceRow();
+    const existing = await db.instanceSetting.findUnique({
+      where: { id: INSTANCE_ID },
+      select: { bootstrapAdminUserId: true },
+    });
+    if (existing?.bootstrapAdminUserId) return null;
+
+    try {
+      return await establishBootstrapAdmin(seed);
+    } catch (err) {
+      if (err instanceof BootstrapAdminAlreadyExistsError) return null;
+      throw err;
+    }
+  };

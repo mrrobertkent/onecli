@@ -224,6 +224,11 @@ model User {
   // (rather than validates) on read, so an existing null is safe.
   emailVerified         Boolean   @default(false) @map("email_verified")
   image                 String?
+  /// Set when a credential was handed to the user rather than chosen by them —
+  /// a bootstrap admin seeded from a plaintext environment variable. The value
+  /// has been readable in container configuration and process listings, so it
+  /// is treated as compromised until rotated.
+  mustChangePassword    Boolean   @default(false) @map("must_change_password")
   // Cloud-only (inert in OSS): the SCIM `name` object (formatted/givenName/
   // familyName/…) stored losslessly so IdP-provisioned attributes round-trip;
   // `name` above stays the display string.
@@ -242,6 +247,7 @@ model User {
 
   authSessions                  AuthSession[]
   authAccounts                  AuthAccount[]
+  bootstrapAdminOf              InstanceSetting?              @relation("BootstrapAdmin")
   organizationMemberships       OrganizationMember[]
   sentInvitations               Invitation[]                  @relation("InvitationCreator")
   apiKeys                       ApiKey[]
@@ -1046,8 +1052,20 @@ model InstanceSetting {
   /// door rather than opening it.
   signupMode String @default("closed") @map("signup_mode")
 
+  /// The bootstrap administrator, once established. Null means the instance has
+  /// no admin yet and the first-admin claim is still open.
+  ///
+  /// This column IS the race gate. Claiming is a conditional update of this one
+  /// row (`WHERE bootstrap_admin_user_id IS NULL`), which Postgres serialises,
+  /// so concurrent claims resolve to exactly one winner — never two admins, and
+  /// never zero, because the loser's whole transaction rolls back rather than
+  /// leaving a half-made user behind.
+  bootstrapAdminUserId String? @unique @map("bootstrap_admin_user_id")
+
   updatedAt       DateTime @updatedAt @map("updated_at")
   updatedByUserId String?  @map("updated_by_user_id")
+
+  bootstrapAdmin User? @relation("BootstrapAdmin", fields: [bootstrapAdminUserId], references: [id])
 
   @@map("instance_settings")
 }

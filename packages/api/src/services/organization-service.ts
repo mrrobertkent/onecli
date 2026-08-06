@@ -144,7 +144,7 @@ export const SHARED_ORG_NAME = "Default";
  * concurrent first-login race resolves to one org — the create loser catches the
  * unique violation and re-reads.
  */
-const findOrCreateSharedOrg = async (): Promise<{ id: string }> => {
+export const findOrCreateSharedOrg = async (): Promise<{ id: string }> => {
   const existing = await db.organization.findUnique({
     where: { slug: SHARED_ORG_SLUG },
     select: { id: true },
