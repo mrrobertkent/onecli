@@ -1,38 +1,25 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import {
-  CAPS,
-  IS_CLOUD,
-  GOOGLE_CLIENT_ID,
-  AUTH_SECRET,
-  OIDC_ISSUER,
-  OIDC_CLIENT_ID,
-  OIDC_CLIENT_SECRET,
-  SECRET_ENCRYPTION_KEY,
-} from "@/lib/env";
+import { CAPS, IS_CLOUD, SECRET_ENCRYPTION_KEY } from "@/lib/env";
 import { PROJECT_PATH_RE, ORG_PATH_RE } from "@/lib/navigation";
 import { isConnectOnlyAllowed } from "@/lib/connect-surface";
 
-type SetupErrorCode = "oauth-misconfigured" | "missing-encryption-key";
+type SetupErrorCode = "missing-encryption-key";
 
 /** Kept in step with `app/auth/recovery/` and the gateway's printed link. */
 const RECOVERY_PATH = "/auth/recovery";
 
 /**
  * Returns the first configuration error found, or null if setup is valid.
+ *
+ * No identity provider is not one of them. An instance with none is the ordinary
+ * first-run shape: password login is a stored setting that defaults on and is
+ * available whenever it is the only method there is, so there is always a way
+ * in. Middleware cannot read that setting anyway — it is a row, and this runs
+ * before the database is reachable.
  */
 const getSetupError = (): SetupErrorCode | null => {
   if (IS_CLOUD) return null;
-
-  // AUTH_SECRET is set but no login provider (Google or OIDC) is configured
-  const oidcConfigured = !!(
-    OIDC_ISSUER &&
-    OIDC_CLIENT_ID &&
-    OIDC_CLIENT_SECRET
-  );
-  if (AUTH_SECRET && !GOOGLE_CLIENT_ID && !oidcConfigured) {
-    return "oauth-misconfigured";
-  }
 
   // SECRET_ENCRYPTION_KEY is required for encrypting secrets
   if (!SECRET_ENCRYPTION_KEY) {
@@ -54,10 +41,9 @@ export const proxy = (request: NextRequest) => {
     return NextResponse.next();
   }
 
-  // Recovery is exempt from the configuration gate. Clearing OIDC_* is the
-  // obvious reaction to a broken identity provider, and that is precisely what
-  // raises "oauth-misconfigured" — so gating this path would send the operator
-  // to /setup-error during the outage recovery exists for.
+  // Recovery is exempt from the configuration gate: it is the way back into an
+  // instance whose configuration is the problem, so it must not be the thing a
+  // configuration error takes away.
   if (error && !pathname.startsWith(RECOVERY_PATH)) {
     return NextResponse.redirect(
       new URL(`/setup-error?code=${error}`, request.url),

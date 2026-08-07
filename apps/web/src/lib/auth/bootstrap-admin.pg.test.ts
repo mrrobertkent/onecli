@@ -219,6 +219,25 @@ describe.skipIf(!PROOF_URL)("bootstrap admin on real PostgreSQL", () => {
     ).resolves.toBe(1);
   });
 
+  it("an admin who chose their own password at /setup is not sent to rotate it", async () => {
+    // The plaintext rule exists for a credential handed over in container
+    // configuration. `/setup` is the other case: the person typed it a moment
+    // ago, so forcing a rotation would ask them to replace it immediately, and
+    // the rotation page would tell them it came from the environment.
+    const admin = await bootstrap.establishBootstrapAdmin({
+      email: EMAIL,
+      password: PASSWORD,
+      mustChangePassword: false,
+    });
+
+    expect(admin.mustChangePassword).toBe(false);
+    const user = await db.user.findUnique({
+      where: { id: admin.userId },
+      select: { mustChangePassword: true },
+    });
+    expect(user?.mustChangePassword).toBe(false);
+  });
+
   it("a pre-hashed env seed does not force rotation", async () => {
     process.env.BOOTSTRAP_ADMIN_EMAIL = EMAIL;
     process.env.BOOTSTRAP_ADMIN_PASSWORD_HASH =

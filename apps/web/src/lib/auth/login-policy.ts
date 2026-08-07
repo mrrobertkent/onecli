@@ -1,4 +1,5 @@
 import { db, type Prisma } from "@onecli/db";
+import { isOAuthConfigured } from "@/lib/auth/auth-mode";
 import {
   recordAuditEvent,
   AUDIT_ACTIONS,
@@ -120,6 +121,14 @@ const closeExpiredWindow = async (
 /**
  * The current policy. Reading it is also what retires an expired window, so
  * callers never see one that has run out.
+ *
+ * Password login is available whenever it is the only method there is. The
+ * stored setting can only be turned off while an identity provider is
+ * configured, and this keeps that true afterwards: removing `OIDC_*` from the
+ * environment brings password login back rather than sealing the instance. Both
+ * are host actions, so this concedes nothing an attacker could not already do,
+ * and it makes "there is always a way in" structural rather than a check that
+ * only ran once.
  */
 export const readLoginPolicy = async (): Promise<LoginPolicy> => {
   let row;
@@ -145,19 +154,20 @@ export const readLoginPolicy = async (): Promise<LoginPolicy> => {
   // of the only method it has.
   const stored = row?.passwordLoginEnabled ?? true;
   const expiresAt = row?.recoveryModeExpiresAt ?? null;
+  const onlyMethod = !isOAuthConfigured();
 
   if (expiresAt && expiresAt.getTime() <= Date.now()) {
     await closeExpiredWindow(expiresAt, row?.recoveryModeUserId ?? null);
     return {
       passwordLoginEnabled: stored,
-      passwordLoginAvailable: stored,
+      passwordLoginAvailable: stored || onlyMethod,
       recovery: NO_RECOVERY,
     };
   }
 
   return {
     passwordLoginEnabled: stored,
-    passwordLoginAvailable: stored || expiresAt !== null,
+    passwordLoginAvailable: stored || expiresAt !== null || onlyMethod,
     recovery: expiresAt
       ? {
           active: true,

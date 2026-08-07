@@ -117,6 +117,13 @@ beforeAll(async () => {
   process.env.DATABASE_URL = PROOF_URL;
   process.env.AUTH_SECRET = "proof-secret-not-used-outside-this-suite";
   process.env.APP_URL = "http://localhost:10254";
+  // Set BEFORE the imports: `lib/env` snapshots `process.env` at module load
+  // and the runtime config caches its first answer. Every case below except
+  // the last one is an instance that has an identity provider, which is what
+  // makes turning password login off legal at all.
+  process.env.OIDC_ISSUER = "http://127.0.0.1:9/idp";
+  process.env.OIDC_CLIENT_ID = "proof-client";
+  process.env.OIDC_CLIENT_SECRET = "proof-client-secret";
 
   ({ db } = await import("@onecli/db"));
   policy = await import("./login-policy");
@@ -257,6 +264,46 @@ describe.skipIf(!PROOF_URL)("login methods on real PostgreSQL", () => {
     ).toHaveLength(1);
     // Nothing left to exit.
     await expect(policy.exitRecoveryMode(ACTOR)).resolves.toBe(false);
+  });
+
+  it("with no identity provider, password login is on whatever the setting says", async () => {
+    await seedUser(true);
+    await policy.setPasswordLoginEnabled({
+      enabled: false,
+      ssoAvailable: true,
+      actor: ACTOR,
+    });
+
+    // A fresh module registry with `OIDC_*` cleared: the instance an operator
+    // has just unconfigured, or has not configured yet. The stored answer is
+    // still off, and password login is available anyway, because sealing the
+    // instance is not an option this can produce.
+    const { OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET } = process.env;
+    delete process.env.OIDC_ISSUER;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_CLIENT_SECRET;
+    vi.resetModules();
+
+    try {
+      const soloPolicy: Policy = await import("./login-policy");
+      const read = await soloPolicy.readLoginPolicy();
+      expect(read.passwordLoginEnabled).toBe(false);
+      expect(read.passwordLoginAvailable).toBe(true);
+
+      const { auth: soloAuth }: AuthModule =
+        await import("./better-auth-config");
+      await expect(
+        soloAuth.api.signInEmail({
+          body: { email: EMAIL, password: PASSWORD },
+          headers: new Headers(),
+        }),
+      ).resolves.toBeTruthy();
+    } finally {
+      process.env.OIDC_ISSUER = OIDC_ISSUER;
+      process.env.OIDC_CLIENT_ID = OIDC_CLIENT_ID;
+      process.env.OIDC_CLIENT_SECRET = OIDC_CLIENT_SECRET;
+      vi.resetModules();
+    }
   });
 
   it("recovery mode outlives the process — it is a row, not a module global", async () => {

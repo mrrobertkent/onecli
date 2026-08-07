@@ -257,6 +257,19 @@ export const LoginContent = ({
               </form>
             )}
 
+            {!passwordLogin && !ssoConfigured && (
+              // Unreachable unless the settings row cannot be read: password
+              // login is available whenever it is the only method configured.
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                No login method is available. Mint a recovery key on the host
+                with{" "}
+                <code className="text-foreground">
+                  onecli-gateway create-recovery-key
+                </code>{" "}
+                and open the link it prints.
+              </p>
+            )}
+
             <p className="text-muted-foreground mt-4 text-center text-xs">
               By continuing, you acknowledge OneCLI&apos;s{" "}
               <a

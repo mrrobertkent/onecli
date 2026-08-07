@@ -36,6 +36,14 @@ export interface BootstrapAdminSeed {
   password?: string;
   passwordHash?: string;
   name?: string;
+  /**
+   * Whether first login must rotate the credential. Defaults to true for a
+   * plaintext password, which is how an environment-configured one arrives —
+   * readable in container configuration, so treated as compromised. `/setup`
+   * passes false: the person chose it a moment ago, and there is nothing to
+   * rotate away from.
+   */
+  mustChangePassword?: boolean;
 }
 
 /**
@@ -128,6 +136,7 @@ export const establishBootstrapAdmin = async ({
   password,
   passwordHash,
   name,
+  mustChangePassword: rotate,
 }: BootstrapAdminSeed): Promise<EstablishedAdmin> => {
   if (!password && !passwordHash) {
     throw new Error("A bootstrap admin needs a password or a password hash.");
@@ -138,8 +147,9 @@ export const establishBootstrapAdmin = async ({
 
   const normalisedEmail = email.trim().toLowerCase();
   const storedHash = passwordHash ?? (await hashPassword(password as string));
-  // Only a credential we were handed in plaintext is treated as compromised.
-  const mustChangePassword = !passwordHash;
+  // Only a credential we were handed in plaintext is treated as compromised,
+  // and only when the caller has not said who chose it.
+  const mustChangePassword = rotate ?? !passwordHash;
   const userId = randomUUID();
 
   const admin = await db.$transaction(async (tx) => {

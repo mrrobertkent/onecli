@@ -60,6 +60,9 @@ export const claimBootstrapAdmin = async (
       email: trimmedEmail,
       password,
       name: name?.trim() || undefined,
+      // Chosen here, by the person about to use it. Rotating it would ask them
+      // to replace a password they picked seconds ago.
+      mustChangePassword: false,
     });
   } catch (err) {
     if (err instanceof BootstrapAdminAlreadyExistsError) {
