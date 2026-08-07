@@ -1,10 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import type { AuthContext, OrgRole } from "../providers";
-import {
-  getRoleResolver,
-  getStrictApiKeyAuth,
-  ROLE_HIERARCHY,
-} from "../providers";
+import { getStrictApiKeyAuth } from "../providers";
+import { resolveOrgRoleAtLeast } from "../services/org-authorization";
 import { ServiceError } from "../services/errors";
 import type { ApiEnv } from "../types";
 import { authenticateApiKey } from "./auth/api-key";
@@ -121,21 +118,20 @@ export const auth = (options?: AuthOptions) => {
 
     // 4. Role check (only when role option is specified)
     if (minimumRole) {
-      const resolver = getRoleResolver();
-      if (!resolver) {
-        return c.json(FORBIDDEN_NOT_MEMBER, 403);
-      }
-      const userRole = await resolver.getUserRole(
+      const decision = await resolveOrgRoleAtLeast(
         authResult.userId,
         authResult.organizationId,
+        minimumRole,
       );
-      if (!userRole) {
-        return c.json(FORBIDDEN_NOT_MEMBER, 403);
+      if (!decision.ok) {
+        return c.json(
+          decision.reason === "insufficient"
+            ? FORBIDDEN_INSUFFICIENT
+            : FORBIDDEN_NOT_MEMBER,
+          403,
+        );
       }
-      if (ROLE_HIERARCHY[userRole] < ROLE_HIERARCHY[minimumRole]) {
-        return c.json(FORBIDDEN_INSUFFICIENT, 403);
-      }
-      authResult.role = userRole;
+      authResult.role = decision.role;
     }
 
     c.set("auth", authResult);
