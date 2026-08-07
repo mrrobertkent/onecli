@@ -400,15 +400,15 @@ describe.skipIf(!PROOF_URL)("/v1/org/members", () => {
     ).resolves.toBe(1);
   });
 
-  it("an owner cannot be demoted or suspended here", async () => {
+  it("an admin cannot touch an owner row at all", async () => {
     as(ADMIN);
 
     await expect(
       call("PATCH", `${MEMBERS}/${OWNER}`, { role: "member" }),
-    ).resolves.toMatchObject({ status: 409 });
+    ).resolves.toMatchObject({ status: 403 });
     await expect(
       call("PATCH", `${MEMBERS}/${OWNER}`, { status: "suspended" }),
-    ).resolves.toMatchObject({ status: 409 });
+    ).resolves.toMatchObject({ status: 403 });
 
     await expect(
       db.organizationMember.findFirst({
@@ -418,12 +418,72 @@ describe.skipIf(!PROOF_URL)("/v1/org/members", () => {
     ).resolves.toMatchObject({ role: "owner", status: "active" });
   });
 
-  it("owner is not an assignable role", async () => {
-    as(OWNER);
+  it("an admin cannot appoint an owner — not even themselves by proxy", async () => {
+    as(ADMIN);
 
     await expect(
       call("PATCH", `${MEMBERS}/${MEMBER}`, { role: "owner" }),
-    ).resolves.toMatchObject({ status: 400 });
+    ).resolves.toMatchObject({ status: 403 });
+    await expect(
+      db.organizationMember.count({
+        where: { organizationId: ORG, role: "owner" },
+      }),
+    ).resolves.toBe(1);
+  });
+
+  it("an owner may appoint another owner", async () => {
+    as(OWNER);
+
+    const res = await call("PATCH", `${MEMBERS}/${ADMIN}`, { role: "owner" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ role: "owner" });
+    await expect(
+      db.organizationMember.count({
+        where: { organizationId: ORG, role: "owner" },
+      }),
+    ).resolves.toBe(2);
+  });
+
+  it("an owner may demote another owner, and one always remains", async () => {
+    as(OWNER);
+    await call("PATCH", `${MEMBERS}/${ADMIN}`, { role: "owner" });
+
+    // The demotion needs a second owner to perform it, so the organization
+    // cannot be left without one: two before, one after.
+    as(ADMIN);
+    await expect(
+      call("PATCH", `${MEMBERS}/${OWNER}`, { role: "admin" }),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      db.organizationMember.count({
+        where: { organizationId: ORG, role: "owner" },
+      }),
+    ).resolves.toBe(1);
+
+    // And the one that remains cannot demote itself, which is what closes the
+    // last step to zero.
+    await expect(
+      call("PATCH", `${MEMBERS}/${ADMIN}`, { role: "admin" }),
+    ).resolves.toMatchObject({ status: 409 });
+  });
+
+  it("an owner cannot be suspended — demote first", async () => {
+    as(OWNER);
+    await call("PATCH", `${MEMBERS}/${ADMIN}`, { role: "owner" });
+    as(ADMIN);
+
+    await expect(
+      call("PATCH", `${MEMBERS}/${OWNER}`, { status: "suspended" }),
+    ).resolves.toMatchObject({ status: 409 });
+  });
+
+  it("nobody edits their own row, owner included", async () => {
+    as(OWNER);
+
+    await expect(
+      call("PATCH", `${MEMBERS}/${OWNER}`, { role: "admin" }),
+    ).resolves.toMatchObject({ status: 409 });
   });
 
   it("a plain member reaches none of it", async () => {

@@ -77,8 +77,15 @@ export const previewRoleMappingSchema = z.object({
   role: assignableRole,
 });
 
+/**
+ * `owner` is assignable here and nowhere else. An owner appointing a peer holds
+ * the top role already, so it opens no path; the service still refuses it to an
+ * admin, and refuses demoting the last owner.
+ */
+const memberRole = z.enum(["owner", "admin", "member"]);
+
 export const updateOrgMemberSchema = z.union([
   z.object({ status: z.enum(["active", "suspended"]) }),
   z.object({ ssoExempt: z.boolean() }),
-  z.object({ role: assignableRole }),
+  z.object({ role: memberRole }),
 ]);

@@ -161,3 +161,40 @@ describe.skipIf(!PROOF_URL)("requireOrgRole on real PostgreSQL", () => {
     );
   });
 });
+
+/**
+ * The org pages branch on this to decide what to render — most sharply on
+ * `/settings/role-mappings`, where an owner gets the write controls and an
+ * admin gets an explanation instead. It must return the exact role, not
+ * "clears admin", or the two look identical to the page.
+ */
+describe.skipIf(!PROOF_URL)("readOrgViewer", () => {
+  it("gives an owner their own role, not the minimum", async () => {
+    as(OWNER);
+    await expect(guard.readOrgViewer()).resolves.toEqual({
+      userId: OWNER,
+      role: "owner",
+    });
+  });
+
+  it("gives an admin `admin`, which is what hides the write controls", async () => {
+    as(ADMIN);
+    await expect(guard.readOrgViewer()).resolves.toEqual({
+      userId: ADMIN,
+      role: "admin",
+    });
+  });
+
+  it("gives a member `member`, which is what hides the page", async () => {
+    as(MEMBER);
+    await expect(guard.readOrgViewer()).resolves.toMatchObject({
+      role: "member",
+    });
+  });
+
+  it("returns null rather than throwing when nobody is signed in", async () => {
+    ctx.session = null;
+    // A page renders it; a throw here would be a 500 where a notice belongs.
+    await expect(guard.readOrgViewer()).resolves.toBeNull();
+  });
+});

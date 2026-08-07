@@ -32,22 +32,25 @@ export const orgMemberRoutes = () => {
   });
 
   app.patch("/:userId", async (c) => {
-    const { organizationId, userId, userEmail } = c.get("auth");
+    const { organizationId, userId, userEmail, role } = c.get("auth");
     const targetId = c.req.param("userId");
     const input = await parseBody(c, updateOrgMemberSchema);
+    // The middleware resolved this caller's role for the `admin` gate; the
+    // owner-only rules below read it rather than resolving it a second time.
+    const actor = { userId, role };
 
     const apply = (): Promise<OrgMemberChange> => {
       if ("role" in input) {
-        return changeMemberRole(organizationId, targetId, input.role, userId);
+        return changeMemberRole(organizationId, targetId, input.role, actor);
       }
       if ("status" in input) {
-        return setMemberStatus(organizationId, targetId, input.status, userId);
+        return setMemberStatus(organizationId, targetId, input.status, actor);
       }
       return setMemberSsoExempt(
         organizationId,
         targetId,
         input.ssoExempt,
-        userId,
+        actor,
       );
     };
 

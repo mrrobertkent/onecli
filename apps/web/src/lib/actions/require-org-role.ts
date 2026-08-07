@@ -36,3 +36,28 @@ export const requireOrgRole = async (
   }
   return { ...context, role: decision.role };
 };
+
+export interface OrgViewer {
+  userId: string;
+  role: OrgRole;
+}
+
+/**
+ * Who is looking, or null when they are nobody here — for deciding what to
+ * render rather than whether to act. A page uses it to explain a control it
+ * will not offer, and to know which row is the viewer's own. Every action
+ * behind those controls still checks for itself.
+ */
+export const readOrgViewer = async (): Promise<OrgViewer | null> => {
+  try {
+    const context = await resolveProjectContext();
+    const decision = await resolveOrgRoleAtLeast(
+      context.userId,
+      context.organizationId,
+      "member",
+    );
+    return decision.ok ? { userId: context.userId, role: decision.role } : null;
+  } catch {
+    return null;
+  }
+};

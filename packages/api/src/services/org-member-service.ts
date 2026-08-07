@@ -92,17 +92,25 @@ export const listOrgMembers = async (
 /**
  * Load a membership this caller is allowed to act on.
  *
- * An `owner` is refused: `owner` is the one role the directory cannot confer
- * (D-11), so letting an admin demote or suspend one would hand back the
- * escalation path that rule closes. Acting on yourself is refused because it is
- * the lockout this surface exists to prevent.
+ * An admin may not touch an owner row. `owner` is the one role the directory
+ * cannot confer (D-11), so letting an admin demote or suspend one would hand
+ * back the escalation path that rule closes — an owner may, because appointing
+ * or removing a peer needs the top role already and opens no new path.
+ *
+ * Acting on yourself is refused either way: it is the lockout this surface
+ * exists to prevent.
+ *
+ * Those two rules together are what keeps an owner in the organization. An
+ * owner is demotable only by another owner and never by themselves, so there
+ * are always at least two at the moment of a demotion and never fewer than one
+ * after it. Relax the self-edit rule and that floor needs writing explicitly.
  */
 const requireEditableMember = async (
   organizationId: string,
   userId: string,
-  actingUserId: string,
+  actor: MemberActor,
 ) => {
-  if (userId === actingUserId) {
+  if (userId === actor.userId) {
     throw new ServiceError(
       "CONFLICT",
       "You cannot change your own role or access",
@@ -113,26 +121,35 @@ const requireEditableMember = async (
     select: { role: true, status: true, ssoExempt: true },
   });
   if (!member) throw new ServiceError("NOT_FOUND", "Member not found");
-  if (member.role === "owner") {
+  if (member.role === "owner" && actor.role !== "owner") {
     throw new ServiceError(
-      "CONFLICT",
-      "An owner's role and access cannot be changed here",
+      "FORBIDDEN",
+      "Only an owner may change another owner's role or access",
     );
   }
   return member;
 };
 
+export interface MemberActor {
+  userId: string;
+  role?: string;
+}
+
 export const changeMemberRole = async (
   organizationId: string,
   userId: string,
-  role: "admin" | "member",
-  actingUserId: string,
+  role: "owner" | "admin" | "member",
+  actor: MemberActor,
 ): Promise<OrgMemberChange> => {
-  const member = await requireEditableMember(
-    organizationId,
-    userId,
-    actingUserId,
-  );
+  const member = await requireEditableMember(organizationId, userId, actor);
+
+  if (role === "owner" && actor.role !== "owner") {
+    throw new ServiceError(
+      "FORBIDDEN",
+      "Only an owner may appoint another owner",
+    );
+  }
+
   const updated = await db.organizationMember.update({
     where: { organizationId_userId: { organizationId, userId } },
     data: { role },
@@ -156,9 +173,18 @@ export const setMemberStatus = async (
   organizationId: string,
   userId: string,
   status: "active" | "suspended",
-  actingUserId: string,
+  actor: MemberActor,
 ): Promise<OrgMemberChange> => {
-  await requireEditableMember(organizationId, userId, actingUserId);
+  const member = await requireEditableMember(organizationId, userId, actor);
+
+  // Demote first, deliberately: suspension is the directory's revocation, and
+  // an owner is exactly who the directory may not revoke.
+  if (member.role === "owner" && status === "suspended") {
+    throw new ServiceError(
+      "CONFLICT",
+      "An owner cannot be suspended. Change their role first.",
+    );
+  }
 
   const updated = await db.organizationMember.update({
     where: { organizationId_userId: { organizationId, userId } },
@@ -187,9 +213,9 @@ export const setMemberSsoExempt = async (
   organizationId: string,
   userId: string,
   ssoExempt: boolean,
-  actingUserId: string,
+  actor: MemberActor,
 ): Promise<OrgMemberChange> => {
-  await requireEditableMember(organizationId, userId, actingUserId);
+  await requireEditableMember(organizationId, userId, actor);
   const updated = await db.organizationMember.update({
     where: { organizationId_userId: { organizationId, userId } },
     data: { ssoExempt },

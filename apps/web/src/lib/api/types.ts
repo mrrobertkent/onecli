@@ -200,12 +200,12 @@ export interface OrgSsoEnforcement {
 }
 
 // PATCH /v1/org/members/:userId — exactly one change per request. `owner` is
-// not assignable: it is the one role the directory cannot confer, and the one
-// that may edit the group→role mappings.
+// assignable only by an owner, and only here: the directory can never confer
+// it, and it is the role that may edit the group→role mappings.
 export type UpdateOrgMemberInput =
   | { status: "active" | "suspended" }
   | { ssoExempt: boolean }
-  | { role: "admin" | "member" };
+  | { role: "owner" | "admin" | "member" };
 
 export interface OrgMemberRow {
   userId: string;

@@ -9,6 +9,9 @@ import {
   KeyRound,
   ShieldCheck,
   Globe,
+  Users,
+  UsersRound,
+  GitBranch,
 } from "lucide-react";
 import type { NavItem } from "@/app/(dashboard)/_components/nav-main";
 
@@ -46,6 +49,18 @@ export const getSettingsSections = (
     items: [
       { title: "Profile", url: "/settings/profile", icon: User },
       { title: "API Keys", url: "/settings/api-keys", icon: KeyRound },
+    ],
+  },
+  {
+    label: "Organization",
+    items: [
+      { title: "Members", url: "/settings/members", icon: Users },
+      { title: "Groups", url: "/settings/groups", icon: UsersRound },
+      {
+        title: "Role mappings",
+        url: "/settings/role-mappings",
+        icon: GitBranch,
+      },
     ],
   },
   {
