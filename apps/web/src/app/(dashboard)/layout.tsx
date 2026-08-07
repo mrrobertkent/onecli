@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { SidebarInset, SidebarProvider } from "@onecli/ui/components/sidebar";
 import { DashboardSidebar } from "@dashboard/dashboard-sidebar";
 import { DashboardHeader } from "@dashboard/dashboard-header";
+import { RecoveryBanner } from "@/app/(dashboard)/_components/recovery-banner";
 import { SettingsNav } from "@/app/(dashboard)/settings/_components/settings-nav";
 import { SettingsMobileNav } from "@/app/(dashboard)/settings/_components/settings-mobile-nav";
 import { useAuth } from "@/providers/auth-provider";
@@ -123,30 +124,35 @@ export default function DashboardLayout({
 
   return (
     <PlanGateProvider>
-      <SidebarProvider
-        className="bg-background h-svh overflow-hidden"
-        style={{ "--sidebar-width-icon": "2rem" } as React.CSSProperties}
-      >
-        <DashboardSidebar />
-        <SidebarInset className="bg-background min-w-0 overflow-hidden rounded-none md:border md:rounded-xl md:peer-data-[variant=inset]:shadow-none md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-1">
-          <header className="flex h-12 shrink-0 items-center border-b">
-            <DashboardHeader />
-          </header>
-          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            {isSettings && (
-              <aside className="hidden w-56 shrink-0 overflow-y-auto border-r px-6 pt-6 md:block">
-                <SettingsNav />
-              </aside>
-            )}
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-              {isSettings && <SettingsMobileNav />}
-              <main className="mx-auto min-w-0 max-w-6xl p-4 sm:p-6">
-                {children}
-              </main>
+      <div className="flex h-svh flex-col overflow-hidden">
+        <SidebarProvider
+          className="bg-background min-h-0 flex-1 overflow-hidden"
+          style={{ "--sidebar-width-icon": "2rem" } as React.CSSProperties}
+        >
+          <DashboardSidebar />
+          <SidebarInset className="bg-background min-w-0 overflow-hidden rounded-none md:border md:rounded-xl md:peer-data-[variant=inset]:shadow-none md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-1">
+            {/* Above the header: recovery mode is a property of the whole
+                instance, not of the page under it. */}
+            <RecoveryBanner />
+            <header className="flex h-12 shrink-0 items-center border-b">
+              <DashboardHeader />
+            </header>
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+              {isSettings && (
+                <aside className="hidden w-56 shrink-0 overflow-y-auto border-r px-6 pt-6 md:block">
+                  <SettingsNav />
+                </aside>
+              )}
+              <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+                {isSettings && <SettingsMobileNav />}
+                <main className="mx-auto min-w-0 max-w-6xl p-4 sm:p-6">
+                  {children}
+                </main>
+              </div>
             </div>
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
+          </SidebarInset>
+        </SidebarProvider>
+      </div>
     </PlanGateProvider>
   );
 }

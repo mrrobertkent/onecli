@@ -3,7 +3,8 @@ import { RecoveryForm } from "./_components/recovery-form";
 
 /**
  * Redeems a recovery key minted on the host with
- * `onecli-gateway create-recovery-key`.
+ * `onecli-gateway create-recovery-key`: it grants a session and opens a
+ * time-boxed recovery window, and changes nothing else.
  *
  * Unlisted: nothing links here, and the key in the query string is what is
  * being checked, not the URL. Rendering the form is deliberately unguarded —
@@ -44,8 +45,8 @@ export default async function RecoveryPage({
           Emergency recovery
         </h1>
         <p className="text-muted-foreground mt-3 max-w-md text-base">
-          Set a password for the account this key was minted for. You will be
-          signed in with it, without the identity provider.
+          Sign in as the account this key was minted for, without the identity
+          provider. Nothing about the account or the instance is changed.
         </p>
       </div>
 

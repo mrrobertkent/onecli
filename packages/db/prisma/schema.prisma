@@ -997,6 +997,20 @@ model InstanceSetting {
   /// conditional update on this column is what serialises concurrent claims.
   bootstrapAdminUserId String? @unique @map("bootstrap_admin_user_id")
 
+  /// Whether email + password sign-in is offered. Recovery mode enables it for
+  /// the length of its window without writing here, so an abandoned recovery
+  /// leaves the stored answer alone.
+  passwordLoginEnabled Boolean @default(true) @map("password_login_enabled")
+
+  /// End of the current recovery window. Null, or in the past, means the
+  /// instance is not in recovery — nothing sweeps this column, so the two are
+  /// the same state.
+  recoveryModeExpiresAt DateTime? @map("recovery_mode_expires_at")
+
+  /// Who redeemed the key that opened the window. Kept so the leaving event has
+  /// an actor when the window closes on expiry with nobody present.
+  recoveryModeUserId String? @map("recovery_mode_user_id")
+
   updatedAt       DateTime @updatedAt @map("updated_at")
   updatedByUserId String?  @map("updated_by_user_id")
 

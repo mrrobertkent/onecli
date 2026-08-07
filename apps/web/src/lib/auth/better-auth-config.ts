@@ -21,6 +21,8 @@ import {
   recordAccountFailure,
   clearAccountThrottle,
 } from "@/lib/auth/account-throttle";
+import { isPasswordLoginAvailable } from "@/lib/auth/login-policy";
+import { recoveryKeyPlugin } from "@/lib/auth/recovery-endpoint";
 
 /**
  * Better Auth's `user` model maps onto OneCLI's existing `users` table; its
@@ -96,9 +98,10 @@ export const auth = betterAuth({
   verification: { modelName: "authVerification" },
 
   emailAndPassword: {
+    // Read once at construction, so neither of these can express a setting an
+    // administrator changes at runtime. Whether password sign-in is offered is
+    // gated in `hooks.before`, and sign-up in `databaseHooks.user.create.before`.
     enabled: true,
-    // Read once at construction, so it cannot express an admin-changeable
-    // setting. Sign-up is gated in `databaseHooks.user.create.before` instead.
     disableSignUp: false,
     password: {
       hash: hashPassword,
@@ -126,11 +129,25 @@ export const auth = betterAuth({
 
   hooks: {
     /**
-     * The per-account half of login throttling. The library's own limiter is
-     * keyed on address and path, which one attacker with many addresses walks
-     * straight through.
+     * Two gates on the password paths: whether the instance offers them at all,
+     * and the per-account half of login throttling. The library's own limiter
+     * is keyed on address and path, which one attacker with many addresses
+     * walks straight through.
      */
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email" && ctx.path !== "/sign-up/email") {
+        return;
+      }
+
+      // Checked ahead of the throttle so a turned-off method costs an account
+      // none of its attempts.
+      if (!(await isPasswordLoginAvailable())) {
+        throw new APIError("FORBIDDEN", {
+          message: "Password sign-in is turned off for this instance.",
+          code: "PASSWORD_LOGIN_DISABLED",
+        });
+      }
+
       if (ctx.path !== "/sign-in/email") return;
       const email = (ctx.body as { email?: string } | undefined)?.email;
       if (!email) return;
@@ -212,6 +229,7 @@ export const auth = betterAuth({
 
   plugins: [
     genericOAuth({ config: oidcProviders }),
+    recoveryKeyPlugin(),
     // Must be last: it writes Set-Cookie via next/headers on the way out.
     nextCookies(),
   ],

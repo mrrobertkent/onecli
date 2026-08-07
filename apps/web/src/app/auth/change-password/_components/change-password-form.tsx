@@ -8,7 +8,14 @@ import { Input } from "@onecli/ui/components/input";
 import { Label } from "@onecli/ui/components/label";
 import { changePassword } from "@/lib/actions/change-password";
 
-export const ChangePasswordForm = () => {
+export interface ChangePasswordFormProps {
+  /** False inside a recovery window, where the key already proved more. */
+  askForCurrent?: boolean;
+}
+
+export const ChangePasswordForm = ({
+  askForCurrent = true,
+}: ChangePasswordFormProps) => {
   const router = useRouter();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -38,17 +45,19 @@ export const ChangePasswordForm = () => {
 
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="current-password">Current password</Label>
-        <Input
-          id="current-password"
-          type="password"
-          value={current}
-          onChange={(e) => setCurrent(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
-      </div>
+      {askForCurrent && (
+        <div className="space-y-2">
+          <Label htmlFor="current-password">Current password</Label>
+          <Input
+            id="current-password"
+            type="password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="new-password">New password</Label>

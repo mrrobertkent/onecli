@@ -3,12 +3,26 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { Loader2 } from "lucide-react";
 import { Button } from "@onecli/ui/components/button";
+import { Input } from "@onecli/ui/components/input";
+import { Label } from "@onecli/ui/components/label";
 import { useAuth } from "@/providers/auth-provider";
+import { authClient } from "@/lib/auth/auth-client";
 import { apiFetch } from "@/lib/api-fetch";
 import { CAPS } from "@/lib/env";
 
-export const LoginContent = () => {
+export interface LoginContentProps {
+  /** The stored login-method setting, plus anything recovery is lending. */
+  passwordLogin?: boolean;
+  /** False when no identity provider is configured, so the button is a dead end. */
+  ssoConfigured?: boolean;
+}
+
+export const LoginContent = ({
+  passwordLogin = false,
+  ssoConfigured = true,
+}: LoginContentProps) => {
   const router = useRouter();
   const {
     isAuthenticated,
@@ -24,6 +38,10 @@ export const LoginContent = () => {
     authProviderLogoOnly,
   } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // Google keeps its branded button; any other provider (generic OIDC) gets a
   // neutral button labelled with the configured provider name, optionally
@@ -70,6 +88,24 @@ export const LoginContent = () => {
     syncUser();
   }, [isAuthenticated, user, router, signOut]);
 
+  const onPasswordSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordError(null);
+    setSubmitting(true);
+
+    const { error } = await authClient.signIn.email({ email, password });
+    if (error) {
+      setPasswordError(error.message ?? "That did not work. Try again.");
+      setSubmitting(false);
+      return;
+    }
+
+    // A full load, the same as the identity provider's callback: it re-enters
+    // this page with the session already established, and the effect above
+    // routes on to the right project.
+    window.location.assign("/");
+  };
+
   return (
     <div className="bg-background flex min-h-svh flex-col items-center justify-center px-6 pb-24">
       <div className="mb-8">
@@ -112,56 +148,115 @@ export const LoginContent = () => {
           </div>
 
           <div className="w-full max-w-sm rounded-2xl border border-border/50 bg-card p-8">
-            <Button
-              size="lg"
-              variant="outline"
-              className={
-                isGoogle
-                  ? "w-full gap-2 text-base bg-white text-black hover:bg-gray-100 dark:bg-white dark:text-black dark:hover:bg-gray-100"
-                  : "w-full gap-2 text-base"
-              }
-              // Inline rather than a class: the value is operator-supplied at
-              // runtime, so Tailwind cannot have generated a utility for it.
-              // `filter` dims on hover, which works against any hue without
-              // needing a second configured colour.
-              style={
-                brandColor
-                  ? {
-                      backgroundColor: brandColor,
-                      color: brandText,
-                      borderColor: brandColor,
-                    }
-                  : undefined
-              }
-              loading={signingIn}
-              onClick={() => {
-                setSigningIn(true);
-                signIn();
-              }}
-            >
-              {isGoogle && <GoogleIcon />}
-              {!isGoogle && brandLogo && (
-                // Plain <img>: the source is arbitrary operator input, so it
-                // must not go through next/image's configured-domain allowlist.
-                // A lockup keeps its own aspect ratio and carries the accessible
-                // name; a bare mark is a fixed square and is decorative, because
-                // the visible label already names the provider.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={brandLogo}
-                  alt={logoOnly ? authProviderName : ""}
-                  aria-hidden={logoOnly ? undefined : true}
-                  className={logoOnly ? "h-5 w-auto" : "h-4 w-4"}
-                />
-              )}
-              {signingIn
-                ? "Redirecting..."
-                : isGoogle
-                  ? "Continue with Google"
-                  : logoOnly
-                    ? null
-                    : oidcLabel}
-            </Button>
+            {ssoConfigured && (
+              <Button
+                size="lg"
+                variant="outline"
+                className={
+                  isGoogle
+                    ? "w-full gap-2 text-base bg-white text-black hover:bg-gray-100 dark:bg-white dark:text-black dark:hover:bg-gray-100"
+                    : "w-full gap-2 text-base"
+                }
+                // Inline rather than a class: the value is operator-supplied at
+                // runtime, so Tailwind cannot have generated a utility for it.
+                // `filter` dims on hover, which works against any hue without
+                // needing a second configured colour.
+                style={
+                  brandColor
+                    ? {
+                        backgroundColor: brandColor,
+                        color: brandText,
+                        borderColor: brandColor,
+                      }
+                    : undefined
+                }
+                loading={signingIn}
+                onClick={() => {
+                  setSigningIn(true);
+                  signIn();
+                }}
+              >
+                {isGoogle && <GoogleIcon />}
+                {!isGoogle && brandLogo && (
+                  // Plain <img>: the source is arbitrary operator input, so it
+                  // must not go through next/image's configured-domain
+                  // allowlist. A lockup keeps its own aspect ratio and carries
+                  // the accessible name; a bare mark is a fixed square and is
+                  // decorative, because the visible label already names the
+                  // provider.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={brandLogo}
+                    alt={logoOnly ? authProviderName : ""}
+                    aria-hidden={logoOnly ? undefined : true}
+                    className={logoOnly ? "h-5 w-auto" : "h-4 w-4"}
+                  />
+                )}
+                {signingIn
+                  ? "Redirecting..."
+                  : isGoogle
+                    ? "Continue with Google"
+                    : logoOnly
+                      ? null
+                      : oidcLabel}
+              </Button>
+            )}
+
+            {passwordLogin && ssoConfigured && (
+              <div className="my-6 flex items-center gap-3">
+                <span className="bg-border h-px flex-1" />
+                <span className="text-muted-foreground text-xs uppercase">
+                  or
+                </span>
+                <span className="bg-border h-px flex-1" />
+              </div>
+            )}
+
+            {passwordLogin && (
+              <form onSubmit={onPasswordSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+
+                {passwordError && (
+                  <p className="text-destructive text-sm" role="alert">
+                    {passwordError}
+                  </p>
+                )}
+
+                <Button type="submit" className="w-full" disabled={submitting}>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    "Sign in"
+                  )}
+                </Button>
+              </form>
+            )}
+
             <p className="text-muted-foreground mt-4 text-center text-xs">
               By continuing, you acknowledge OneCLI&apos;s{" "}
               <a
