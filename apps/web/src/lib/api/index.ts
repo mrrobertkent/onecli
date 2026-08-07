@@ -62,6 +62,7 @@ export type {
   DirectoryListParams,
   GroupRow,
   GroupMemberRow,
+  UpdateGroupInput,
   RoleMappingRow,
   CreateRoleMappingInput,
   UpdateRoleMappingInput,

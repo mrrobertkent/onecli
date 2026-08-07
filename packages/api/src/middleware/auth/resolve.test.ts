@@ -7,6 +7,7 @@ vi.hoisted(() => {
 
 const state = vi.hoisted(() => ({
   bindingRow: null as { id: string } | null,
+  unrestrictedGroup: null as { id: string } | null,
 }));
 
 vi.mock("@onecli/db", () => ({
@@ -14,6 +15,9 @@ vi.mock("@onecli/db", () => ({
     user: { findUnique: async () => null },
     project: { findFirst: async () => null, findUnique: async () => null },
     projectAccess: { findFirst: async () => state.bindingRow },
+    // The all-projects arm: a group that reaches every project in the org
+    // without a ProjectAccess row.
+    group: { findFirst: async () => state.unrestrictedGroup },
   },
 }));
 
@@ -31,6 +35,7 @@ let role: OrgRole | null = null;
 beforeEach(() => {
   role = null;
   state.bindingRow = null;
+  state.unrestrictedGroup = null;
   initRoleResolver({ getUserRole: async () => role });
 });
 
@@ -62,6 +67,15 @@ describe("canAccessProjectAsUser (cloud, bindings-only)", () => {
     state.bindingRow = null;
     await expect(canAccessProjectAsUser("someone-else", PROJECT)).resolves.toBe(
       false,
+    );
+  });
+
+  it("an active member in an all-projects group gets access with no binding", async () => {
+    role = "member";
+    state.bindingRow = null;
+    state.unrestrictedGroup = { id: "group-1" };
+    await expect(canAccessProjectAsUser("someone-else", PROJECT)).resolves.toBe(
+      true,
     );
   });
 

@@ -1,5 +1,6 @@
 import { db } from "@onecli/db";
 import { logger } from "../lib/logger";
+import { OIDC_GROUPS_CLAIM_PATH } from "../lib/env";
 import type { OrgRole, RoleResolver } from "../providers/types";
 import { activeMembershipWhere } from "./organization-service";
 
@@ -34,6 +35,61 @@ const ORG_ROLES: readonly OrgRole[] = ["owner", "admin", "member"];
 const isOrgRole = (value: string): value is OrgRole =>
   (ORG_ROLES as readonly string[]).includes(value);
 
+// ── The directory read ───────────────────────────────────────────────────
+
+/**
+ * Group names from the most recent OIDC `id_token` each user signed in with, or
+ * null for a user with no directory identity at all.
+ *
+ * The distinction decides whether the directory governs that user: an empty
+ * array means it grants them nothing, null means it has no opinion. Collapse
+ * the two and a password account is suspended at its next login.
+ */
+export const readIdpGroupsFor = async (
+  userIds: string[],
+): Promise<Map<string, string[] | null>> => {
+  const resolved = new Map<string, string[] | null>(
+    userIds.map((id) => [id, null]),
+  );
+  if (userIds.length === 0) return resolved;
+
+  const accounts = await db.authAccount.findMany({
+    where: { userId: { in: userIds }, idToken: { not: null } },
+    select: { userId: true, idToken: true },
+    orderBy: { updatedAt: "asc" },
+  });
+  // Ascending order leaves the newest token as the last write per user.
+  for (const account of accounts) {
+    if (!account.idToken) continue;
+    const claims = decodeJwtPayload(account.idToken);
+    resolved.set(
+      account.userId,
+      claims ? readClaimPath(claims, OIDC_GROUPS_CLAIM_PATH) : [],
+    );
+  }
+  return resolved;
+};
+
+export const readIdpGroups = async (userId: string): Promise<string[] | null> =>
+  (await readIdpGroupsFor([userId])).get(userId) ?? null;
+
+/**
+ * Decode a JWT payload without verifying it. Only safe on a persisted token
+ * that was verified before storage — never on one that arrived in a request.
+ */
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const json = Buffer.from(payload, "base64url").toString("utf8");
+    const parsed: unknown = JSON.parse(json);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
 // ── The writer ───────────────────────────────────────────────────────────
 
 /**
@@ -55,39 +111,65 @@ export const readClaimPath = (
   return cursor.filter((v): v is string => typeof v === "string");
 };
 
+/** One group→role mapping, reduced to what resolution actually reads. */
+export interface RoleMappingRule {
+  groupName: string;
+  role: string;
+  priority: number;
+}
+
+/** Every mapping in the org, highest priority first, ties broken by age. */
+export const listRoleMappingRules = async (
+  organizationId: string,
+): Promise<RoleMappingRule[]> => {
+  const mappings = await db.groupRoleMapping.findMany({
+    where: { organizationId, group: { organizationId } },
+    select: { role: true, priority: true, group: { select: { name: true } } },
+    orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+  });
+  return mappings.map((m) => ({
+    groupName: m.group.name,
+    role: m.role,
+    priority: m.priority,
+  }));
+};
+
 /**
- * Resolve the IdP's group names to a role via the persisted group→role
- * mappings; highest `priority` wins.
+ * The role a set of directory group names resolves to; highest priority wins.
  *
  * Returns `null` when nothing matches — a denial, not a default of "member".
  * Mapped roles are `admin | member` only: letting an IdP group confer `owner`
  * would hand the instance to anyone who can edit a group in the directory.
+ *
+ * Rules must already be priority-ordered.
  */
+export const pickRoleFromMappings = (
+  rules: RoleMappingRule[],
+  groupNames: string[],
+): OrgRole | null => {
+  if (groupNames.length === 0) return null;
+  const names = new Set(groupNames);
+
+  for (const rule of rules) {
+    if (!names.has(rule.groupName)) continue;
+    if (rule.role === "admin" || rule.role === "member") return rule.role;
+    logger.warn(
+      { role: rule.role },
+      "group role mapping has a non-assignable role; skipping",
+    );
+  }
+  return null;
+};
+
 export const resolveRoleFromGroups = async (
   organizationId: string,
   groupNames: string[],
 ): Promise<OrgRole | null> => {
   if (groupNames.length === 0) return null;
-
-  const mappings = await db.groupRoleMapping.findMany({
-    where: {
-      organizationId,
-      group: { organizationId, name: { in: groupNames } },
-    },
-    select: { role: true, priority: true },
-    orderBy: { priority: "desc" },
-  });
-
-  for (const mapping of mappings) {
-    if (mapping.role === "admin" || mapping.role === "member") {
-      return mapping.role;
-    }
-    logger.warn(
-      { role: mapping.role },
-      "group role mapping has a non-assignable role; skipping",
-    );
-  }
-  return null;
+  return pickRoleFromMappings(
+    await listRoleMappingRules(organizationId),
+    groupNames,
+  );
 };
 
 /**

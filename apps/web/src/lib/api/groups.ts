@@ -4,6 +4,7 @@ import type {
   DirectoryListParams,
   GroupRow,
   GroupMemberRow,
+  UpdateGroupInput,
 } from "./types";
 
 // Org directory: human groups (§3.5 contract) — organization-scoped only.
@@ -22,10 +23,15 @@ const query = (params: DirectoryListParams & { source?: string } = {}) => {
 export const list = (params?: DirectoryListParams & { source?: string }) =>
   apiGet<DirectoryPage<GroupRow>>(`${base}${query(params)}`);
 
-export const create = (name: string) => apiPost<GroupRow>(base, { name });
+export const create = (name: string, modes?: Omit<UpdateGroupInput, "name">) =>
+  apiPost<GroupRow>(base, { name, ...modes });
 
 export const rename = (groupId: string, name: string) =>
   apiPatch<GroupRow>(`${base}/${groupId}`, { name });
+
+/** Name and the two membership/access modes, any subset. */
+export const update = (groupId: string, input: UpdateGroupInput) =>
+  apiPatch<GroupRow>(`${base}/${groupId}`, input);
 
 export const remove = (groupId: string) => apiDelete(`${base}/${groupId}`);
 

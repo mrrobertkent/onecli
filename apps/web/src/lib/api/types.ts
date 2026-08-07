@@ -199,17 +199,21 @@ export interface OrgSsoEnforcement {
   exemptMemberCount: number;
 }
 
-// PATCH /v1/org/members/:userId — exactly one change per request.
+// PATCH /v1/org/members/:userId — exactly one change per request. `owner` is
+// not assignable: it is the one role the directory cannot confer, and the one
+// that may edit the group→role mappings.
 export type UpdateOrgMemberInput =
   | { status: "active" | "suspended" }
-  | { ssoExempt: boolean };
+  | { ssoExempt: boolean }
+  | { role: "admin" | "member" };
 
 export interface OrgMemberRow {
   userId: string;
+  role: string;
   status: string;
   ssoExempt: boolean;
-  /** Present on status changes: what happened on the Cognito side. */
-  revocation?: string;
+  /** Sessions ended by this change — non-zero only on a suspension. */
+  sessionsRevoked: number;
 }
 
 export interface ResourceCounts {
@@ -256,9 +260,19 @@ export interface GroupRow {
   /** "scim" groups are IdP-managed — manual writes 409. */
   source: "manual" | "scim";
   externalId: string | null;
+  /** "all-users" resolves to every current and future member of the org. */
+  membershipMode: "explicit" | "all-users";
+  /** "all-projects" reaches every current and future project in the org. */
+  projectAccessMode: "selected" | "all-projects";
   memberCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UpdateGroupInput {
+  name?: string;
+  membershipMode?: "explicit" | "all-users";
+  projectAccessMode?: "selected" | "all-projects";
 }
 
 export interface GroupMemberRow {

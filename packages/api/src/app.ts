@@ -51,6 +51,9 @@ import {
   removedRuleRoutes,
 } from "./routes/removed-routes";
 import { userRoutes } from "./routes/user";
+import { orgGroupRoutes } from "./routes/org-groups";
+import { orgMemberRoutes } from "./routes/org-members";
+import { orgRoleMappingRoutes } from "./routes/org-role-mappings";
 import { appRoutes } from "./routes/apps";
 import { connectionRoutes } from "./routes/connections";
 import { vaultRoutes } from "./routes/vaults";
@@ -133,6 +136,9 @@ export const createApiApp = (
   app.route("/agents", agentRoutes());
   app.route("/secrets", secretRoutes());
   app.route("/user", userRoutes());
+  app.route("/org/members", orgMemberRoutes());
+  app.route("/org/groups", orgGroupRoutes());
+  app.route("/org/role-mappings", orgRoleMappingRoutes());
   app.route("/apps", appRoutes());
   app.route("/connections", connectionRoutes());
   // Read-only policy reflections, composed onto the same base paths. Each route

@@ -1,6 +1,5 @@
 import { db } from "@onecli/db";
 import { logger } from "../lib/logger";
-import { OIDC_GROUPS_CLAIM_PATH } from "../lib/env";
 import {
   AUDIT_ACTIONS,
   AUDIT_SERVICES,
@@ -13,7 +12,7 @@ import {
   SHARED_ORG_SLUG,
 } from "./organization-service";
 import {
-  readClaimPath,
+  readIdpGroups,
   resolveRoleFromGroups,
   revokeResolvedRole,
   writeResolvedRole,
@@ -107,46 +106,6 @@ export const ossSessionMembership = async (
   } catch (err) {
     // Never rethrow — see the contract above.
     logger.error({ err, userId: user.id }, "session role resolution failed");
-  }
-};
-
-/**
- * Group names from the most recent OIDC `id_token` this user signed in with, or
- * null when they have no directory identity at all.
- *
- * The distinction decides whether the directory governs this user: an empty
- * array means it grants them nothing, null means it has no opinion.
- *
- * Read by claim path, not name — Keycloak nests roles at `realm_access.roles`
- * where Authentik and Okta emit a flat `groups`.
- */
-const readIdpGroups = async (userId: string): Promise<string[] | null> => {
-  const account = await db.authAccount.findFirst({
-    where: { userId, idToken: { not: null } },
-    select: { idToken: true },
-    orderBy: { updatedAt: "desc" },
-  });
-  if (!account?.idToken) return null;
-
-  const claims = decodeJwtPayload(account.idToken);
-  if (!claims) return [];
-  return readClaimPath(claims, OIDC_GROUPS_CLAIM_PATH);
-};
-
-/**
- * Decode a JWT payload without verifying it. Only safe on a persisted token
- * that was verified before storage — never on one that arrived in a request.
- */
-const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return null;
-    const json = Buffer.from(payload, "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(json);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
   }
 };
 

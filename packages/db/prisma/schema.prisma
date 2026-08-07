@@ -672,13 +672,22 @@ model AppConfig {
 // A human group — manually managed, or provisioned from the customer IdP via
 // SCIM (source "scim" rows are locked to IdP management).
 model Group {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  name           String
-  source         String   @default("manual") // "manual" | "scim"
-  externalId     String?  @map("external_id") // IdP correlation id (SCIM)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id                String  @id @default(uuid())
+  organizationId    String  @map("organization_id")
+  name              String
+  source            String  @default("manual") // "manual" | "scim"
+  externalId        String? @map("external_id") // IdP correlation id (SCIM)
+  // Both "all" modes are evaluated at read time and never materialised as rows:
+  // "all future users/projects" cannot be pre-created, and backfilling would
+  // turn a membership question into a sync problem.
+  //
+  // "explicit" = the GroupMember rows; "all-users" = every active org member.
+  membershipMode    String  @default("explicit") @map("membership_mode")
+  // "selected" = the ProjectAccess rows; "all-projects" = every project in the org.
+  projectAccessMode String  @default("selected") @map("project_access_mode")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
 

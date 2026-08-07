@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   member: null as { role: string } | null,
-  mappings: [] as { role: string; priority: number }[],
+  // Matching moved out of SQL and into `pickRoleFromMappings`, so a fixture
+  // has to carry the group name the claim is compared against.
+  mappings: [] as {
+    role: string;
+    priority: number;
+    group: { name: string };
+  }[],
 }));
 
 vi.mock("@onecli/db", () => ({
@@ -78,22 +84,29 @@ describe("resolveRoleFromGroups", () => {
 
   it("highest priority wins", async () => {
     state.mappings = [
-      { role: "member", priority: 1 },
-      { role: "admin", priority: 9 },
+      { role: "member", priority: 1, group: { name: "a" } },
+      { role: "admin", priority: 9, group: { name: "b" } },
     ];
     expect(await resolveRoleFromGroups("org-1", ["a", "b"])).toBe("admin");
   });
 
+  it("ignores a mapping for a group the claim does not carry", async () => {
+    state.mappings = [{ role: "admin", priority: 9, group: { name: "b" } }];
+    expect(await resolveRoleFromGroups("org-1", ["a"])).toBeNull();
+  });
+
   it("never confers owner from a directory group", async () => {
     // Otherwise anyone who can edit a group in the IdP can take the instance.
-    state.mappings = [{ role: "owner", priority: 99 }];
+    state.mappings = [
+      { role: "owner", priority: 99, group: { name: "sneaky" } },
+    ];
     expect(await resolveRoleFromGroups("org-1", ["sneaky"])).toBeNull();
   });
 
   it("skips a non-assignable role and falls through to the next", async () => {
     state.mappings = [
-      { role: "owner", priority: 99 },
-      { role: "member", priority: 1 },
+      { role: "owner", priority: 99, group: { name: "a" } },
+      { role: "member", priority: 1, group: { name: "b" } },
     ];
     expect(await resolveRoleFromGroups("org-1", ["a", "b"])).toBe("member");
   });

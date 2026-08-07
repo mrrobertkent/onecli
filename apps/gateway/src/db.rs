@@ -273,8 +273,11 @@ pub(crate) async fn user_can_manage_project(
     project_id: &str,
 ) -> Result<bool> {
     let row: Option<(String,)> = sqlx::query_as(
-        // The INNER JOIN is the suspension/removal gate; the two EXISTS arms are
-        // the direct and group-mediated bindings.
+        // The INNER JOIN is the suspension/removal gate; the three EXISTS arms
+        // are the direct binding, a bound group, and a group that reaches every
+        // project in the org. A group's membership is its rows, or every member
+        // of the org when it is in all-users mode — the "all" modes are read
+        // here rather than stored, so they cover rows created after the group.
         r#"SELECT p.id
            FROM projects p
            INNER JOIN organization_members om
@@ -290,8 +293,28 @@ pub(crate) async fn user_can_manage_project(
                )
                OR EXISTS (
                  SELECT 1 FROM project_access pa
-                 JOIN group_members gm ON gm.group_id = pa.group_id
-                 WHERE pa.project_id = p.id AND gm.user_id = $1
+                 JOIN groups g ON g.id = pa.group_id
+                 WHERE pa.project_id = p.id
+                   AND g.organization_id = p.organization_id
+                   AND (
+                     g.membership_mode = 'all-users'
+                     OR EXISTS (
+                       SELECT 1 FROM group_members gm
+                       WHERE gm.group_id = g.id AND gm.user_id = $1
+                     )
+                   )
+               )
+               OR EXISTS (
+                 SELECT 1 FROM groups g
+                 WHERE g.organization_id = p.organization_id
+                   AND g.project_access_mode = 'all-projects'
+                   AND (
+                     g.membership_mode = 'all-users'
+                     OR EXISTS (
+                       SELECT 1 FROM group_members gm
+                       WHERE gm.group_id = g.id AND gm.user_id = $1
+                     )
+                   )
                )
              )
            LIMIT 1"#,
@@ -939,6 +962,8 @@ mod access_proof_tests {
     async fn reset(pool: &PgPool, p: &str) -> Result<()> {
         for stmt in [
             "DELETE FROM project_access WHERE project_id LIKE $1",
+            "DELETE FROM group_members WHERE group_id LIKE $1",
+            "DELETE FROM groups WHERE id LIKE $1",
             "DELETE FROM projects WHERE id LIKE $1",
             "DELETE FROM organization_members WHERE user_id LIKE $1",
             "DELETE FROM users WHERE id LIKE $1",
@@ -1085,6 +1110,107 @@ mod access_proof_tests {
             .await
             .unwrap();
         assert!(!can(&pool, P, "alice", "alice").await, "removed member");
+
+        reset(&pool, P).await.expect("cleanup");
+    }
+
+    /// The two group modes carry no rows, so the SQL has to read them. This is
+    /// the gateway half of `group-modes.pg.test.ts` — the two enforce the same
+    /// rule on different paths, and a divergence admits on one and refuses on
+    /// the other.
+    #[tokio::test]
+    async fn group_modes_are_read_rather_than_materialised() {
+        let Some(url) = proof_database_url() else {
+            return;
+        };
+        const P: &str = "gwmode-";
+        let pool = connect(&url).await;
+
+        seed(&pool, P).await.expect("seed");
+        add_member(&pool, P, "alice", "member", "active")
+            .await
+            .unwrap();
+        add_member(&pool, P, "bob", "member", "active")
+            .await
+            .unwrap();
+
+        let make_group = |suffix: &'static str, membership: &'static str, access: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query(
+                    "INSERT INTO groups
+                       (id, organization_id, name, membership_mode,
+                        project_access_mode, updated_at)
+                     VALUES ($1, $2, $1, $3, $4, NOW())",
+                )
+                .bind(format!("{P}{suffix}"))
+                .bind(format!("{P}org"))
+                .bind(membership)
+                .bind(access)
+                .execute(&pool)
+                .await
+                .expect("insert group");
+            }
+        };
+
+        // An all-users group bound to Bob's project admits Alice, who is in no
+        // group and holds no binding.
+        make_group("g-everyone", "all-users", "selected").await;
+        sqlx::query(
+            "INSERT INTO project_access (id, project_id, group_id, updated_at)
+             VALUES ($1, $2, $3, NOW())",
+        )
+        .bind(format!("{P}everyone-binding"))
+        .bind(format!("{P}bob-proj"))
+        .bind(format!("{P}g-everyone"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            can(&pool, P, "alice", "bob").await,
+            "all-users group admits a member who is in no group"
+        );
+
+        // An all-projects group admits its member to a project it is not bound
+        // to at all.
+        sqlx::query("DELETE FROM project_access WHERE id = $1")
+            .bind(format!("{P}everyone-binding"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE groups SET membership_mode = 'explicit' WHERE id = $1")
+            .bind(format!("{P}g-everyone"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            !can(&pool, P, "alice", "bob").await,
+            "neither mode set: no access"
+        );
+
+        make_group("g-unrestricted", "explicit", "all-projects").await;
+        sqlx::query(
+            "INSERT INTO group_members (group_id, user_id, updated_at)
+             VALUES ($1, $2, NOW())",
+        )
+        .bind(format!("{P}g-unrestricted"))
+        .bind(format!("{P}alice"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            can(&pool, P, "alice", "bob").await,
+            "all-projects group reaches a project with no binding"
+        );
+
+        // Suspension still wins over either mode.
+        add_member(&pool, P, "alice", "member", "suspended")
+            .await
+            .unwrap();
+        assert!(
+            !can(&pool, P, "alice", "bob").await,
+            "a suspended member reaches nothing"
+        );
 
         reset(&pool, P).await.expect("cleanup");
     }

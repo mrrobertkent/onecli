@@ -4,6 +4,10 @@ import {
   activeMembershipWhere,
   findUserDefaultProject,
 } from "../../services/organization-service";
+import {
+  groupIncludesUser,
+  PROJECT_ACCESS_MODES,
+} from "../../services/group-modes";
 import { getRoleResolver, ROLE_HIERARCHY } from "../../providers";
 
 export const resolveUserEmail = async (userId: string): Promise<string> => {
@@ -49,19 +53,40 @@ export const resolveOrganizationId = async (
 /**
  * Whether a user holds a ProjectAccess binding on a project, directly or via a
  * group they belong to. Only reached under `CAPS.rbac`.
+ *
+ * The second read is the all-projects arm: such a group binds to every project
+ * in its org without a `ProjectAccess` row, so no first-read filter can find it.
  */
 const hasProjectBinding = async (
   userId: string,
-  projectId: string,
+  project: { id: string; organizationId: string },
 ): Promise<boolean> => {
   const binding = await db.projectAccess.findFirst({
     where: {
-      projectId,
-      OR: [{ userId }, { group: { members: { some: { userId } } } }],
+      projectId: project.id,
+      OR: [
+        { userId },
+        {
+          group: {
+            organizationId: project.organizationId,
+            ...groupIncludesUser(userId),
+          },
+        },
+      ],
     },
     select: { id: true },
   });
-  return binding !== null;
+  if (binding) return true;
+
+  const unrestricted = await db.group.findFirst({
+    where: {
+      organizationId: project.organizationId,
+      projectAccessMode: PROJECT_ACCESS_MODES.ALL_PROJECTS,
+      ...groupIncludesUser(userId),
+    },
+    select: { id: true },
+  });
+  return unrestricted !== null;
 };
 
 /**
@@ -85,7 +110,7 @@ export const canAccessProjectAsUser = async (
   // suspended user's stale binding is never consulted.
   if (!role) return false;
   if (ROLE_HIERARCHY[role] >= ROLE_HIERARCHY.admin) return true;
-  return hasProjectBinding(userId, project.id);
+  return hasProjectBinding(userId, project);
 };
 
 export const resolveProjectId = async (
