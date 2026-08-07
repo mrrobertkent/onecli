@@ -100,6 +100,10 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!PROOF_URL) return;
   await reset();
+  // The unrecognised-mode case leaves a value nothing else understands on a row
+  // every other suite shares. Put the default back rather than hand the next
+  // reader an instance whose sign-up mode reads as nonsense.
+  await setSignupMode("closed");
   await new Promise<void>((resolve) => idp.close(() => resolve()));
 });
 
