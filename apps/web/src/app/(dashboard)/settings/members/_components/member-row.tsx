@@ -98,39 +98,36 @@ export const MemberRow = ({
         : `${member.email} revoked. They had no active sessions.`;
     });
 
-  const roleControl =
-    locked || member.role === "owner" ? (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="text-muted-foreground cursor-default text-sm capitalize">
-            {member.role}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          {locked ?? "An owner's role is changed from the owner row."}
-        </TooltipContent>
-      </Tooltip>
-    ) : (
-      <Select
-        value={member.role}
-        disabled={busy}
-        onValueChange={(value) => void changeRole(value)}
+  const roleControl = locked ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="text-muted-foreground cursor-default text-sm capitalize">
+          {member.role}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{locked}</TooltipContent>
+    </Tooltip>
+  ) : (
+    <Select
+      value={member.role}
+      disabled={busy}
+      onValueChange={(value) => void changeRole(value)}
+    >
+      <SelectTrigger
+        className="h-8 w-32"
+        aria-label={`Role for ${member.email}`}
       >
-        <SelectTrigger
-          className="h-8 w-32"
-          aria-label={`Role for ${member.email}`}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {roles.map((role) => (
-            <SelectItem key={role} value={role} className="capitalize">
-              {role}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    );
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {roles.map((role) => (
+          <SelectItem key={role} value={role} className="capitalize">
+            {role}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 
   return (
     <TableRow>
@@ -155,6 +152,16 @@ export const MemberRow = ({
               <span className="text-muted-foreground text-xs">—</span>
             </TooltipTrigger>
             <TooltipContent>{locked}</TooltipContent>
+          </Tooltip>
+        ) : member.role === "owner" && !suspended ? (
+          // An owner must be demoted before suspension; the server refuses it.
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground text-xs">—</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Change an owner&apos;s role before revoking their access.
+            </TooltipContent>
           </Tooltip>
         ) : suspended ? (
           <Button

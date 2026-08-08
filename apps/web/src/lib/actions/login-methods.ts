@@ -24,12 +24,8 @@ export interface LoginMethodsResult {
 }
 
 /**
- * The instance's login methods, for the settings surface.
- *
- * `admin` per D-15: instance settings are administrator-level. The guard is
- * here rather than inside `setPasswordLoginEnabled`, because recovery calls
- * that function with whoever redeemed the key — the one path that has to work
- * when nobody can sign in normally.
+ * The instance's login methods, for the settings surface. The `admin` guard
+ * sits here, not in `setPasswordLoginEnabled`, which recovery also calls.
  */
 export const getLoginMethods = async (): Promise<LoginMethods> => {
   await requireOrgRole("admin");

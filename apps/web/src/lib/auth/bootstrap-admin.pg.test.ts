@@ -169,6 +169,33 @@ describe.skipIf(!PROOF_URL)("bootstrap admin on real PostgreSQL", () => {
     expect(settings?.bootstrapAdminUserId).toBe(survivor?.id);
   });
 
+  it("an instance that already has an owner refuses the claim, whatever the column says", async () => {
+    await bootstrap.establishBootstrapAdmin({
+      email: EMAIL,
+      password: PASSWORD,
+    });
+
+    // The claim column's foreign key is ON DELETE SET NULL, so losing the
+    // admin's user row clears it while the organization keeps its owner.
+    await db.instanceSetting.updateMany({
+      data: { bootstrapAdminUserId: null },
+    });
+
+    await expect(bootstrap.claimWindow()).resolves.toMatchObject({
+      claimable: false,
+      reason: "already-claimed",
+    });
+    await expect(
+      bootstrap.establishBootstrapAdmin({
+        email: `${P}squatter@proof.test`,
+        password: PASSWORD,
+      }),
+    ).rejects.toBeInstanceOf(bootstrap.BootstrapAdminAlreadyExistsError);
+    await expect(
+      db.user.count({ where: { email: `${P}squatter@proof.test` } }),
+    ).resolves.toBe(0);
+  });
+
   it("a second claim is refused once one exists", async () => {
     await bootstrap.establishBootstrapAdmin({
       email: EMAIL,

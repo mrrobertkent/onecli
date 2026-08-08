@@ -10,12 +10,9 @@ import {
 } from "@onecli/api/services/audit-service";
 
 /**
- * Which login methods this instance offers, and the time-boxed recovery window
- * that can turn password login on without changing the stored answer.
- *
- * Password login is a row, not a build-time constant, so an administrator can
- * change it and a recovery can lend it. SSO is not represented here: it is
- * environment-configured until Phase 3, and recovery never touches it.
+ * Which login methods this instance offers, and the recovery window that lends
+ * password login without writing the stored setting. SSO is not represented
+ * here — it is environment-configured, and recovery never touches it.
  */
 
 const INSTANCE_ID = "instance";
@@ -82,11 +79,9 @@ const auditRecovery = async (
   });
 
 /**
- * Close a window whose time has passed, and audit it leaving exactly once.
- *
- * Nothing sweeps the column, so the first read after expiry is what clears it.
- * The update is conditional on the expiry it read, so concurrent readers cannot
- * both claim the close and write two audit rows.
+ * Close an expired window, auditing it once. Nothing sweeps the column, so the
+ * first read clears it; the update is conditional so racing readers cannot both
+ * claim the close.
  */
 const closeExpiredWindow = async (
   expiresAt: Date,
@@ -119,16 +114,10 @@ const closeExpiredWindow = async (
 };
 
 /**
- * The current policy. Reading it is also what retires an expired window, so
- * callers never see one that has run out.
+ * The current policy. Reading it also retires an expired window.
  *
- * Password login is available whenever it is the only method there is. The
- * stored setting can only be turned off while an identity provider is
- * configured, and this keeps that true afterwards: removing `OIDC_*` from the
- * environment brings password login back rather than sealing the instance. Both
- * are host actions, so this concedes nothing an attacker could not already do,
- * and it makes "there is always a way in" structural rather than a check that
- * only ran once.
+ * Password login is available whenever it is the only method configured, so
+ * removing `OIDC_*` reopens it rather than sealing the instance.
  */
 export const readLoginPolicy = async (): Promise<LoginPolicy> => {
   let row;
@@ -223,12 +212,8 @@ export const exitRecoveryMode = async (
 };
 
 /**
- * Change the stored setting.
- *
- * `ssoAvailable` is the caller's answer to "is there another way in" —
- * environment-configured today, so it is passed rather than read here. Turning
- * off the last method is the lockout the recovery key exists to undo, so it is
- * refused.
+ * Change the stored setting. `ssoAvailable` is passed rather than read here
+ * because it is environment-configured; turning off the last method is refused.
  */
 export const setPasswordLoginEnabled = async ({
   enabled,

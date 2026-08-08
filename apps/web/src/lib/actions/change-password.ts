@@ -20,15 +20,11 @@ export interface ChangePasswordResult {
 }
 
 /**
- * Set the signed-in user's password. Written directly rather than through the
- * auth library's endpoint so clearing `mustChangePassword` is part of the same
- * transaction — a rotation that left the flag set would trap the user in the
- * redirect it drives.
+ * Set the signed-in user's password. Written directly, not through the auth
+ * library, so clearing `mustChangePassword` shares the transaction.
  *
- * During their own recovery window the current password is not asked for: the
- * host-minted key is the stronger proof, and an operator who has forgotten the
- * password is who recovery is for. That is also the one path that may create a
- * credential for an identity that has only ever used the identity provider.
+ * Inside the user's own recovery window the current password is not asked for,
+ * and a credential may be created for an SSO-only identity.
  */
 export const changePassword = async (
   currentPassword: string,

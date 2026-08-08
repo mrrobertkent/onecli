@@ -91,6 +91,12 @@ const ensureInstanceRow = async (): Promise<void> => {
   }
 };
 
+/** An instance that already has an owner is set up, whatever the column says. */
+const ownerCount = (client: Pick<typeof db, "organizationMember">) =>
+  client.organizationMember.count({
+    where: { role: "owner", status: "active" },
+  });
+
 /** Whether the first-admin claim is open right now, and until when. */
 export const claimWindow = async (): Promise<ClaimWindow> => {
   const row = await db.instanceSetting.findUnique({
@@ -98,7 +104,10 @@ export const claimWindow = async (): Promise<ClaimWindow> => {
     select: { bootstrapAdminUserId: true },
   });
 
-  if (row?.bootstrapAdminUserId) {
+  // The claim column is nullable and its foreign key clears it when the admin's
+  // user row goes, which would otherwise reopen an unauthenticated claim on a
+  // populated instance.
+  if (row?.bootstrapAdminUserId || (await ownerCount(db)) > 0) {
     return { claimable: false, reason: "already-claimed" };
   }
 
@@ -153,6 +162,10 @@ export const establishBootstrapAdmin = async ({
   const userId = randomUUID();
 
   const admin = await db.$transaction(async (tx) => {
+    if ((await ownerCount(tx)) > 0) {
+      throw new BootstrapAdminAlreadyExistsError();
+    }
+
     const user = await tx.user.create({
       data: {
         id: userId,

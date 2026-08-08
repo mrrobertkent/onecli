@@ -13,18 +13,14 @@ const RECOVERY_PATH = "/auth/recovery";
 /**
  * Returns the first configuration error found, or null if setup is valid.
  *
- * No identity provider is not one of them. An instance with none is the ordinary
- * first-run shape: password login is a stored setting that defaults on and is
- * available whenever it is the only method there is, so there is always a way
- * in. Middleware cannot read that setting anyway — it is a row, and this runs
- * before the database is reachable.
+ * No identity provider is not one: password login covers a first run, and this
+ * runs before the database that stores the setting is reachable.
  */
 const getSetupError = (): SetupErrorCode | null => {
   if (IS_CLOUD) return null;
 
-  // A key of the wrong length is not missing, so it survives an emptiness check
-  // and then fails at the first secret anyone stores. Reported here instead,
-  // where the operator is already being told what to fix.
+  // A wrong-length key is not missing, so an emptiness check passes it through
+  // and it fails later, at the first secret stored.
   const key = encryptionKeyStatus(SECRET_ENCRYPTION_KEY);
   if (key === "missing") return "missing-encryption-key";
   if (key === "malformed") return "malformed-encryption-key";

@@ -14,15 +14,12 @@ import {
 import { enterRecoveryMode } from "@/lib/auth/login-policy";
 
 /**
- * Redeeming a host-minted recovery key: it buys a session and opens a recovery
- * window, and writes nothing else. No password, no credential row, no
- * permanent change to which login methods are enabled.
+ * Redeeming a host-minted recovery key: a session and a recovery window, and
+ * nothing else written.
  *
- * An auth-library endpoint rather than a server action because minting a
- * session without a password is only supported from inside one — the session
- * cookie is signed, and `setSessionCookie` needs the endpoint context to write
- * it. Keeping the key check in the same endpoint is what stops it becoming a
- * "mint a session for this user id" route.
+ * An auth endpoint rather than a server action because `setSessionCookie` needs
+ * the endpoint context. The key check stays inside it so this is not a "mint a
+ * session for this user id" route.
  */
 
 /** Matches what the gateway's `create-recovery-key` stored. */
