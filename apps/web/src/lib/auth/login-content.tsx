@@ -148,6 +148,64 @@ export const LoginContent = ({
           </div>
 
           <div className="w-full max-w-sm rounded-2xl border border-border/50 bg-card p-8">
+            {/* Credentials first, identity provider under them: the order every
+                sign-in screen uses, and the one that puts the fields a returning
+                operator types into under their cursor. */}
+            {passwordLogin && (
+              <form onSubmit={onPasswordSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+
+                {passwordError && (
+                  <p className="text-destructive text-sm" role="alert">
+                    {passwordError}
+                  </p>
+                )}
+
+                <Button type="submit" className="w-full" disabled={submitting}>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    "Sign in"
+                  )}
+                </Button>
+              </form>
+            )}
+
+            {passwordLogin && ssoConfigured && (
+              <div className="my-6 flex items-center gap-3">
+                <span className="bg-border h-px flex-1" />
+                <span className="text-muted-foreground text-xs uppercase">
+                  or
+                </span>
+                <span className="bg-border h-px flex-1" />
+              </div>
+            )}
+
             {ssoConfigured && (
               <Button
                 size="lg"
@@ -200,61 +258,6 @@ export const LoginContent = ({
                       ? null
                       : oidcLabel}
               </Button>
-            )}
-
-            {passwordLogin && ssoConfigured && (
-              <div className="my-6 flex items-center gap-3">
-                <span className="bg-border h-px flex-1" />
-                <span className="text-muted-foreground text-xs uppercase">
-                  or
-                </span>
-                <span className="bg-border h-px flex-1" />
-              </div>
-            )}
-
-            {passwordLogin && (
-              <form onSubmit={onPasswordSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="username"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
-                </div>
-
-                {passwordError && (
-                  <p className="text-destructive text-sm" role="alert">
-                    {passwordError}
-                  </p>
-                )}
-
-                <Button type="submit" className="w-full" disabled={submitting}>
-                  {submitting ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Signing in...
-                    </>
-                  ) : (
-                    "Sign in"
-                  )}
-                </Button>
-              </form>
             )}
 
             {!passwordLogin && !ssoConfigured && (
