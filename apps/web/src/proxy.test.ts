@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * they need in order to have any login at all.
  */
 
-const ENCRYPTION_KEY = "0".repeat(44);
+/** 32 bytes of base64, the shape the documented generate command produces. */
+const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
 const proxyFor = async (env: Record<string, string | undefined>) => {
   vi.resetModules();
@@ -63,6 +64,29 @@ describe("the boot gate", () => {
     expect(destinationOf(proxy(requestFor("/setup")))).toBe(
       "/setup-error?code=missing-encryption-key",
     );
+  });
+
+  it("refuses a key of the wrong length, which is not the same as a missing one", async () => {
+    // 64 hex characters: the shape an operator reaches for, and 48 bytes once
+    // decoded. It passes an emptiness check and then fails at the first secret
+    // stored, which is a long way from here.
+    const proxy = await proxyFor({
+      ...BASE,
+      SECRET_ENCRYPTION_KEY: "0123456789abcdef".repeat(4),
+    });
+
+    expect(destinationOf(proxy(requestFor("/setup")))).toBe(
+      "/setup-error?code=malformed-encryption-key",
+    );
+  });
+
+  it("accepts the key the documented command produces", async () => {
+    const proxy = await proxyFor({
+      ...BASE,
+      SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    });
+
+    expect(destinationOf(proxy(requestFor("/setup")))).toBeNull();
   });
 
   it("keeps recovery reachable through a configuration error", async () => {

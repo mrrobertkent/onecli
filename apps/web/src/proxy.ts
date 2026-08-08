@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { encryptionKeyStatus } from "@onecli/api/lib/crypto-key";
 import { CAPS, IS_CLOUD, SECRET_ENCRYPTION_KEY } from "@/lib/env";
 import { PROJECT_PATH_RE, ORG_PATH_RE } from "@/lib/navigation";
 import { isConnectOnlyAllowed } from "@/lib/connect-surface";
 
-type SetupErrorCode = "missing-encryption-key";
+type SetupErrorCode = "missing-encryption-key" | "malformed-encryption-key";
 
 /** Kept in step with `app/auth/recovery/` and the gateway's printed link. */
 const RECOVERY_PATH = "/auth/recovery";
@@ -21,10 +22,12 @@ const RECOVERY_PATH = "/auth/recovery";
 const getSetupError = (): SetupErrorCode | null => {
   if (IS_CLOUD) return null;
 
-  // SECRET_ENCRYPTION_KEY is required for encrypting secrets
-  if (!SECRET_ENCRYPTION_KEY) {
-    return "missing-encryption-key";
-  }
+  // A key of the wrong length is not missing, so it survives an emptiness check
+  // and then fails at the first secret anyone stores. Reported here instead,
+  // where the operator is already being told what to fix.
+  const key = encryptionKeyStatus(SECRET_ENCRYPTION_KEY);
+  if (key === "missing") return "missing-encryption-key";
+  if (key === "malformed") return "malformed-encryption-key";
 
   return null;
 };

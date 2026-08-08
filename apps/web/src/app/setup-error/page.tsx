@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import Image from "next/image";
 import { AlertTriangle } from "lucide-react";
+import {
+  ENCRYPTION_KEY_BYTES,
+  ENCRYPTION_KEY_HINT,
+} from "@onecli/api/lib/crypto-key";
 import { NODE_ENV } from "@/lib/env";
 
 const isDev = NODE_ENV === "development";
@@ -30,6 +34,26 @@ const errors: Record<string, { title: string; description: React.ReactNode }> =
           <pre className="bg-muted overflow-x-auto rounded-lg px-3 py-2 text-xs">
             {`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`}
           </pre>
+        </div>
+      ),
+    },
+    "malformed-encryption-key": {
+      title: "Encryption key is the wrong length",
+      description: (
+        <div className="space-y-3">
+          <p>
+            <Code>SECRET_ENCRYPTION_KEY</Code> is set, but it is not{" "}
+            {ENCRYPTION_KEY_BYTES} bytes of base64. A hex key is the usual
+            cause: 64 hex characters look like the right size and decode to 48
+            bytes. Replace it with:
+          </p>
+          <pre className="bg-muted overflow-x-auto rounded-lg px-3 py-2 text-xs">
+            {ENCRYPTION_KEY_HINT}
+          </pre>
+          <p className="text-xs">
+            Anything already encrypted with a different key cannot be read back
+            with this one, so replace it before storing secrets, not after.
+          </p>
         </div>
       ),
     },

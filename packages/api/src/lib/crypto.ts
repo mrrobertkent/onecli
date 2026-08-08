@@ -1,6 +1,11 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import type { CryptoService } from "./crypto-types";
 import { SECRET_ENCRYPTION_KEY } from "./env";
+import {
+  ENCRYPTION_KEY_BYTES,
+  ENCRYPTION_KEY_HINT,
+  encryptionKeyStatus,
+} from "./crypto-key";
 
 export type { CryptoService };
 
@@ -10,13 +15,13 @@ const AUTH_TAG_LENGTH = 16;
 
 const loadKey = (): Buffer | null => {
   const keyBase64 = SECRET_ENCRYPTION_KEY;
-  if (!keyBase64) return null;
+  if (encryptionKeyStatus(keyBase64) === "missing") return null;
 
   const key = Buffer.from(keyBase64, "base64");
-  if (key.length !== 32) {
+  if (key.length !== ENCRYPTION_KEY_BYTES) {
     throw new Error(
-      `SECRET_ENCRYPTION_KEY must be exactly 32 bytes (got ${key.length}). ` +
-        `Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`,
+      `SECRET_ENCRYPTION_KEY must be exactly ${ENCRYPTION_KEY_BYTES} bytes ` +
+        `(got ${key.length}). Generate one with: ${ENCRYPTION_KEY_HINT}`,
     );
   }
 
@@ -33,7 +38,7 @@ const getKey = (): Buffer => {
     throw new Error(
       "SECRET_ENCRYPTION_KEY is not set. " +
         "Secret encryption requires this env var. " +
-        `Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`,
+        `Generate one with: ${ENCRYPTION_KEY_HINT}`,
     );
   }
   return cachedKey;
