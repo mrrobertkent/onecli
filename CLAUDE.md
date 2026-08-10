@@ -158,3 +158,75 @@ export const createAgent = async (name: string) => {
 - Environment passed via CDK context: `--context env=dev|prod`
 - **IMPORTANT: Never modify AWS resources directly** — all changes go through CDK stacks and GitHub Actions workflows
 - Both deploy workflows (`deploy-app.yml`, `deploy-infra.yml`) are manual with environment choice (dev/prod)
+- **This fork deploys to one self-hosted host.** `DEPLOYMENT.md` holds its state and required
+  environment. **Deploying is the operator's action, never an agent's** — build the image, ship it
+  to the host, and stop.
+
+## Auth and access control
+
+Spec in `specs/auth-and-access-control/`: `tasks.md` for what is left, `design.md` for the
+decisions, `requirements.md` for acceptance criteria, `research.md` for facts already verified.
+
+`single-org-shared` tenancy needs `rbac: true`, a registered `RoleResolver` **and** role-resolved
+membership creation — all together, or it is a privilege-escalation hole.
+
+Traps that have each cost a debugging session:
+
+- **A password account has no `id_token`.** `readIdpGroups` returns `null` for "no directory
+  identity" and `[]` for "the directory grants nothing"; only `[]` revokes. Collapse the two and
+  the bootstrap administrator is suspended at their next login.
+- **The directory never suspends an `owner`**, or anyone who can edit an Authentik group takes the
+  instance.
+- **`instance_settings` is a singleton.** Suites reset only the column they own, restore any
+  deliberately invalid value they park there, and a fixture that creates an administrator also
+  removes the org API key it mints.
+- **The gateway's proof tests run concurrently** against the one database — cargo has no
+  serial-file equivalent, so each owns a row prefix. The TypeScript packages run serially.
+- **The org API key's owner is undeletable** (`ApiKey.user` is `ON DELETE RESTRICT`), so it is
+  minted with the administrator rather than at boot.
+- **Authentik's built-in `email` mapping hardcodes `email_verified: False`**, so Better Auth
+  refuses to link an SSO identity onto an existing row. Fixed with
+  `accountLinking.trustedProviders`, never by editing the mapping — it is blueprint-managed and
+  reverts whenever blueprints are applied.
+- **Recovery stays exempt from `proxy.ts`'s configuration gate.** It is the way back into an
+  instance whose configuration is the problem.
+
+## Proving changes
+
+Database behaviour is proven against real PostgreSQL, not mocks — `*.pg.test.ts` across
+`apps/web` and `packages/api`, plus `access_proof_tests` in `apps/gateway/src/db.rs`.
+
+```bash
+pnpm db:up
+POLICY_PROOF_DATABASE_URL="postgresql://onecli:onecli@127.0.0.1:5432/onecli" pnpm test
+```
+
+Skips without the variable locally, throws in CI.
+
+- **Run every new suite against the unfixed code and confirm it fails.** One that passes either
+  way proves nothing.
+- **A green database is not a working feature.** Anything spanning a server action and the client
+  is checked in the browser: a session can be real while the client never learns of it, and a
+  guard can hold at the API while the control it governs is unreachable in the UI.
+
+## Working standards
+
+- **Comments and docs carry current state, not history.** Comments say what the code does not, in
+  one to four lines — no spec identifiers, no bug history, no library tutorials, no rationale
+  essays. Docs carry what is true now and what to do next: no superseded entries, no changelog, no
+  status that goes stale. Git commits hold the reasoning and the history.
+- **Grade options on security, manageability, UX and viability** — never effort, wall-clock, or
+  distance from upstream.
+- **Requests are pressure tests.** Push back with reasoning; say so if the framing is wrong.
+- **Do not defer.** One release, no live user, no data to protect.
+- Verify "comments only" edits with the TypeScript parser — strip comments from both revisions and
+  compare, rather than matching comment markers line by line.
+
+## Local environment
+
+- `pnpm` via corepack. `cargo` is symlinked into `~/.local/bin` so non-interactive shells find it;
+  `pnpm check` and `pnpm test` both run cargo tasks.
+- The Rust LSP has no project model here — rust-analyzer's root has no `Cargo.toml`, only
+  `apps/gateway/` does. Use `cargo clippy -- -D warnings` and `cargo test`.
+- The Prisma MCP cannot run against 6.19; use `pnpm exec prisma`.
+- The gateway's cloud edition does not compile in this tree. OSS only.
